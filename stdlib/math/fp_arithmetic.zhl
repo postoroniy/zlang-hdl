@@ -1,0 +1,87 @@
+import std.math.fp_round
+
+fn fp_add<E,F,W=1+E+F,M=F+6>(a:bits<W>,b:bits<W>,subtract:bit,rounding:u3) -> FpResult {
+    left = fp_decode<E=E,F=F>(a)
+    right = fp_decode<E=E,F=F>(b)
+    sign = right.sign ^ subtract
+    invalid = left.signaling | right.signaling |
+        (left.infinity & right.infinity & (left.sign != sign))
+    exceptional = left.nan | right.nan | invalid
+    finite = fp_sum<E=E,F=F,M=F+6,K=F+3>(extend<M>(left.significand) << 3,
+        extend<M>(right.significand) << 3,left.exponent,right.exponent,left.sign,sign,rounding)
+    FpResult {
+        value=exceptional ? extend<64>(fp_nan<E=E,F=F>())
+            : left.infinity | right.infinity ? extend<64>(fp_infinity<E=E,F=F>(left.infinity ? left.sign : sign))
+            : finite.value
+        flags=exceptional ? (invalid ? 16 : 0) : left.infinity | right.infinity ? 0 : finite.flags
+        illegal=rounding > 4
+    }
+}
+
+fn fp_multiply<E,F,W=1+E+F,X=E+5>(a:bits<W>,b:bits<W>,rounding:u3) -> FpResult {
+    left = fp_decode<E=E,F=F>(a)
+    right = fp_decode<E=E,F=F>(b)
+    sign = left.sign ^ right.sign
+    invalid = left.signaling | right.signaling |
+        (left.infinity & right.is_zero) | (right.infinity & left.is_zero)
+    exceptional = left.nan | right.nan | invalid
+    product = bitcast<uint<F+1>>(left.significand)*bitcast<uint<F+1>>(right.significand)
+    finite = fp_round_pack<E=E,F=F,M=2*F+2>(sign,bitcast<bits<F*2+2>>(product),
+        truncate<X>(left.exponent+right.exponent-2*F),rounding)
+    FpResult {
+        value=exceptional ? extend<64>(fp_nan<E=E,F=F>())
+            : left.infinity | right.infinity ? extend<64>(fp_infinity<E=E,F=F>(sign)) : finite.value
+        flags=exceptional ? (invalid ? 16 : 0) : left.infinity | right.infinity ? 0 : finite.flags
+        illegal=rounding > 4
+    }
+}
+
+fn fp_fused<E,F,W=1+E+F,X=E+5,M=2*F+6>(a:bits<W>,b:bits<W>,c:bits<W>,negative_product:bit,
+    negative_addend:bit,rounding:u3) -> FpResult {
+    left = fp_decode<E=E,F=F>(a)
+    right = fp_decode<E=E,F=F>(b)
+    addend = fp_decode<E=E,F=F>(c)
+    product_sign = left.sign ^ right.sign ^ negative_product
+    addend_sign = addend.sign ^ negative_addend
+    product_infinity = left.infinity | right.infinity
+    invalid = left.signaling | right.signaling | addend.signaling |
+        (left.infinity & right.is_zero) | (right.infinity & left.is_zero) |
+        (product_infinity & addend.infinity & (product_sign != addend_sign) & ~left.nan & ~right.nan)
+    exceptional = left.nan | right.nan | addend.nan | invalid
+    product = bitcast<uint<F+1>>(left.significand)*bitcast<uint<F+1>>(right.significand)
+    finite = fp_sum<E=E,F=F,M=2*F+6,K=2*F+3>(extend<M>(bitcast<bits<F*2+2>>(product)) << 3,
+        extend<M>(addend.significand) << (F+3),
+        truncate<X>(left.exponent+right.exponent),addend.exponent,product_sign,addend_sign,rounding)
+    FpResult {
+        value=exceptional ? extend<64>(fp_nan<E=E,F=F>())
+            : product_infinity | addend.infinity ? extend<64>(fp_infinity<E=E,F=F>(product_infinity ? product_sign : addend_sign))
+            : finite.value
+        flags=exceptional ? (invalid ? 16 : 0) : product_infinity | addend.infinity ? 0 : finite.flags
+        illegal=rounding > 4
+    }
+}
+
+fn fp_compare<E,F,W=1+E+F>(a:bits<W>,b:bits<W>,operation:u5) -> FpResult {
+    left = fp_decode<E=E,F=F>(a)
+    right = fp_decode<E=E,F=F>(b)
+    both_zero = left.is_zero & right.is_zero
+    equal = (a == b) | both_zero
+    less = ~both_zero & ((left.sign != right.sign) ? left.sign
+        : left.sign ? bitcast<uint<W-1>>(a[W-2:0]) > bitcast<uint<W-1>>(b[W-2:0])
+            : bitcast<uint<W-1>>(a[W-2:0]) < bitcast<uint<W-1>>(b[W-2:0]))
+    unordered = left.nan | right.nan
+    invalid = left.signaling | right.signaling | ((operation != 14) & unordered)
+    result = ~unordered & (operation == 14 ? equal : operation == 15 ? less : less | equal)
+    FpResult {value=extend<64>(bitcast<bits<1>>(result)) flags=invalid ? 16 : 0 illegal=0}
+}
+
+fn fp_minmax<E,F,W=1+E+F>(a:bits<W>,b:bits<W>,maximum:bit) -> FpResult {
+    left = fp_decode<E=E,F=F>(a)
+    right = fp_decode<E=E,F=F>(b)
+    less = (left.sign != right.sign) ? left.sign
+        : left.sign ? bitcast<uint<W-1>>(a[W-2:0]) > bitcast<uint<W-1>>(b[W-2:0])
+            : bitcast<uint<W-1>>(a[W-2:0]) < bitcast<uint<W-1>>(b[W-2:0])
+    result = left.nan & right.nan ? fp_nan<E=E,F=F>() : left.nan ? b : right.nan ? a
+        : (less ^ maximum) ? a : b
+    FpResult {value=extend<64>(result) flags=left.signaling | right.signaling ? 16 : 0 illegal=0}
+}

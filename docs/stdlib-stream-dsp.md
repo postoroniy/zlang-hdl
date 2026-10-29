@@ -6,6 +6,38 @@ target-specific architecture is required. Stateful components use one
 `clock clk reset rst` domain. Connect only compatible clock/reset contracts;
 these components do not perform CDC.
 
+## Passive taps for vendor debug tools
+
+Import `std.stream.composition` for `Tee<T>` and `RvTee<T>`. Both are
+combinational wiring modules with no declared clock/reset, registers or FIFOs.
+Instance ports retain the caller's clock-domain rules; no crossing is inserted.
+
+| Module | Inputs | Outputs | Contract |
+| --- | --- | --- | --- |
+| `Tee<type T>` | `input:T` | `output:T`, `tap:T` | Both outputs equal the input, with its exact type and stored representation. |
+| `RvTee<type T>` | `input:rv<T>` | `output:rv<T>`, `tap_payload:T`, `tap_valid:bit`, `tap_ready:bit`, `tap_transfer:bit` | `output.payload=input.payload`, `output.valid=input.valid`, `input.ready=output.ready`; tap fields mirror the payload/handshake, and transfer is `valid & ready`. |
+
+T must be a supported ordinary wire/payload type. Width, signedness, scale,
+enum/union identity and aggregate layout are not converted. No reset gating,
+sampling, buffering or additional latency is introduced. A tap payload is the
+current value, including while valid is low; qualify accepted items with
+`tap_transfer`. U/X values retain the existing native simulation contract;
+`tap_transfer` is an ordinary Boolean computation, not a new diagnostic rule.
+
+Connect `RvTee` through the functional stream and explicitly declare the debug
+outputs in its caller, as in the
+[runnable example](../examples/fpga_debug/vendor_debug.zhl). There is no
+observing `ready`, so a debug consumer cannot introduce backpressure.
+For a single wire, `debug_value = value` is sufficient; `Tee` is optional.
+
+Use a board-level HDL wrapper to connect those outputs to Vivado ILA or to
+internal preserved nets selected in Quartus Signal Tap. The
+[vendor workflow](../examples/fpga_debug/README.md) explains bit order, clocks,
+preservation and qualification limits. The stdlib modules do not create a
+vendor core, keep a signal from synthesis optimization, infer CDC or guarantee
+routed timing. `RvFork2` below remains a buffered lossless broadcast; it is not
+a passive monitor.
+
 ## Broadcast and join
 
 `RvFork2<T>` has `input:rv<T>` and `output0/output1:rv<T>`. It stores one
@@ -99,3 +131,13 @@ its transfer; one JSONL record is a simulation event, not necessarily a transfer
 Numerical/stream tests cover N=1/2/3/8/16/32. Formal evidence is attached to
 specific specializations and properties, not a blanket proof of every generic
 configuration. Synthesis cell counts are not routed timing evidence.
+
+## Community hardware observation boundary
+
+`Tee<T>` and `RvTee<T>` in `std.stream.composition` provide explicit passive
+observation. Debug outputs connect to vendor-owned ILA/Signal Tap in a board-level
+SystemVerilog wrapper; they are internal nets, not extra FPGA pins when wired
+inside that wrapper. A plain `debug_value = value` assignment is also sufficient.
+See the [vendor example](../examples/fpga_debug/README.md). Automatic probe
+insertion, capture generation and scan/ATPG flows are not Community capabilities.
+No new syntax or arbitrary sequential `extern` contract is implied.

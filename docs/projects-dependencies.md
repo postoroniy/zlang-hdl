@@ -110,6 +110,32 @@ SHA-256.  Paths are project-relative, must remain inside the project, and may
 not be symlinks. The mapping changes generated SystemVerilog without changing
 the behavior expressed by the ZLang source.
 
+## Optional exact compiler and stdlib lock
+
+Project schema 1 and lock schema 2 remain supported. A project may instead use
+schema 2 to pin the compiler and bundled standard library as well as its source
+dependencies. Inspect the SDK you actually intend to use:
+
+```sh
+zlang lock toolchain
+zlang lock toolchain --json
+```
+
+The first command prints the three requirement fields. Copy their exact values
+into a `[toolchain]` table: `compiler-version`, `compiler-identity`, and
+`stdlib-identity`; then run `zlang lock update`. This produces lock schema 3
+with the checked compiler/runtime and stdlib inventories. Both the version
+and identities must match. A pinned dependency also requires a schema-2 root
+with compatible requirements. The reserved `std` namespace remains bundled
+with the SDK, rather than becoming a separately fetched package.
+
+Missing or changed SDK inputs reject compilation and cached tooling reuse.
+Restart the compiler/LSP after replacing compiler files. Selecting a different
+SDK is an explicit requirement update and requalification, followed by lock
+regeneration; the lock command does not install or upgrade a compiler.
+Earlier a24 binaries may predate this opt-in contract: use a matching build of
+the current source SDK, not merely another binary with the same version label.
+
 <a id="reference-projects-dependencies-offline-compilation"></a>
 ## Offline compilation
 

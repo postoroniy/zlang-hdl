@@ -10,7 +10,7 @@ from typing import Iterable
 
 SYSTEMVERILOG_RESERVED = frozenset({
     "always", "always_comb", "always_ff", "assign", "automatic", "begin",
-    "bit", "case", "default", "else", "end", "endcase", "endmodule",
+    "bit", "case", "config", "default", "else", "end", "endcase", "endmodule",
     "event",
     "for", "function", "generate", "if", "input", "integer", "interface",
     "join", "join_any", "join_none", "local", "logic", "matches", "module",

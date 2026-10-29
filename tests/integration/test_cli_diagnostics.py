@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from zlang.workspace import update_project_lock
 
 
@@ -57,6 +59,33 @@ def test_json_parse_diagnostic_is_one_stable_object(tmp_path: Path) -> None:
         "fixes": [],
     }
     assert payload["message"].startswith("syntax error at line 1, column")
+
+
+@pytest.mark.parametrize("diagnostic_format", ("text", "json"))
+@pytest.mark.parametrize("extra", ((), ("--check",)))
+@pytest.mark.parametrize("body,code,message,column", (
+    ("    values = vec![]\n    values", "ZL-PARSE-001", "only immutable inferred bindings", 17),
+    ("    value = 1", "ZL-PARSE-001", "callable body requires one final result expression", 5),
+    ("    []", "ZL-SEMANTIC-001", "empty vector literal has no element type", 5),
+))
+def test_callable_errors_are_cli_diagnostics_without_tracebacks(
+    tmp_path, diagnostic_format, extra, body, code, message, column,
+):
+    source = tmp_path / "invalid.zhl"
+    source.write_text("fn build() {\n" + body + "\n}\n")
+    result = _run(source, diagnostic_format, *extra)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "Traceback" not in result.stderr and "VisitError" not in result.stderr
+    if diagnostic_format == "json":
+        payload = json.loads(result.stderr)
+        assert payload["code"] == code
+        assert message in payload["message"]
+        assert payload["primary"]["span"]["start_line"] == 2
+        assert payload["primary"]["span"]["start_column"] == column
+    else:
+        assert result.stderr.startswith(f"zlang: {source}:2:{column}: error[{code}]: ")
+        assert message in result.stderr
 
 
 def test_json_semantic_diagnostic_carries_code_origin_and_fix(tmp_path: Path) -> None:

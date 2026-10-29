@@ -197,7 +197,7 @@ b00000000000000000000000000000100 !
     with patch(
         "zlang.formal.FormalToolchainContext.discover", return_value=context,
     ), patch(
-        "zlang.formal.subprocess.run",
+        "zlang.formal.run_bounded_process",
         side_effect=(
             CompletedProcess(("sby",), 0, reached_output, ""),
             CompletedProcess(("sby",), 2, unreached_output, ""),
@@ -237,7 +237,7 @@ def test_cover_runner_rejects_pass_with_malformed_witness_vcd(
     with patch(
         "zlang.formal.FormalToolchainContext.discover", return_value=context,
     ), patch(
-        "zlang.formal.subprocess.run",
+        "zlang.formal.run_bounded_process",
         return_value=CompletedProcess(("sby",), 0, "PASS", ""),
     ), patch(
         "zlang.formal._read_sby_status",

@@ -1,5 +1,5 @@
 import unittest
-from subprocess import TimeoutExpired
+from subprocess import CompletedProcess, TimeoutExpired
 from unittest.mock import patch
 
 from zlang.compiler import compile_source
@@ -215,27 +215,36 @@ class SafetyVerificationTests(unittest.TestCase):
     def test_external_solver_timeout_is_unknown_not_failure_or_success(self):
         with patch("zlang.formal.shutil.which", return_value="/tool"), patch(
             "zlang.formal.subprocess.run",
+            return_value=CompletedProcess(("version-probe",), 0, "fixture version", ""),
+        ), patch(
+            "zlang.formal.run_bounded_process",
             side_effect=TimeoutExpired(("sby",), 120, output="partial log"),
-        ):
+        ) as runner:
             result = run_verilog_formal(
                 "module top; endmodule", top="top", property_id="timeout",
                 depth=2, timeout_seconds=7,
             )
         self.assertIs(result.status, FormalStatus.UNKNOWN)
         self.assertIn("timed out after 7 seconds", result.reason)
+        self.assertEqual(runner.call_count, 1)
+        self.assertEqual(runner.call_args.kwargs["timeout"], 7)
 
     def test_external_solver_timeout_normalizes_mixed_partial_stream_types(self):
         with patch("zlang.formal.shutil.which", return_value="/tool"), patch(
             "zlang.formal.subprocess.run",
+            return_value=CompletedProcess(("version-probe",), 0, "fixture version", ""),
+        ), patch(
+            "zlang.formal.run_bounded_process",
             side_effect=TimeoutExpired(
                 ("sby",), 120, output=b"partial stdout", stderr="partial stderr"
             ),
-        ):
+        ) as runner:
             result = run_verilog_formal(
                 "module top; endmodule", top="top", property_id="timeout.bytes",
             )
         self.assertEqual(result.status, FormalStatus.UNKNOWN)
         self.assertIn("partial stdoutpartial stderr", result.reason)
+        self.assertEqual(runner.call_count, 1)
 
 
 if __name__ == "__main__":

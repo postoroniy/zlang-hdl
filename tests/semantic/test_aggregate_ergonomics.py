@@ -74,6 +74,8 @@ def test_exhaustive_destructure_lowers_to_ordinary_immutable_field_values() -> N
 @pytest.mark.parametrize(
     ("source", "message"),
     (
+        ("module M { out y:vec<1,u8> y=[] }", "empty vector literal has no element type"),
+        ("fn empty() { [] }", "empty vector literal has no element type"),
         ("module M { out y:vec<2,u8> y=[1] }", "has 1 elements"),
         ("module M { out y:vec<2,u8> y=repeat<3>(1) }", "does not match"),
         (

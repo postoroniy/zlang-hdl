@@ -54,7 +54,7 @@
   ],
   "scripts": {
     "static": "node test/javascript-static.cjs",
-    "test": "npm run static && node test/javascript-static.test.cjs && node test/host-log.test.cjs && node test/project-metadata.test.cjs && node test/tokenize.test.cjs && node test/wcp.test.cjs && node test/waveform-model.test.cjs && node test/waveform-client.test.cjs && node test/waveform-clipboard.test.cjs && node test/debug-waveform.test.cjs && node test/waveform-live-ui.test.cjs && node test/bundle.test.cjs",
+    "test": "npm run static && node test/javascript-static.test.cjs && node test/dependencies.test.cjs && node test/host-log.test.cjs && node test/project-metadata.test.cjs && node test/navigation.test.cjs && node test/debug-launch.test.cjs && node test/tokenize.test.cjs && node test/wcp.test.cjs && node test/waveform-model.test.cjs && node test/waveform-client.test.cjs && node test/waveform-clipboard.test.cjs && node test/debug-waveform.test.cjs && node test/waveform-live-ui.test.cjs && node test/bundle.test.cjs",
     "test:waveform": "node test/waveform-browser.cjs",
     "prepackage": "npm run static",
     "package": "node test/package.cjs",
@@ -120,6 +120,10 @@
         "title": "ZLang HDL: Start Native Simulation Debugger"
       },
       {
+        "command": "zlang-hdl.switchDebugExample",
+        "title": "ZLang HDL: Switch Debug Example…"
+      },
+      {
         "command": "zlang-hdl.openWaveform",
         "title": "ZLang HDL: Open Waveform"
       },
@@ -145,6 +149,10 @@
       }
     ],
     "keybindings": [
+      {
+        "command": "editor.action.referenceSearch.trigger", "key": "shift+f12",
+        "when": "editorTextFocus && editorLangId == zlang-hdl && editorHasReferenceProvider && !inReferenceSearchEditor && !isInEmbeddedEditor"
+      },
       {
         "command": "zlang-hdl.cutWaveformRows", "key": "ctrl+x", "mac": "cmd+x",
         "when": "webviewFocus && (activeCustomEditorId == zlang-hdl.waveform || activeWebviewPanelId == zlang-hdl.liveWaveform)"
@@ -312,6 +320,11 @@
     }
   },
   "dependencies": {
-    "vscode-languageclient": "10.1.2"
+    "vscode-languageclient": "11.0.0"
+  },
+  "overrides": {
+    "@azure/identity": {
+      "@azure/msal-node": "7.1.2"
+    }
   }
 }

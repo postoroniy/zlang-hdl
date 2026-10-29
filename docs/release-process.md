@@ -338,3 +338,10 @@ registered worktrees, local refs, reflogs, dangling objects, archives, and task
 validation records. Recover content onto a named branch and commit the source
 plus regression. Until it appears in the public candidate ledger and exact-tree
 tests, report it as recovered but **not included**.
+
+Before publication, `make community-boundary-check` validates the Community
+source payload and reachable history. Check every candidate archive with
+`python -m tools.community_boundary --history --artifact PATH`; this supplements
+artifact identity/security checks and never replaces them. Unknown executable
+bytes and unavailable implementation owners reject. A source review pass does
+not close a stale documentation or release-artifact gate.

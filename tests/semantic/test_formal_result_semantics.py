@@ -87,6 +87,8 @@ def _run_with(
     with patch("zlang.formal.shutil.which", return_value="/tool"), patch(
         "zlang.formal.subprocess.run", return_value=completed,
     ), patch(
+        "zlang.formal.run_bounded_process", return_value=completed,
+    ), patch(
         "zlang.formal._read_sby_status", return_value=parsed,
     ), patch(
         "zlang.formal._sby_trace_files", return_value=traces,
@@ -281,7 +283,7 @@ module MappedFormalError {
         status.write_text("ERROR 1 1\n", encoding="ascii")
         return CompletedProcess(("sby",), 1, stdout="", stderr=raw_error)
 
-    with patch("zlang.formal.subprocess.run", side_effect=fail_before_engine):
+    with patch("zlang.formal.run_bounded_process", side_effect=fail_before_engine):
         result = run_verilog_formal(
             artifact.text,
             top="MappedFormalError_formal",

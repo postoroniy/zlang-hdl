@@ -55,6 +55,23 @@ class _Builder:
             reset_release_clocks=self.reset_release_clocks,
         )
 
+    def spawn_lexical_builder(self, lowered: dict[int, int]) -> "_Builder":
+        """Share primitive storage, but own one lexical capture-value cache."""
+
+        return _Builder(
+            self.semantic_nodes,
+            self.max_nodes,
+            semantic_memories=self.semantic_memories,
+            semantic_fifos=self.semantic_fifos,
+            nodes=self.nodes,
+            lowered=lowered,
+            regions=self.regions,
+            capture_slots=self.capture_slots,
+            binder_scope=dict(self.binder_scope),
+            table_scope=dict(self.table_scope),
+            reset_release_clocks=self.reset_release_clocks,
+        )
+
     def emit(
         self,
         op: str,

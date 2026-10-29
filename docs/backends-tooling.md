@@ -41,3 +41,20 @@ names are not a source-language interface and should not be referenced by user
 code.
 
 Use `--systemverilog` for file output or the bare command for stdout.
+
+<a id="reference-vendor-fpga-debug-taps"></a>
+## Connect to vendor FPGA debug tools
+
+Use `Tee<T>` or `RvTee<T>` from `std.stream.composition` to expose observation
+values through explicitly declared debug outputs. A direct wire assignment is
+also sufficient. Put the generated ZLang module inside your board-level HDL
+wrapper: its debug ports then become internal nets connected to Vivado ILA or
+selected in Quartus Signal Tap, without additional package pins.
+
+The [complete vendor example](../examples/fpga_debug/README.md) includes runnable
+ZLang/JSONL and AMD/Intel wrappers. Vivado/Quartus own debug-core generation,
+trigger/capture settings, programming and acquisition. Select a suitable sample
+clock and apply vendor preservation settings; a `tee` is only wiring and adds
+no CDC, storage or capture engine. Functional logical equivalence does not
+guarantee unchanged fanout, resource use or routed timing. Vendor project and
+board qualification are separate from native/Direct-SV passthrough checks.

@@ -1,0 +1,47 @@
+import std.math.fp_round
+
+fn fp_from_integer<E,F,X=E+5>(value:bits<64>,word:bit,unsigned_integer:bit,rounding:u3) -> FpResult {
+    signed_word = bitcast<bits<64>>(extend<64>(bitcast<s32>(value[31:0])))
+    raw = bitcast<u64>(word ? (unsigned_integer ? extend<64>(value[31:0]) : signed_word) : value)
+    sign = ~unsigned_integer & raw[63]
+    magnitude = bitcast<bits<64>>(sign ? truncate<64>(0-raw) : raw)
+    fp_round_pack<E=E,F=F,M=64>(sign,magnitude,bitcast<sint<X>>(extend<X>(0)),rounding)
+}
+
+fn fp_to_integer<E,F,W=1+E+F,X=E+5>(value:bits<W>,word:bit,unsigned_integer:bit,rounding:u3) -> FpResult {
+    d = fp_decode<E=E,F=F>(value)
+    distance = truncate<X>(d.exponent-F+3)
+    wide = extend<67>(d.significand)
+    aligned = distance >= 0 ? wide << bitcast<u16>(extend<16>(distance))
+        : fp_shift_jam<M=67>(wide,bitcast<u16>(extend<16>(truncate<X>(-distance))))
+    increment = fp_round_increment(d.sign,rounding,aligned[2:0],aligned[3])
+    rounded = truncate<65>(extend<65>(bitcast<u64>(aligned[66:3]))+extend<65>(bitcast<uint<1>>(increment)))
+    limit = unsigned_integer ? (word ? extend<65>(0xffffffff) : extend<65>(0xffffffffffffffff))
+        : word ? (d.sign ? extend<65>(0x80000000) : extend<65>(0x7fffffff))
+        : (d.sign ? extend<65>(0x8000000000000000) : extend<65>(0x7fffffffffffffff))
+    invalid = d.nan | d.infinity | (d.exponent >= 64) | (rounded > limit) |
+        (d.sign & unsigned_integer & (rounded != 0))
+    clipped = unsigned_integer ? ((d.sign & ~d.nan) ? extend<64>(0) : word ? extend<64>(0xffffffff) : extend<64>(0xffffffffffffffff))
+        : (d.sign & ~d.nan) ? (word ? extend<64>(0x80000000) : extend<64>(0x8000000000000000))
+        : (word ? extend<64>(0x7fffffff) : extend<64>(0x7fffffffffffffff))
+    magnitude = truncate<64>(rounded)
+    finite = d.sign ? truncate<64>(0-magnitude) : magnitude
+    result = bitcast<bits<64>>(invalid ? clipped : finite)
+    FpResult {
+        value=word ? bitcast<bits<64>>(extend<64>(bitcast<s32>(result[31:0]))) : result
+        flags=invalid ? 16 : aligned[2:0] != 0 ? 1 : 0
+        illegal=rounding > 4
+    }
+}
+
+fn fp_convert<SE,SF,DE,DF,SW=1+SE+SF,X=DE+5,Z=SE+DE+5>(value:bits<SW>,rounding:u3) -> FpResult {
+    d = fp_decode<E=SE,F=SF>(value)
+    finite = fp_round_pack<E=DE,F=DF,M=SF+1>(d.sign,d.significand,
+        truncate<X>(extend<Z>(d.exponent)-SF),rounding)
+    FpResult {
+        value=d.nan ? extend<64>(fp_nan<E=DE,F=DF>())
+            : d.infinity ? extend<64>(fp_infinity<E=DE,F=DF>(d.sign)) : finite.value
+        flags=d.nan ? (d.signaling ? 16 : 0) : d.infinity ? 0 : finite.flags
+        illegal=rounding > 4
+    }
+}

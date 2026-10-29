@@ -231,18 +231,26 @@ class FunctionalRegionPrimitiveLowerer(PrimitiveLowerer):
             raise PrimitiveLoweringError(
                 "functional region repeats a capture identity"
             )
+        # Repeated calls may share the SAME lexical template, but bind its
+        # captures to different actual arguments. Neither a capture nor any
+        # expression depending on it belongs in the parent's global memo.
+        # Invariant hoisting still emits into the same bounded primitive DAG.
+        dependent: list[bool] = []
+        bindings: dict[int, int] = {}
         for identifier, semantic in enumerate(builder.semantic_nodes):
-            if semantic["op"] != "functional_capture":
-                continue
-            resolved = capture_by_identity.get(semantic["attributes"]["identity"])
-            if resolved is None:
-                continue
-            existing = builder.lowered.get(identifier)
-            if existing is not None and existing != resolved:
-                raise PrimitiveLoweringError(
-                    "functional capture has inconsistent lexical binding"
-                )
-            builder.lowered[identifier] = resolved
+            identity = (
+                semantic["attributes"]["identity"]
+                if semantic["op"] == "functional_capture" else None
+            )
+            bound = identity in capture_by_identity
+            dependent.append(bound or any(dependent[item] for item in semantic["operands"]))
+            if bound:
+                bindings[identifier] = capture_by_identity[identity]
+        lowered = {
+            identifier: value for identifier, value in builder.lowered.items()
+            if not dependent[identifier]
+        }
+        builder = builder.spawn_lexical_builder({**lowered, **bindings})
 
         inherited_binders = tuple(builder.binder_scope.items())
         capture_nodes += tuple(value for _identity, value in inherited_binders)

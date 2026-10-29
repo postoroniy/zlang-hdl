@@ -19,6 +19,7 @@ from zlang.common.atomic_io import publish_text_atomically
 from zlang.diagnostics import DiagnosticError
 from zlang.source_identity import SourceExtensionError
 from zlang.workspace import WorkspaceError
+from zlang.waveform_vcd import identifier as _vcd_identifier
 
 
 MAX_EXPANDED_EVENTS = 1_000_000
@@ -134,10 +135,11 @@ def _logic_assignment(value: str) -> tuple[str, str]:
     return name, payload
 
 
-def _read_events(path: Path) -> EventSchedule:
+def _read_events(path: Path, *, text: str | None = None) -> EventSchedule:
     records: list[_EventRecord] = []
     event_count = 0
-    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    source = path.read_text(encoding="utf-8") if text is None else text
+    for line_number, line in enumerate(source.splitlines(), 1):
         if not line.strip():
             continue
         try:
@@ -183,17 +185,6 @@ def _comparison_events(
             ).with_first_updates(initial)
         return ({"set": initial} if initial else {},)
     return ({"set": initial} if initial else {},)
-
-
-def _vcd_identifier(index: int) -> str:
-    alphabet = tuple(chr(item) for item in range(33, 127))
-    result = ""
-    value = index
-    while True:
-        result += alphabet[value % len(alphabet)]
-        value //= len(alphabet)
-        if value == 0:
-            return result
 
 
 def _json_values(value: object) -> object:

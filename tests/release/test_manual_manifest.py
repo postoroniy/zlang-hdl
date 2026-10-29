@@ -90,7 +90,8 @@ def test_old_reference_anchors_route_to_canonical_owners() -> None:
     entrypoint = (ROOT / "docs/language-reference.md").read_text()
     aliases = re.findall(r'<a id="(reference-[^"]+)"></a>', entrypoint)
     routes = destinations(ROOT)
-    assert len(aliases) == 185  # 179 monolith aliases plus six previous PDF-only roots.
+    assert len(aliases) == 186  # Legacy roots plus the public vendor-debug alias.
+    assert "reference-vendor-fpga-debug-taps" in aliases
     assert len(aliases) == len(set(aliases))
     for alias in aliases:
         assert ("docs/language-reference.md", alias) in routes

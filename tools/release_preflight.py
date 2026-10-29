@@ -164,6 +164,14 @@ def preflight(
     root = root.resolve()
     if mode not in {"candidate", "tagged"}:
         raise ReleasePreflightError("mode must be 'candidate' or 'tagged'")
+    try:
+        from tools.community_boundary import validate_tree, BoundaryError
+    except ModuleNotFoundError:
+        from community_boundary import validate_tree, BoundaryError
+    try:
+        validate_tree(root)
+    except BoundaryError as error:
+        raise ReleasePreflightError(str(error)) from error
     _alpha_sequence(tag, previous_tag)
     candidate_commit = _git(root, "rev-parse", "HEAD")
     candidate_date = _commit_date(root, candidate_commit)

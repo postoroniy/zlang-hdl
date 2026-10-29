@@ -12,8 +12,10 @@ directory name and is not a Python or user-package import.
 | `std.math.fixed` | Pure exact-width/inferred fixed-point abs, clamp, min/max, MAC and explicit quantization helpers, plus compatibility components |
 | `std.math.complex` | Generic `Complex<T>`/`Butterfly<S,D>`, nominal operators, explicit complex quantization |
 | `std.math.complex_fixed_18_16` | Compatibility Q2.16 complex multiply profile |
+| `std.math.fp` | Shared binary32/binary64 ready/valid FPU, independent of a CPU |
+| `std.math.fp_format` / `std.math.fp_round` / `std.math.fp_arithmetic` / `std.math.fp_convert` | Raw-bit formats, explicit rounding, arithmetic and numerical conversion helpers |
 | `std.stream.core` | Generic `FrameBeat<T,M>`, ready/valid register slice, skid buffer, FIFO wrapper, and explicit two-way mux/demux |
-| `std.stream.composition` | Buffered broadcast `RvFork2<T>` and ordered `RvJoin2<A,B>` with `StreamPair<A,B>` |
+| `std.stream.composition` | Passive `Tee<T>` / `RvTee<T>`, buffered broadcast `RvFork2<T>` and ordered `RvJoin2<A,B>` with `StreamPair<A,B>` |
 | `std.stream.serialization` | Bounded power-of-two vector serializer and raw bit collector |
 | `std.stream.complex_fixed` | Compatibility Q5.32-to-Q2.16 complex stream quantizer |
 | `std.dsp.fft` | Exact FFT butterfly, bit reversal, and compile-time twiddle helpers |
@@ -54,7 +56,33 @@ directory name and is not a Python or user-package import.
 | `std.arch.xilinx7_multiply` | Series-7 hard-multiplier architecture descriptions |
 | `std.arch.xilinx7_signed_product` | Signed product-reduction architecture descriptions |
 
+## Shared floating-point library
+
+Import `std.math.fp` for `RvBinaryFloat<E,F>`. Its supported interchange profiles
+are E=8/F=23 (binary32) and E=11/F=52 (binary64). `FpRequest<W>` carries raw
+operands, an explicit operation and rounding mode; `FpResult` carries the result,
+exception flags and illegal-operation indication. These declarations and helpers
+are ordinary stdlib sources, shared by standalone hardware and CPU integration;
+they are not copied into the ZRISCV package. Binary64 library availability does
+not mean that the CPU implements the RISC-V D extension.
+
+The core holds one transaction and one buffered result. Simple operations take
+one edge; finite division takes F+6 and square root F+5 edges. Output stalls
+preserve the result and flags; cancel/reset discards pending work. There is no
+hidden CSR or overlapping transaction execution. See the [API inventory](stdlib-api.md)
+and [source contract](../stdlib/math/fp.zhl) for exact signatures and operation
+selection. Source availability and specialization tests do not establish a
+universal IEEE arithmetic proof.
+
 ## Buffered stream composition, CRC and FIR
+
+`Tee<T>` duplicates a wire value onto `output` and `tap`. `RvTee<T>` forwards
+the functional ready/valid stream unchanged and exposes payload, valid, ready
+and transfer as ordinary wire outputs. Neither adds state, latency, buffering
+or CDC; the tap has no `ready` and cannot stall the stream. They do not retain
+samples or preserve nets against downstream optimization. See
+[passive tap contracts](stdlib-stream-dsp.md#passive-taps-for-vendor-debug-tools)
+and the [ILA/Signal Tap wrapper example](../examples/fpga_debug/README.md).
 
 `RvFork2<T>` stores one accepted item and tracks its delivery to `output0`
 and `output1` separately. Each consumer receives it exactly once even if the

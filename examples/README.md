@@ -14,7 +14,66 @@ and local README.  Do not merge unrelated standalone witnesses merely to
 reduce the file count: their small compile roots, diagnostics, formal goals,
 and regression identities are useful boundaries.
 
+## Switch runnable examples in VS Code
+
+Install the linux-x64 extension and use this checkout's `zlang-lsp`. The
+checked-in `.vscode/launch.json` supplies a named launch for every supplied
+runnable JSONL schedule, including separate tops that share a source file.
+
+Use **ZLang HDL: Switch Debug Example…** from the Command Palette, or **Switch
+debug…** in the live waveform toolbar. Choose a launch: the active ZLang debug
+session terminates, the selected example starts paused at entry, and the live
+waveform shows its traced ports and owning top. F10 advances one event; Continue
+runs until a breakpoint or the end of the supplied schedule. Switching does not
+require restarting VS Code or manually refreshing the waveform.
+
+The source editor's **Start Native Simulation Debugger** action uses the launch
+matching that file. If it contains several runnable tops, choose one in the
+picker. Unconfigured sources need an explicit launch specifying their top and
+stimulus (or bounded clock/cycles); compile/formal-only witnesses do not acquire
+invented test vectors. The ordinary Run and Debug dropdown/F5 also works;
+Shift+F5 stops a manually managed session.
+
+Each design's row colors/layout and cursors recover separately. A different top
+or example receives its own catalog and trace. Replacing a session restarts its
+stimulus at event zero. This workflow does not advance unrelated debug sessions.
+
+| Launch | Source / top | Stimulus |
+| --- | --- | --- |
+| Debug RuleAction | [`rule_action.zhl`](rule_action.zhl) / `RuleAction` | [JSONL](rule_action.events.jsonl) |
+| Debug CORDIC | [`cordic.zhl`](cordic.zhl) / `Cordic` | [JSONL](cordic.events.jsonl) |
+| Debug Counter | [`counter.zhl`](counter.zhl) / `Counter` | [JSONL](counter.events.jsonl) |
+| Debug Framed CRC | [`framed_crc.zhl`](framed_crc.zhl) / `FramedCrc` | [JSONL](framed_crc.events.jsonl) |
+| Debug Stream FIR8 | [`stream_fir8.zhl`](stream_fir8.zhl) / `StreamFir8` | [JSONL](stream_fir8.events.jsonl) |
+| Debug Farrow | [`farrow.zhl`](farrow.zhl) / `FarrowCubic` | [JSONL](farrow.events.jsonl) |
+| Debug Reloadable FIR | [`fir_reload.zhl`](fir_reload.zhl) / `ReloadableFir` | [JSONL](fir_reload.events.jsonl) |
+| Debug Folded FIR | [`fir_folded.zhl`](fir_folded.zhl) / `FoldedFir` | [JSONL](fir_folded.events.jsonl) |
+| Debug Interpolating FIR | [`fir_interpolate.zhl`](fir_interpolate.zhl) / `InterpolatingFir` | [JSONL](fir_interpolate.events.jsonl) |
+| Debug CIC Interpolator | [`cic_interpolate.zhl`](cic_interpolate.zhl) / `CicInterpolatorExample` | [JSONL](cic_interpolate.events.jsonl) |
+| Debug NCO | [`nco.zhl`](nco.zhl) / `Nco` | [JSONL](nco.events.jsonl) |
+| Debug Linear NCO | [`nco_linear.zhl`](nco_linear.zhl) / `LinearNco` | [JSONL](nco.events.jsonl) |
+| Debug CIC Decimator | [`multirate_filters.zhl`](multirate_filters.zhl) / `CicDecimator` | [JSONL](multirate_filters.events.jsonl) |
+| Debug Polyphase FIR | [`multirate_filters.zhl`](multirate_filters.zhl) / `PolyphaseFir` | [JSONL](multirate_filters.events.jsonl) |
+| Debug Halfband Decimator | [`halfband.zhl`](halfband.zhl) / `HalfbandDecimatorExample` | [JSONL](halfband.events.jsonl) |
+| Debug Halfband Interpolator | [`halfband.zhl`](halfband.zhl) / `HalfbandInterpolatorExample` | [JSONL](halfband.events.jsonl) |
+| Debug Scrambler24 | [`coding_blocks.zhl`](coding_blocks.zhl) / `Scrambler24` | [JSONL](scrambler24.events.jsonl) |
+| Debug Convolutional Encoder24 | [`coding_blocks.zhl`](coding_blocks.zhl) / `ConvolutionalEncoder24` | [JSONL](convolutional24.events.jsonl) |
+| Debug SECDED32 Encode | [`secded.zhl`](secded.zhl) / `Secded32Encode` | [JSONL](secded32.events.jsonl) |
+| Debug SECDED32 Decode | [`secded.zhl`](secded.zhl) / `Secded32Decode` | [JSONL](secded32.events.jsonl) |
+| Debug DVB RS Encoder | [`rs_dvb.zhl`](rs_dvb.zhl) / `DvbRsEncoder` | [JSONL](rs_dvb.events.jsonl) |
+| Debug DVB RS Decoder | [`rs_dvb_decode.zhl`](rs_dvb_decode.zhl) / `DvbRsDecoder` | [JSONL](rs_dvb_decode.events.jsonl) |
+| Debug Viterbi | [`viterbi.zhl`](viterbi.zhl) / `ViterbiFrame` | [JSONL](viterbi.events.jsonl) |
+| Debug Vendor Debug Taps | [`fpga_debug/vendor_debug.zhl`](fpga_debug/vendor_debug.zhl) / `VendorDebugDut` | [JSONL](fpga_debug/vendor_debug.events.jsonl) |
+| Debug 802.11a Transmitter | [`projects/80211a_transmitter/src/transmitter.zhl`](projects/80211a_transmitter/src/transmitter.zhl) / `Ieee80211aTransmitter` | [JSONL](projects/80211a_transmitter/simulation/demo-events.jsonl) |
+
+These editor launch checks are not additional numerical, RTL-formal or board
+qualification claims for the library IP.
+
 ## Preferred source style
+
+For on-chip vendor debugging, see [passive ILA/Signal Tap connections](fpga_debug/README.md).
+The runnable ZLang DUT exposes explicit observation outputs; board-level HDL
+wrappers connect them to vendor tools without additional FPGA pins.
 
 Examples use the concise form when it preserves the point being taught:
 

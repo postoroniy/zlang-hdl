@@ -52,11 +52,11 @@ RUNTIME_PACKAGES = {
     "brace-expansion": "5.0.12",
     "minimatch": "10.2.6",
     "semver": "7.8.5",
-    "vscode-jsonrpc": "9.0.3",
+    "vscode-jsonrpc": "10.0.0",
     "vscode-languageclient": TOOLCHAIN["vscodeLanguageClient"],
-    "vscode-languageserver-protocol": "3.18.4",
-    "vscode-languageserver-textdocument": "1.0.15",
-    "vscode-languageserver-types": "3.18.4",
+    "vscode-languageserver-protocol": "3.18.5",
+    "vscode-languageserver-textdocument": "1.0.16",
+    "vscode-languageserver-types": "3.18.5",
 }
 VSIX_NS = "http://schemas.microsoft.com/developer/vsx-schema/2011"
 CONTENT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
@@ -109,6 +109,14 @@ def _contributes() -> dict:
         }],
         "snippets": [{"language": "zlang-hdl", "path": "./snippets/zlang-hdl.json"}],
         "commands": [],
+        "keybindings": [{
+            "command": "editor.action.referenceSearch.trigger",
+            "key": "shift+f12",
+            "when": (
+                "editorTextFocus && editorLangId == zlang-hdl && editorHasReferenceProvider"
+                " && !inReferenceSearchEditor && !isInEmbeddedEditor"
+            ),
+        }],
         "configuration": {
             "title": "ZLang HDL",
             "properties": {
@@ -133,6 +141,7 @@ def _validate_native_contributes(contributes: dict) -> None:
     editors = common.pop("customEditors", [])
     menus = common.pop("menus", {})
     keybindings = common.pop("keybindings", [])
+    common["keybindings"] = keybindings[:1]
     properties = common.get("configuration", {}).get("properties", {})
     wcp_enabled = properties.pop("zlang.waveform.wcp.enabled", None)
     wcp_port = properties.pop("zlang.waveform.wcp.port", None)
@@ -159,6 +168,7 @@ def _validate_native_contributes(contributes: dict) -> None:
     _require(
         {item.get("command") for item in commands} == {
             "zlang-hdl.startSimulation",
+            "zlang-hdl.switchDebugExample",
             "zlang-hdl.openWaveform",
             "zlang-hdl.openLiveWaveform",
             "zlang-hdl.addTraceSignals",
@@ -175,7 +185,7 @@ def _validate_native_contributes(contributes: dict) -> None:
         "activeCustomEditorId == zlang-hdl.waveform || "
         "activeWebviewPanelId == zlang-hdl.liveWaveform"
     )
-    _require(keybindings == [
+    _require(keybindings[1:] == [
         {"command": f"zlang-hdl.{action}WaveformRows", "key": f"ctrl+{key}",
          "mac": f"cmd+{key}", "when": f"webviewFocus && ({waveform_scope})"}
         for action, key in (("cut", "x"), ("copy", "c"), ("paste", "v"))
@@ -264,6 +274,7 @@ def validate_metadata(
         _require("devDependencies" not in package, "development dependencies shipped")
         _require("files" not in package, "source-only files manifest shipped")
         _require("scripts" not in package, "development scripts shipped")
+        _require("overrides" not in package, "build dependency overrides shipped")
     else:
         _require(package.get("devDependencies") == PINS, "dev dependencies must be pinned")
         _require("extension.js" in package.get("files", []), "entrypoint missing from source files")
@@ -462,7 +473,10 @@ def _source_members() -> dict[str, bytes]:
     package["contributes"].pop("debuggers", None)
     package["contributes"].pop("customEditors", None)
     package["contributes"].pop("menus", None)
-    package["contributes"].pop("keybindings", None)
+    package["contributes"]["keybindings"] = [
+        binding for binding in package["contributes"]["keybindings"]
+        if binding["command"] == "editor.action.referenceSearch.trigger"
+    ]
     package["contributes"]["commands"] = []
     package["contributes"]["configuration"]["properties"].pop(
         "zlang.waveform.wcp.enabled", None
@@ -470,7 +484,7 @@ def _source_members() -> dict[str, bytes]:
     package["contributes"]["configuration"]["properties"].pop(
         "zlang.waveform.wcp.port", None
     )
-    for field in ("files", "devDependencies", "scripts"):
+    for field in ("files", "devDependencies", "scripts", "overrides"):
         package.pop(field, None)
     members["extension/package.json"] = json.dumps(package, indent=2).encode() + b"\n"
     members["extension/dist/extension.js"] = b"module.exports = {};\n"
@@ -519,6 +533,13 @@ class VSCodePackageTests(unittest.TestCase):
                     archive.writestr(name, data)
         return self.archive_path
 
+    def test_packaged_metadata_rejects_build_dependency_overrides(self) -> None:
+        members = _source_members()
+        package = _json(members["extension/package.json"])
+        package["overrides"] = {"@azure/identity": {"@azure/msal-node": "7.1.2"}}
+        with self.assertRaisesRegex(VSIXAuditError, "build dependency overrides shipped"):
+            validate_metadata(package, packaged=True, native=False)
+
     def test_native_metadata_requires_exact_source_breakpoint_language(self) -> None:
         package = _json((EXT / "package.json").read_bytes())
         for registration in (None, [], [{"language": "plaintext"}],
@@ -531,6 +552,25 @@ class VSCodePackageTests(unittest.TestCase):
                     broken["contributes"]["breakpoints"] = registration
                 with self.assertRaisesRegex(VSIXAuditError, "source breakpoint registration"):
                     validate_metadata(broken, native=True)
+
+    def test_references_binding_cannot_be_dropped_retargeted_or_unscoped(self) -> None:
+        for native in (False, True):
+            package = _json((EXT / "package.json").read_bytes())
+            if not native:
+                package["contributes"] = _contributes()
+            validate_metadata(package, native=native)
+            for mutation in ("missing", "jump", "global"):
+                with self.subTest(native=native, mutation=mutation):
+                    broken = copy.deepcopy(package)
+                    bindings = broken["contributes"]["keybindings"]
+                    if mutation == "missing":
+                        bindings.pop(0)
+                    elif mutation == "jump":
+                        bindings[0]["command"] = "editor.action.goToReferences"
+                    else:
+                        bindings[0]["when"] = "editorTextFocus"
+                    with self.assertRaisesRegex(VSIXAuditError, "language registration"):
+                        validate_metadata(broken, native=native)
 
     def test_playwright_manifest_and_lock_must_match_reviewed_toolchain(self) -> None:
         package = _json((EXT / "package.json").read_bytes())

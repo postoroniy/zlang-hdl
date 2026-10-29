@@ -224,6 +224,14 @@ jobs:
             build/native-vulnerability/osv-stderr.log
           if-no-files-found: error
           retention-days: 30
+      - name: Verify Community distributable contents
+        run: |
+          boundary_args=()
+          for artifact in dist/*.whl dist/*.tar.gz dist/*.vsix; do
+            test -f "$artifact"
+            boundary_args+=(--artifact "$artifact")
+          done
+          python -m tools.community_boundary --history "${boundary_args[@]}"
       - name: Build release SBOM and checksums after inventory acceptance
         shell: bash
         run: |

@@ -149,6 +149,31 @@
       ]
     },
     {
+      "id": "LOCK-001",
+      "source_paths": [
+        "tests/project/test_toolchain_lock.py",
+        "zlang/incremental_workspace.py",
+        "zlang/project.py",
+        "zlang/project_cli.py",
+        "zlang/stdlib.py",
+        "zlang/toolchain_lock.py",
+        "zlang/tooling_session.py",
+        "zlang/tooling_symbol_cache.py",
+        "zlang/workspace.py"
+      ],
+      "status": "included",
+      "summary": "Opt-in exact SDK locking validates compiler, runtime and stdlib identities before compilation and cached tooling reuse; failed incremental refresh cannot retain a stale typed product or publish a replacement lock. Legacy project and lock schemas remain supported.",
+      "tests": [
+        "tests/project/test_toolchain_lock.py::test_changed_sdk_rejects_load_compile_update_and_cached_products",
+        "tests/project/test_toolchain_lock.py::test_dependency_requirement_and_legacy_root_fail_closed",
+        "tests/project/test_toolchain_lock.py::test_exact_models_round_trip_and_legacy_bytes_stay_legacy",
+        "tests/project/test_toolchain_lock.py::test_failed_incremental_refresh_never_blesses_an_unavailable_sdk",
+        "tests/project/test_toolchain_lock.py::test_live_compiler_replacement_requires_restart",
+        "tests/project/test_toolchain_lock.py::test_malformed_toolchain_inventory_rejected",
+        "tests/project/test_toolchain_lock.py::test_warm_tooling_and_trivia_cannot_hide_sdk_mutation"
+      ]
+    },
+    {
       "id": "LSP-001",
       "source_paths": [
         "editors/vscode/zlang-hdl/extension.js",
@@ -180,17 +205,45 @@
       "source_paths": [
         "tests/lsp/test_generic_default_diagnostics.py",
         "tests/lsp/test_standalone_stdlib_navigation.py",
+        "zlang/module_resolver.py",
         "zlang/semantic/module_declarations.py",
         "zlang/semantic/type_resolution.py",
+        "zlang/tooling_symbol_cache.py",
+        "zlang/tooling_symbols.py",
         "zlang/tooling_workspace.py"
       ],
       "status": "included",
-      "summary": "Unspecialized templates with derived defaults do not emit false editor errors; standalone stdlib navigation requires the exact retained compiler closure, not a project lock.",
+      "summary": "Unspecialized templates with derived defaults do not emit false editor errors; standalone stdlib navigation requires the exact retained compiler closure, not a project lock. Standalone queries isolate imported spans; indexed stdlib traversal loads each leaf once and symbol normalization reuses retained source paths.",
       "tests": [
         "tests/lsp/test_generic_default_diagnostics.py::test_declared_earlier_parameter_requires_specialization",
         "tests/lsp/test_generic_default_diagnostics.py::test_invalid_defaults_are_not_reclassified_or_hidden",
         "tests/lsp/test_standalone_stdlib_navigation.py::test_standalone_stdlib_definition_without_project_lock",
         "tests/lsp/test_standalone_stdlib_navigation.py::test_standalone_stdlib_navigation_rejects_unretained_source"
+      ]
+    },
+    {
+      "id": "LSP-003",
+      "source_paths": [
+        "tests/lsp/test_generic_body_navigation.py",
+        "zlang/semantic/callable_bodies.py",
+        "zlang/semantic/expression_calls.py",
+        "zlang/semantic/module_declarations.py",
+        "zlang/semantic/type_resolution.py",
+        "zlang/tooling_navigation.py",
+        "zlang/tooling_queries.py",
+        "zlang/tooling_symbol_cache.py"
+      ],
+      "status": "included",
+      "summary": "Go to Definition resolves exact declaration names and nominal type/direct-function references in deferred generic bodies without requiring concrete specialization. Generic parameters and intrinsics cannot bind unrelated global declarations; persisted symbol shards use a new analysis recipe.",
+      "tests": [
+        "tests/lsp/test_generic_body_navigation.py::test_deferred_body_and_declaration_definition",
+        "tests/lsp/test_generic_body_navigation.py::test_deferred_operator_constructor_is_a_nominal_type_reference",
+        "tests/lsp/test_generic_body_navigation.py::test_generic_callable_parameter_does_not_bind_global_function",
+        "tests/lsp/test_generic_body_navigation.py::test_generic_type_parameter_does_not_bind_same_named_global_type",
+        "tests/lsp/test_generic_body_navigation.py::test_imported_constructor_survives_cache_restart_and_dependency_edit",
+        "tests/lsp/test_generic_body_navigation.py::test_intrinsic_call_does_not_bind_same_named_global_function",
+        "tests/lsp/test_generic_body_navigation.py::test_navigation_observations_leave_production_hardware_unchanged",
+        "tests/lsp/test_generic_body_navigation.py::test_real_fp_format_constructor_and_declaration"
       ]
     },
     {
@@ -234,10 +287,13 @@
       "source_paths": [
         "tests/simulation/differential.py",
         "tests/simulation/test_comparison_deadlines.py",
+        "zlang/common/subprocess.py",
+        "zlang/formal.py",
+        "zlang/formal_rtl_arithmetic.py",
         "zlang/simulation_compare.py"
       ],
       "status": "included",
-      "summary": "External RTL comparison separates bounded compilation from execution, preserves legacy caller deadlines, retains phase-labelled timeout output, and rejects invalid limits or mismatched values without publishing success.",
+      "summary": "External RTL comparison separates bounded compilation from execution, preserves legacy caller deadlines, retains phase-labelled timeout output, and rejects invalid limits or mismatched values without publishing success. Owned process groups are terminated on timeout so wrappers cannot leave descendant formal or comparison tools running.",
       "tests": [
         "tests/simulation/test_comparison_deadlines.py::test_build_budget_is_separate_and_legacy_timeout_is_preserved",
         "tests/simulation/test_comparison_deadlines.py::test_expired_command_retains_phase_and_partial_tool_log",
@@ -269,11 +325,23 @@
         "zlang/simulation_comparison_testbench.py"
       ],
       "status": "included",
-      "summary": "Native/RTL comparison resolves safe work directories before execution and replays hashed sparse-update stimuli without unrolling one executable block per event.",
+      "summary": "Native/RTL comparison resolves safe work directories before execution and replays hashed sparse-update stimuli without unrolling one executable block per event. Strided aggregate ABI fields gather their exact element slices rather than assuming contiguity.",
       "tests": [
         "tests/integration/test_comparison_stimulus.py::test_long_comparison_stimulus_and_exact_sparse_update_semantics",
         "tests/integration/test_comparison_work_directory.py::test_comparison_nested_work_directory",
         "tests/integration/test_comparison_work_directory.py::test_comparison_work_directory_still_rejects_symlink_and_nonempty"
+      ]
+    },
+    {
+      "id": "SIM-006",
+      "source_paths": [
+        "tests/integration/test_simulation_comparison_union.py",
+        "zlang/simulation_compare.py"
+      ],
+      "status": "included",
+      "summary": "Native-versus-RTL comparison projects packed wire and protocol-field outputs directly from compiler-owned ABI and runtime names, including tagged unions, without guessing variants or repacking raw bits as DTOs.",
+      "tests": [
+        "tests/integration/test_simulation_comparison_union.py::test_native_rtl_comparison_keeps_tagged_union_output_bits"
       ]
     },
     {
@@ -339,6 +407,49 @@
       "summary": "TextMate module parameter scopes close before inline or multiline where constraints, comments and nested typed parameters; normal body and following-module scopes remain intact.",
       "tests": [
         "tests/editor/test_vscode_surface.py::test_module_generic_where_has_bounded_tokenization_regressions"
+      ]
+    },
+    {
+      "id": "VSIX-005",
+      "status": "included",
+      "summary": "Compiler packs typed signed and protocol JSONL inputs for the reviewed native debugger; switching active sessions refreshes the retained live waveform and identifies its owning top module.",
+      "source_paths": [
+        ".vscode/launch.json",
+        "editors/vscode/zlang-hdl/extension.js",
+        "editors/vscode/zlang-hdl/test/rule-action-host.cjs",
+        "tests/integration/test_native_debug_events.py",
+        "zlang/lsp/server.py",
+        "zlang/native_debug_bundle.py",
+        "zlang/native_debug_events.py",
+        "zlang/sim_cli.py",
+        "zlang/simulation_protocol_access.py"
+      ],
+      "tests": [
+        "tests/integration/test_native_debug_events.py::test_cordic_jsonl_launches_with_reviewed_adapter_and_matches_native",
+        "tests/integration/test_native_debug_events.py::test_debug_event_preparation_bounds_input_output_and_repeat",
+        "tests/integration/test_native_debug_events.py::test_invalid_typed_events_fail_at_original_source_line",
+        "tests/integration/test_native_debug_events.py::test_lsp_events_are_separate_from_hardware_overlay",
+        "tests/integration/test_native_debug_events.py::test_signed_wide_struct_and_compact_repeats"
+      ]
+    },
+    {
+      "id": "VSIX-006",
+      "status": "included",
+      "summary": "All supplied runnable JSONL examples have named typed launches. Session replacement waits for termination, automatically rebinds live waveforms, and honors per-file tops, stimuli and multi-root folders instead of assuming Top.",
+      "source_paths": [
+        ".vscode/launch.json",
+        "editors/vscode/zlang-hdl/debug_launch.js",
+        "editors/vscode/zlang-hdl/extension.js",
+        "editors/vscode/zlang-hdl/package.json",
+        "editors/vscode/zlang-hdl/test/debug-examples-host.cjs",
+        "editors/vscode/zlang-hdl/test/debug-launch.test.cjs",
+        "editors/vscode/zlang-hdl/waveform_app.js",
+        "editors/vscode/zlang-hdl/waveform_workspace.js",
+        "tests/integration/test_debug_example_launches.py"
+      ],
+      "tests": [
+        "tests/integration/test_debug_example_launches.py::test_each_example_launch_steps_and_restarts_with_reviewed_adapter",
+        "tests/integration/test_debug_example_launches.py::test_launch_inventory_covers_every_public_example_schedule"
       ]
     },
     {
@@ -428,11 +539,12 @@
         "zlang/parser/grammar.lark",
         "zlang/semantic/compile_time_evaluation.py",
         "zlang/semantic/expression_control.py",
+        "zlang/semantic/expression_packed.py",
         "zlang/semantic/expression_support.py",
         "zlang/semantic/type_resolution.py"
       ],
       "status": "included",
-      "summary": "Compile-time integer modulo supports generic arguments, static indices and conditions with floor semantics, source-located zero-divisor diagnostics and native/RTL parity; runtime remainder stays unsupported.",
+      "summary": "Compile-time integer modulo supports generic arguments, static indices and conditions with floor semantics, source-located zero-divisor diagnostics and native/RTL parity; runtime remainder stays unsupported. Static packed-slice bounds retain arithmetic grouping and lexical generate bindings.",
       "tests": [
         "tests/integration/test_compile_time_modulo_backend.py::test_nr_pss_modulo_native_and_generated_rtl_agree",
         "tests/parser/test_compile_time_modulo.py::test_generic_arguments_accept_parenthesized_negative_modulo_operands",
@@ -604,7 +716,7 @@
         "zlang/backend/systemverilog/module_rendering.py"
       ],
       "status": "included",
-      "summary": "Direct-SV sizes packed reduction elements and struct fields to exact typed widths and projects singleton bit vectors as scalar values across supported RTL frontends.",
+      "summary": "Direct-SV sizes packed reduction elements and struct fields to exact typed widths and projects singleton bit vectors as scalar values across supported RTL frontends. Packed-index scaling seals conditional indices to their exact typed width before offset widening.",
       "tests": [
         "tests/integration/test_packed_reduction_widths.py::test_packed_parity_elements_match_universal_rtl_reference",
         "tests/integration/test_packed_struct_widths.py::test_widened_subtraction_in_aggregate_actual_rtl",
@@ -615,10 +727,13 @@
       "id": "ZL-067",
       "source_paths": [
         "tests/backend/test_copied_function_regions.py",
-        "zlang/backend/systemverilog/module_rendering.py"
+        "zlang/backend/systemverilog/module_rendering.py",
+        "zlang/simulation_functional_lowering.py",
+        "zlang/simulation_lowering.py",
+        "zlang/simulation_primitive_model.py"
       ],
       "status": "included",
-      "summary": "Copied pure functional regions share their local producer, closed complex captures are emitted once outside loops, and conflicting aliases or distinct captures are not silently merged.",
+      "summary": "Copied pure functional regions share their local producer, closed complex captures are emitted once outside loops, and conflicting aliases or distinct captures are not silently merged. Native functional lowering owns capture-dependent memo entries per invocation, including repeated and nested calls.",
       "tests": [
         "tests/backend/test_copied_function_regions.py::test_alias_conflict_still_fails_closed",
         "tests/backend/test_copied_function_regions.py::test_closed_region_owns_complex_capture_once_before_its_loop",
@@ -633,10 +748,42 @@
         "zlang/backend/identifiers.py"
       ],
       "status": "included",
-      "summary": "SystemVerilog release identifiers are escaped on physical ports and hierarchical bindings while source identity and collision rejection are preserved.",
+      "summary": "SystemVerilog release identifiers are escaped on physical ports and hierarchical bindings while source identity and collision rejection are preserved. The same reserved-word policy also escapes config.",
       "tests": [
         "tests/systemverilog/test_reserved_release_identifier.py::test_release_mangling_collision_is_not_silently_aliased",
         "tests/systemverilog/test_reserved_release_identifier.py::test_release_port_and_hierarchy_use_physical_names_only"
+      ]
+    },
+    {
+      "id": "ZL-069",
+      "source_paths": [
+        "zlang/parser/aggregate_module_rules.py"
+      ],
+      "status": "included",
+      "summary": "Malformed callable bodies report positioned parser diagnostics instead of leaking transformer exceptions; empty vector literals reach the existing semantic rejection without null AST elements.",
+      "tests": [
+        "tests/integration/test_cli_diagnostics.py::test_callable_errors_are_cli_diagnostics_without_tracebacks",
+        "tests/lsp/test_declaration_diagnostics.py::test_callable_diagnostics_do_not_crash_and_clear_after_edit",
+        "tests/parser/test_aggregate_ergonomics.py::test_empty_vector_literal_has_no_placeholder_expression",
+        "tests/parser/test_callable_bodies.py::test_invalid_callable_body_is_a_positioned_parse_error",
+        "tests/semantic/test_aggregate_ergonomics.py::test_aggregate_sugar_rejects_ambiguous_or_malformed_forms"
+      ]
+    },
+    {
+      "id": "ZL-070",
+      "source_paths": [
+        "tests/semantic/test_module_nominal_type_bindings.py",
+        "zlang/semantic/callable_specialization.py",
+        "zlang/semantic/callable_specialization_bindings.py",
+        "zlang/semantic/instances.py"
+      ],
+      "status": "included",
+      "summary": "Generic module specialization retains resolved nominal type facts through deferred argument binding rather than reparsing diagnostic display text; enum identity and exact aggregate types are preserved.",
+      "tests": [
+        "tests/semantic/test_module_nominal_type_bindings.py::test_enum_module_parameter_keeps_its_original_nominal_identity",
+        "tests/semantic/test_module_nominal_type_bindings.py::test_enum_type_facts_remain_available_to_deferred_callable_arguments",
+        "tests/semantic/test_module_nominal_type_bindings.py::test_nominal_types_inside_aggregate_module_parameters",
+        "tests/semantic/test_module_nominal_type_bindings.py::test_same_width_nominal_enums_cannot_be_substituted"
       ]
     }
   ],

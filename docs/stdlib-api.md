@@ -4213,6 +4213,262 @@ out result : ufixed_sat<W,F>
 
 [Exact declaration](../stdlib/math/fixed.zhl#L89) · [Contract and restrictions](stdlib-overview.md)
 
+## `std.math.fp`
+
+Import: `import std.math.fp`.
+
+[Component contracts](stdlib-overview.md) · [Source](../stdlib/math/fp.zhl)
+
+### `fp_compute` — function
+
+Complete non-iterative operation selection; div/sqrt finite datapaths belong to RvBinaryFloat below. This function also owns their exceptional results.
+
+```text
+fn fp_compute<E,F,W=1+E+F>(request:FpRequest<W>) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp.zhl#L6) · [Contract and restrictions](stdlib-overview.md)
+
+### `BinaryFloatFast` — module
+
+Keep combinational arithmetic outside the sequential control process. This is an ordinary reusable source boundary, not a vendor/black-box primitive.
+
+```text
+module BinaryFloatFast<E=8,F=23,W=1+E+F>
+in request:FpRequest<W>
+out result:FpResult
+```
+
+[Exact declaration](../stdlib/math/fp.zhl#L53) · [Contract and restrictions](stdlib-overview.md)
+
+### `RvBinaryFloat` — module
+
+One in-flight request, one buffered result. Simple operations take one edge; finite division takes F+6 edges and sqrt F+5 edges. No overlap, no hidden CSR. Output stalls preserve all bits/flags. Cancellation discards work/result. Only the two IEEE interchange profiles are admitted by this public wrapper.
+
+```text
+module RvBinaryFloat<E=8,F=23,W=1+E+F,X=E+5,D=F+5,S=F+4,R=F*2+8,H=F+6>
+where ((E == 8 && F == 23) || (E == 11 && F == 52)) && W == 1+E+F
+   && X == E+5 && D == F+5 && S == F+4 && R == F*2+8 && H == F+6
+clock clk
+reset rst
+in input:rv<FpRequest<W>>
+out output:rv<FpResult>
+in cancel:bit
+```
+
+[Exact declaration](../stdlib/math/fp.zhl#L63) · [Contract and restrictions](stdlib-overview.md)
+
+## `std.math.fp_arithmetic`
+
+Import: `import std.math.fp_arithmetic`.
+
+[Component contracts](stdlib-overview.md) · [Source](../stdlib/math/fp_arithmetic.zhl)
+
+### `fp_add` — function
+
+```text
+fn fp_add<E,F,W=1+E+F,M=F+6>(a:bits<W>,b:bits<W>,subtract:bit,rounding:u3) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_arithmetic.zhl#L3) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_multiply` — function
+
+```text
+fn fp_multiply<E,F,W=1+E+F,X=E+5>(a:bits<W>,b:bits<W>,rounding:u3) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_arithmetic.zhl#L21) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_fused` — function
+
+```text
+fn fp_fused<E,F,W=1+E+F,X=E+5,M=2*F+6>(a:bits<W>,b:bits<W>,c:bits<W>,negative_product:bit,
+    negative_addend:bit,rounding:u3) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_arithmetic.zhl#L39) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_compare` — function
+
+```text
+fn fp_compare<E,F,W=1+E+F>(a:bits<W>,b:bits<W>,operation:u5) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_arithmetic.zhl#L64) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_minmax` — function
+
+```text
+fn fp_minmax<E,F,W=1+E+F>(a:bits<W>,b:bits<W>,maximum:bit) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_arithmetic.zhl#L78) · [Contract and restrictions](stdlib-overview.md)
+
+## `std.math.fp_convert`
+
+Import: `import std.math.fp_convert`.
+
+[Component contracts](stdlib-overview.md) · [Source](../stdlib/math/fp_convert.zhl)
+
+### `fp_from_integer` — function
+
+```text
+fn fp_from_integer<E,F,X=E+5>(value:bits<64>,word:bit,unsigned_integer:bit,rounding:u3) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_convert.zhl#L3) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_to_integer` — function
+
+```text
+fn fp_to_integer<E,F,W=1+E+F,X=E+5>(value:bits<W>,word:bit,unsigned_integer:bit,rounding:u3) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_convert.zhl#L11) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_convert` — function
+
+```text
+fn fp_convert<SE,SF,DE,DF,SW=1+SE+SF,X=DE+5,Z=SE+DE+5>(value:bits<SW>,rounding:u3) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_convert.zhl#L37) · [Contract and restrictions](stdlib-overview.md)
+
+## `std.math.fp_format`
+
+Import: `import std.math.fp_format`.
+
+[Component contracts](stdlib-overview.md) · [Source](../stdlib/math/fp_format.zhl)
+
+### `FpDecoded` — struct
+
+CPU-independent IEEE binary interchange encodings. No language float type, host floating-point operation, architectural CSR or flush-to-zero behavior.
+
+```text
+struct FpDecoded<E,F>
+sign:bit
+exponent:sint<E+5>
+significand:bits<F+1>
+is_zero:bit
+subnormal:bit
+infinity:bit
+nan:bit
+signaling:bit
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L3) · [Contract and restrictions](stdlib-overview.md)
+
+### `FpResult` — struct
+
+```text
+struct FpResult
+value:bits<64>
+flags:bits<5>
+illegal:bit
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L8) · [Contract and restrictions](stdlib-overview.md)
+
+### `FpRequest` — struct
+
+```text
+struct FpRequest<W>
+a:bits<W>
+b:bits<W>
+c:bits<W>
+integer:bits<64>
+operation:u5
+rounding:u3
+word:bit
+unsigned_integer:bit
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L15) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_bit_length` — function
+
+```text
+fn fp_bit_length<M>(value:bits<M>) -> u8
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L24) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_shift_jam` — function
+
+```text
+fn fp_shift_jam<M>(value:bits<M>,distance:u16) -> bits<M>
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L28) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_decode` — function
+
+```text
+fn fp_decode<E,F,W=1+E+F,X=E+5>(value:bits<W>) -> FpDecoded<E,F>
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L35) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_nan` — function
+
+```text
+fn fp_nan<E,F,W=1+E+F>() -> bits<W>
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L53) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_infinity` — function
+
+```text
+fn fp_infinity<E,F,W=1+E+F>(sign:bit) -> bits<W>
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L57) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_classify` — function
+
+```text
+fn fp_classify<E,F,W=1+E+F>(value:bits<W>) -> bits<10>
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L61) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_round_increment` — function
+
+```text
+fn fp_round_increment(sign:bit,rounding:u3,low:bits<3>,odd:bit) -> bit
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L71) · [Contract and restrictions](stdlib-overview.md)
+
+## `std.math.fp_round`
+
+Import: `import std.math.fp_round`.
+
+[Component contracts](stdlib-overview.md) · [Source](../stdlib/math/fp_round.zhl)
+
+### `fp_round_pack` — function
+
+The sole finite rounding/packing owner. Exact input is magnitude*2^scale; bit zero may carry a right-shift sticky bit. Tininess is after rounding.
+
+```text
+fn fp_round_pack<E,F,M,W=1+E+F,X=E+5,P=F+4,Q=F+2,L=M+F+4>(sign:bit,magnitude:bits<M>,scale:sint<E+5>,rounding:u3) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_round.zhl#L5) · [Contract and restrictions](stdlib-overview.md)
+
+### `fp_sum` — function
+
+Aligned signed magnitude addition. K is the exact binary point of both input magnitudes relative to their leading unbiased exponent.
+
+```text
+fn fp_sum<E,F,M,K,X=E+5>(a:bits<M>,b:bits<M>,ea:sint<E+5>,eb:sint<E+5>,
+    sa:bit,sb:bit,rounding:u3) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_round.zhl#L45) · [Contract and restrictions](stdlib-overview.md)
+
 ## `std.storage.core`
 
 Import: `import std.storage.core`.
@@ -4470,6 +4726,33 @@ Import: `import std.stream.composition`.
 
 [Component contracts](stdlib-stream-dsp.md) · [Source](../stdlib/stream/composition.zhl)
 
+### `Tee` — module
+
+Combinational observation. Both outputs retain the exact input type/value; the tap has no handshake, storage, reset or clock-domain conversion.
+
+```text
+module Tee<type T>
+in input : T
+out output : T
+out tap : T
+```
+
+[Exact declaration](../stdlib/stream/composition.zhl#L5) · [Contract and restrictions](stdlib-stream-dsp.md)
+
+### `RvTee` — module
+
+Passive ready/valid observation. Only the functional output drives ready; the tap cannot stall traffic and does not buffer or retain accepted items.
+
+```text
+module RvTee<type T>
+in input : rv<T>
+out output : rv<T>
+out tap_payload : T
+out tap_valid, tap_ready, tap_transfer : bit
+```
+
+[Exact declaration](../stdlib/stream/composition.zhl#L16) · [Contract and restrictions](stdlib-stream-dsp.md)
+
 ### `RvFork2` — module
 
 Buffered broadcast. A register slice owns the generic payload; flags track which consumers still need this item, independently of their ready signals.
@@ -4483,7 +4766,7 @@ out output0 : rv<T>
 out output1 : rv<T>
 ```
 
-[Exact declaration](../stdlib/stream/composition.zhl#L5) · [Contract and restrictions](stdlib-stream-dsp.md)
+[Exact declaration](../stdlib/stream/composition.zhl#L31) · [Contract and restrictions](stdlib-stream-dsp.md)
 
 ### `StreamPair` — struct
 
@@ -4493,7 +4776,7 @@ left : A
 right : B
 ```
 
-[Exact declaration](../stdlib/stream/composition.zhl#L27) · [Contract and restrictions](stdlib-stream-dsp.md)
+[Exact declaration](../stdlib/stream/composition.zhl#L53) · [Contract and restrictions](stdlib-stream-dsp.md)
 
 ### `RvJoin2` — module
 
@@ -4508,7 +4791,7 @@ in input1 : rv<B>
 out output : rv<StreamPair<A,B>>
 ```
 
-[Exact declaration](../stdlib/stream/composition.zhl#L33) · [Contract and restrictions](stdlib-stream-dsp.md)
+[Exact declaration](../stdlib/stream/composition.zhl#L59) · [Contract and restrictions](stdlib-stream-dsp.md)
 
 ## `std.stream.core`
 
@@ -5358,4 +5641,4 @@ module Xc7z030TargetLibrary
 
 [Exact declaration](../stdlib/target/xilinx/xc7z030.zhl#L19) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
 
-Inventory: 67 source namespaces; 372 top-level declarations.
+Inventory: 72 source namespaces; 397 top-level declarations.

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field, replace
 import hashlib
 import json
 from pathlib import Path
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 from zlang import sim
 from zlang.compilation_inputs import PhysicalCompilationInputs
@@ -23,6 +23,9 @@ from zlang.ir.module import Module
 from zlang.native_debug_catalog import build_debug_catalog
 from zlang.native_debug_types import DebugSignal, TYPED_CATALOG_SCHEMA
 from zlang.source import SourceOrigin
+
+if TYPE_CHECKING:
+    from zlang.native_debug_events import PreparedDebugEvents
 
 
 DEBUG_BUNDLE_SCHEMA = "zlang-native-debug-bundle-v1"
@@ -110,6 +113,7 @@ class NativeDebugBundle:
     identity: str
     overlay_identity: str
     schema: str = DEBUG_BUNDLE_SCHEMA
+    prepared_events: PreparedDebugEvents | None = field(default=None, repr=False, compare=False)
 
     def identity_data(self) -> dict[str, object]:
         return {
@@ -123,7 +127,7 @@ class NativeDebugBundle:
         }
 
     def to_data(self) -> dict[str, object]:
-        return {
+        result = {
             **self.identity_data(),
             "identity": self.identity,
             "overlay_schema": DEBUG_OVERLAY_SCHEMA,
@@ -132,6 +136,9 @@ class NativeDebugBundle:
             "plan": base64.b64encode(self.plan_bytes).decode("ascii"),
             "sources": [item.to_data() for item in self.sources],
         }
+        if self.prepared_events is not None:
+            result["prepared_events"] = self.prepared_events.to_data()
+        return result
 
 
 def _site(
@@ -270,6 +277,7 @@ def build_native_debug_bundle(
     project: Path | str | None = None,
     profile: str | None = None,
     logic_state: bool = True,
+    events: Path | str | None = None,
 ) -> NativeDebugBundle:
     """Compile one saved source snapshot into an execution plan plus overlay."""
 
@@ -318,6 +326,9 @@ def build_native_debug_bundle(
         "sites": [item.to_data() for item in sites],
         "sources": [item.identity_data() for item in sources],
     }
+    from zlang.native_debug_events import prepare_debug_events
+
+    prepared = prepare_debug_events(program, Path(events)) if events is not None else None
     return NativeDebugBundle(
         program.plan.to_bytes(),
         program.plan.identity,
@@ -328,6 +339,7 @@ def build_native_debug_bundle(
         sites,
         _digest(identity_payload),
         overlay_identity,
+        prepared_events=prepared,
     )
 
 

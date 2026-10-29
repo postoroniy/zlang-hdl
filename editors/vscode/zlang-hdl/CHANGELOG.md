@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Add all supplied runnable example launches and a live-waveform Switch debug
+  picker; terminate the previous active ZLang session before replacement and
+  use the current file's configured top, stimulus and workspace folder.
+
+- Add the ready-to-run CORDIC launch, accept typed structured/signed JSONL
+  inputs through compiler-owned packing, and identify/rebind the live waveform
+  when the active debug session changes.
+
+- Fix MSAL/qs build-tool vulnerabilities without downgrading the VSIX packager;
+  qualify the language-client 11 upgrade against the pinned editor host.
+
+- Make Shift+F12 open Peek References in ZLang source editors even for one usage,
+  in both the universal and Linux-x64 extensions.
+
 - Keep module-body syntax highlighting stable after generic `where` constraints,
   whether the constraint is inline, on a new line or follows a comment.
 

@@ -179,6 +179,7 @@ def check_static_slice(
                 description=description,
                 allow_zero=True,
                 allow_negative=True,
+                local_values=context.scope.index_bindings,
             )
         except SemanticError as error:
             if "unresolved compile-time parameter" not in str(error):

@@ -17,7 +17,6 @@ import math
 import os
 from pathlib import Path
 import shutil
-import signal
 import subprocess
 import tempfile
 from typing import Iterator, Literal
@@ -27,6 +26,7 @@ from zlang.backend.systemverilog import emit_artifact
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Module, PortDirection
 from zlang.sim import Program, SimulationRuntimeError, Simulator, _pack_value
+from zlang.common.subprocess import run_bounded_process, subprocess_text
 from zlang.simulation_comparison_testbench import STIMULUS_FILE,render_testbench
 
 
@@ -73,6 +73,22 @@ def _nested_value(value: object, path: Sequence[str], *, name: str) -> object:
             )
         current = current[segment]
     return current
+
+
+def _physical_leaf_value(leaf, packed: int) -> int:
+    """Gather the compiler-owned ABI layout, including strided struct arrays."""
+
+    if leaf.packed_lsb is not None:
+        return (packed >> leaf.packed_lsb) & ((1 << leaf.width) - 1)
+    slices = sorted(leaf.packed_element_slices, key=lambda item: item.indices)
+    if not slices or sum(item.msb - item.lsb + 1 for item in slices) != leaf.width:
+        raise SimulationComparisonError(f"incomplete physical layout for '{leaf.external_name}'")
+    result, offset = 0, 0
+    for item in slices:
+        width = item.msb - item.lsb + 1
+        result |= ((packed >> item.lsb) & ((1 << width) - 1)) << offset
+        offset += width
+    return result
 
 
 def _packed_events(
@@ -134,10 +150,7 @@ def _packed_events(
                     _nested_value(value, relative, name=name) if relative else value,
                 )
                 for leaf in leaves:
-                    lsb = leaf.packed_lsb or 0
-                    updates[leaf.external_name] = (
-                        packed >> lsb
-                    ) & ((1 << leaf.width) - 1)
+                    updates[leaf.external_name] = _physical_leaf_value(leaf, packed)
         resets = event.get("reset", {})
         edges = event.get("edges", ())
         if not isinstance(resets, Mapping):
@@ -169,6 +182,10 @@ def _physical_output_sample(instance: Simulator) -> dict[str, int]:
     for leaf in module.top_physical_abi.leaves:
         if leaf.direction is not PortDirection.OUTPUT:
             continue
+        if leaf.packed_root_type is None:
+            raise SimulationComparisonError(
+                f"physical output '{leaf.external_name}' has no packed type"
+            )
         if leaf.category == "request_response":
             root_name = leaf.member_path[0]
             value = _nested_value(
@@ -186,23 +203,19 @@ def _physical_output_sample(instance: Simulator) -> dict[str, int]:
                 raise SimulationComparisonError(
                     f"physical output '{leaf.external_name}' has no public owner"
                 ) from error
-            root_value = public_values[root_name]
             port = ports[root_name]
+            # Native roots already have the exact packed ABI value. Public
+            # get() deliberately leaves unions packed, so do not repack its
+            # result as a TaggedUnionValue or guess an active variant.
             if port.protocol is InterfaceProtocol.WIRE:
-                value = root_value
+                internal = root_name
             else:
-                value = _nested_value(
-                    root_value, (leaf.signal_kind,), name=root_name
-                )
-        if leaf.packed_root_type is None:
-            raise SimulationComparisonError(
-                f"physical output '{leaf.external_name}' has no packed type"
-            )
+                internal = instance._protocols.field_name(port, leaf.signal_kind)
+            packed = instance.get_packed(internal)
+            result[leaf.external_name] = _physical_leaf_value(leaf, packed)
+            continue
         packed = _pack_value(leaf.packed_root_type, value)
-        lsb = leaf.packed_lsb or 0
-        result[leaf.external_name] = (
-            packed >> lsb
-        ) & ((1 << leaf.width) - 1)
+        result[leaf.external_name] = _physical_leaf_value(leaf, packed)
     return result
 
 
@@ -228,23 +241,13 @@ def _run_bounded(
     timeout: float,
     phase: Literal["compile", "run"],
 ) -> subprocess.CompletedProcess[str]:
-    process = subprocess.Popen(
-        tuple(command),
-        cwd=directory,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        env={**os.environ, "CCACHE_DISABLE": "1"},
-        start_new_session=True,
-    )
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
+        completed = run_bounded_process(
+            tuple(command), cwd=directory, capture_output=True, text=True,
+            env={**os.environ, "CCACHE_DISABLE": "1"}, timeout=timeout,
+        )
     except subprocess.TimeoutExpired as error:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass  # The process may exit between the timeout and killpg.
-        stdout, stderr = process.communicate()
+        stdout, stderr = subprocess_text(error.stdout), subprocess_text(error.stderr)
         (directory / f"{phase}.log").write_text(
             f"timeout after {timeout:g} seconds\nstdout:\n{stdout}\nstderr:\n{stderr}",
             encoding="utf-8",
@@ -254,11 +257,12 @@ def _run_bounded(
             + " ".join(command)
             + f"\npartial stdout:\n{stdout[-4096:]}\npartial stderr:\n{stderr[-4096:]}"
         ) from error
+    stdout, stderr = completed.stdout, completed.stderr
     (directory / f"{phase}.log").write_text(
         "stdout:\n" + stdout + "\nstderr:\n" + stderr,
         encoding="utf-8",
     )
-    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+    return completed
 
 
 def _tool_commands(

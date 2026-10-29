@@ -54,6 +54,17 @@ def _git(root: Path, *arguments: str) -> str:
 
 def audit_review_commits(root: Path, *, base: str) -> tuple[str, ...]:
     root = root.resolve()
+    # Generic signed-commit fixtures need no Community product policy; actual
+    # release preflight requires it, and Community review checks reachable history.
+    if (root / "release/community-boundary.json").is_file():
+        try:
+            from tools.community_boundary import load_policy, validate_history, BoundaryError
+        except ModuleNotFoundError:
+            from community_boundary import load_policy, validate_history, BoundaryError
+        try:
+            validate_history(root, load_policy(root / "release/community-boundary.json"))
+        except BoundaryError as error:
+            raise ReviewCommitAuditError(str(error)) from error
     _git(root, "rev-parse", "--verify", base)
     _git(root, "merge-base", "--is-ancestor", base, "HEAD")
     identities = tuple(

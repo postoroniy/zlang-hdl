@@ -20,6 +20,8 @@ def _slice(lines: list[str], origin) -> str:
 
 def _contract(relative: Path) -> str:
     name = relative.as_posix()
+    if name.startswith("debug/"):
+        return "stdlib-debug.md"
     if name.startswith("bus/"):
         return "standard-bus-library.md"
     if name.startswith("target/"):

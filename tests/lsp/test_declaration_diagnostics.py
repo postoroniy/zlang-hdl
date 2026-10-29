@@ -31,6 +31,23 @@ def _publish(server: LspServer, path: Path, text: str, *, version: int = 1):
     )
 
 
+@pytest.mark.parametrize("body,message,column", (
+    ("    values = vec![]\n    values", "only immutable inferred bindings", 16),
+    ("    value = 1", "callable body requires one final result expression", 4),
+    ("    []", "empty vector literal has no element type", 4),
+))
+def test_callable_diagnostics_do_not_crash_and_clear_after_edit(tmp_path, body, message, column):
+    source = "fn build() {\n" + body + "\n}\n"
+    path = tmp_path / "callable.zhl"
+    path.write_text(source)
+    server = LspServer()
+    for version, text in enumerate((source, "// shifted\n" + source), start=1):
+        diagnostic, = _publish(server, path, text, version=version)
+        assert message in diagnostic["message"]
+        assert diagnostic["range"]["start"] == {"line": version, "character": column}
+    assert _publish(server, path, "fn build() -> u8 { 1 }", version=3) == []
+
+
 @pytest.mark.parametrize(
     ("source", "token", "message"),
     [

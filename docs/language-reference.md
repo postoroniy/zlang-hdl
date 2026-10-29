@@ -382,6 +382,9 @@ Existing `reference-*` links remain as navigation aliases. The linked chapter ow
 <a id="reference-generate-systemverilog"></a>
 - [Continue in the canonical chapter](backends-tooling.md#reference-generate-systemverilog)
 
+<a id="reference-vendor-fpga-debug-taps"></a>
+- [Continue in the canonical chapter](backends-tooling.md#reference-vendor-fpga-debug-taps)
+
 <a id="reference-implementation-profiles"></a>
 - [Continue in the canonical chapter](implementation-profiles.md#reference-implementation-profiles)
 

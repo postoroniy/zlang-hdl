@@ -2,10 +2,12 @@
 // Thin Community client for the repository's standard zlang-lsp process.
 'use strict';
 const {addVariableToWaveform} = require('./debug_waveform');
+const {expandLaunchPath:expandDebugPath,selectDebugLaunch,DebugLaunchController}=require('./debug_launch');
 
 const fs = require('node:fs');
 const path = require('node:path');
 const childProcess = require('node:child_process');
+const crypto = require('node:crypto');
 const vscode = require('vscode');
 
 // Development resolves the pinned package normally.  Production packaging
@@ -142,14 +144,14 @@ function resolveNativeTools(context) {
   return { adapter, indexer };
 }
 
-function expandLaunchPath(value, file) {
-  return expandConfiguredPath(value).replaceAll('${file}', file ?? '');
+function expandLaunchPath(value, file, folder) {
+  return expandDebugPath(value,file,folder?.uri.fsPath??workspaceRoot());
 }
 
-function activeProgram(config) {
+function activeProgram(config,folder) {
   const editorFile = vscode.window.activeTextEditor?.document.uri.fsPath;
   if (typeof config.program === 'string' && config.program.length > 0) {
-    const expanded = expandLaunchPath(config.program, editorFile);
+    const expanded = expandLaunchPath(config.program, editorFile,folder);
     if (expanded.length === 0) throw new Error('${file} requires an active saved editor.');
     return expanded;
   }
@@ -160,7 +162,7 @@ function activeProgram(config) {
   return editor.document.uri.fsPath;
 }
 
-async function prepareDebugConfiguration(context, config) {
+async function prepareDebugConfiguration(context, config,folder) {
   if (nativeTools === null) {
     throw new Error(nativeToolsError ?? 'Native debugging requires the ZLang HDL linux-x64 extension.');
   }
@@ -170,17 +172,19 @@ async function prepareDebugConfiguration(context, config) {
   if (config.logicState === false) {
     throw new Error('Native debugging requires four-state logic; set logicState to true.');
   }
-  const program = activeProgram(config);
+  const program = activeProgram(config,folder);
   const document = await vscode.workspace.openTextDocument(vscode.Uri.file(program));
   if (document?.isDirty) throw new Error('Save All before debugging.');
-  const project = config.project ? expandLaunchPath(config.project, program) : undefined;
+  const project = config.project ? expandLaunchPath(config.project, program,folder) : undefined;
   const existingProject = project && fs.existsSync(project) ? project : undefined;
+  const events = config.events ? expandLaunchPath(config.events, program,folder) : undefined;
   const bundle = await client.sendRequest('zlang/prepareDebugBundle', {
     textDocument: { uri: vscode.Uri.file(program).toString() },
     top: config.top,
     project: existingProject,
     profile: config.profile,
     logicState: config.logicState ?? true,
+    events,
   });
   const directory = path.join(context.globalStorageUri.fsPath, 'debug', bundle.identity);
   fs.mkdirSync(directory, { recursive: true });
@@ -189,7 +193,18 @@ async function prepareDebugConfiguration(context, config) {
   fs.writeFileSync(planPath, Buffer.from(bundle.plan, 'base64'));
   const overlay = { ...bundle };
   delete overlay.plan;
+  delete overlay.prepared_events;
   fs.writeFileSync(overlayPath, `${JSON.stringify(overlay)}\n`);
+  let eventsPath;
+  if(events!==undefined){
+    const prepared=bundle.prepared_events;
+    if(prepared?.schema!=='zlang-native-debug-events-v1'||prepared.plan_identity!==bundle.plan_identity
+      ||typeof prepared.jsonl!=='string'||Buffer.byteLength(prepared.jsonl,'utf8')>16*1024*1024
+      ||crypto.createHash('sha256').update(prepared.jsonl).digest('hex')!==prepared.sha256)
+      throw new Error('Compiler did not prepare matching typed debug events; update the compiler and extension together.');
+    eventsPath=path.join(directory,`events-${prepared.sha256}.jsonl`);
+    fs.writeFileSync(eventsPath,prepared.jsonl,'utf8');
+  }
   return {
     ...config,
     type: 'zlang-hdl',
@@ -198,7 +213,7 @@ async function prepareDebugConfiguration(context, config) {
     planPath,
     overlayPath,
     traceStore: path.join(directory, 'trace'),
-    events: config.events ? expandLaunchPath(config.events, program) : undefined,
+    events: eventsPath,
   };
 }
 
@@ -215,8 +230,8 @@ class ZLangDebugConfigurationProvider {
     }];
   }
 
-  async resolveDebugConfiguration(_folder, config) {
-    return prepareDebugConfiguration(this.context, config);
+  async resolveDebugConfiguration(folder, config) {
+    return prepareDebugConfiguration(this.context, config,folder);
   }
 }
 
@@ -364,8 +379,14 @@ async function loadWaveformSession(context) {
 }
 
 async function refreshLiveWaveform(session) {
-  if(vscode.debug.activeDebugSession?.id!==session?.id)return;
-  await liveWaveformFeed?.update(session);
+  if(session?.type!=='zlang-hdl'||vscode.debug.activeDebugSession?.id!==session.id)return;
+  const feed=liveWaveformFeed;
+  await feed?.update(session);
+  if(feed===liveWaveformFeed&&feed?.sessionId===session.id&&vscode.debug.activeDebugSession?.id===session.id){
+    const config=session.configuration||{};
+    const owner=config.top||path.basename(config.program||'')||session.name;
+    liveWaveformPanel.title='ZLang HDL Live Waveform — '+owner;
+  }
 }
 
 async function openLiveWaveform(context) {
@@ -388,6 +409,7 @@ async function openLiveWaveform(context) {
         if(message?.type==='saveSession'){await saveSession(vscode,channel);return;}
         if(message?.type==='loadSession'){await loadWaveformSession(context);return;}
         if(message?.type==='addTraceSignals'){await vscode.commands.executeCommand('zlang-hdl.addTraceSignals');return;}
+        if(message?.type==='switchDebugSession'){await vscode.commands.executeCommand('zlang-hdl.switchDebugExample');return;}
         if(message?.type==='exportTrace'){await exportLiveTrace(vscode,vscode.debug.activeDebugSession);return;}
         if(message?.type==='load'){
           if(typeof message.source!=='string'||!['.fst','.vcd'].includes(path.extname(message.source).toLowerCase()))
@@ -429,6 +451,9 @@ async function openLiveWaveform(context) {
 
 function registerNativeSurface(context) {
   if (nativeTools === null) return;
+  const launches=new DebugLaunchController(vscode,()=>openLiveWaveform(context));
+  const start=choice=>choice?vscode.window.withProgress({location:vscode.ProgressLocation.Notification,
+    title:'Starting '+choice.label,cancellable:false},()=>launches.start(choice)):Promise.resolve(false);
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterTrackerFactory('zlang-hdl',{
       createDebugAdapterTracker(session){
@@ -484,15 +509,15 @@ function registerNativeSurface(context) {
         openLiveWaveform(context);
       }
     }),
-    vscode.commands.registerCommand('zlang-hdl.startSimulation', async () => {
-      await vscode.debug.startDebugging(undefined, {
-        type: 'zlang-hdl', request: 'launch', name: 'Debug ZLang HDL',
-        program: vscode.window.activeTextEditor?.document.uri.fsPath,
-        top: 'Top', logicState: true, stopOnEntry: true,
-      });
-    }),
+    vscode.commands.registerCommand('zlang-hdl.startSimulation',async()=>start(
+      await selectDebugLaunch(vscode,{activeFile:vscode.window.activeTextEditor?.document.uri.fsPath}))),
+    vscode.commands.registerCommand('zlang-hdl.switchDebugExample',async name=>start(
+      await selectDebugLaunch(vscode,{name}))),
     vscode.debug.onDidReceiveDebugSessionCustomEvent((event) => {
       if (event.event === 'zlang/waveformUpdated') void refreshLiveWaveform(event.session);
+    }),
+    vscode.debug.onDidChangeActiveDebugSession(session=>{
+      if(liveWaveformPanel)void refreshLiveWaveform(session);
     }),
   );
   for(const [action,fallback] of [['cut','editor.action.clipboardCutAction'],

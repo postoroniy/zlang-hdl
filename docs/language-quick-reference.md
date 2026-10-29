@@ -40,7 +40,8 @@ exact width tables and supported forms, follow the linked topic guide.
 
 For buffered streams and numerical components, see
 [stream composition, CRC and FIR](stdlib-stream-dsp.md):
-`std.stream.composition` provides `RvFork2`/`RvJoin2`, `std.coding.crc`
+`std.stream.composition` provides passive `Tee`/`RvTee` and buffered
+`RvFork2`/`RvJoin2`, `std.coding.crc`
 provides `RvCrc32Byte`, and `std.dsp.fir` provides exact and explicitly
 quantized parallel FIR. FIR has one elastic output stage, II=1, immutable
 coefficients, and history that advances only on `input.transfer`.

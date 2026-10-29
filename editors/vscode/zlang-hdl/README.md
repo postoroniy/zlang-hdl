@@ -75,6 +75,13 @@ dependencies remain locked saved inputs. Diagnostics in closed imports point to
 their own files, not the importing module. The compiler/LSP remain the semantic
 authority; the extension does not add parser recovery or generated-RTL navigation.
 
+**Shift+F12** opens **Peek References** for the ZLang symbol at the cursor,
+including when there is only one resolved usage. Close the list with **Escape**;
+the shortcut opens it again. This binding is available in both VSIX variants
+and applies to the main ZLang source editor when its reference provider is ready.
+Other languages retain their existing shortcuts. A function name and its return
+type are separate symbols, including when both occur on one line.
+
 Projects with `zlang.toml` require `zlang.lock`, even with zero dependencies.
 Restore a clone's checked-in lock and exact dependency sources/cache. For a new
 project, run `zlang lock update --project path/to/zlang.toml` once to create it;
@@ -181,6 +188,33 @@ packed four-state `set_logic` assignments, physical `reset` levels, coincident
 clock `edges`, and a positive bounded `repeat`. Instead of `events`, a simple
 launch may provide `clock` plus bounded `cycles`; the two forms are mutually
 exclusive.
+
+Use **ZLang HDL: Switch Debug Example…** or **Switch debug…** in the live
+waveform toolbar to choose among all 25 supplied runnable example/top launches.
+The command waits for the previous active ZLang session to terminate, starts the
+selected launch at event zero, and opens/rebinds the live waveform automatically.
+Other-language and inactive debug sessions are left running. Cancelling the
+picker leaves the current session intact. Repeat switches are serialized.
+
+The editor-title **Start Native Simulation Debugger** action selects the
+configuration for the current source; files with several tops show a picker.
+It uses the configured top and JSONL, rather than assuming a module named Top.
+Launch paths resolve against the selected workspace folder in multi-root workspaces.
+For a new test, add its top and stimulus or bounded clock/cycles to launch.json.
+See the [runnable example inventory](https://github.com/postoroniy/zlang-hdl/blob/main/examples/README.md#switch-runnable-examples-in-vs-code).
+
+The normal Run and Debug dropdown/F5 remains available; Shift+F5 stops a manual
+session. Opening a different source alone does not change a running simulation.
+The live tab identifies the owning top, and each design's layout is recovered
+separately. CORDIC needs 16 unstalled clock edges before a result; Continue runs
+the complete supplied schedule, while F10 inspects individual events.
+
+Structured JSONL values and signed/wide inputs are packed by the compiler using
+the same typed value and protocol bindings as native simulation. The immutable
+prepared schedule is checked against the execution plan before launch; it does
+not add another simulation engine. Source and prepared schedules are each
+limited to 16 MiB, with the existing one-million-expanded-event limit unchanged.
+Install matching compiler and extension updates together.
 
 Click the source gutter or press **F9** on a rule such as `when enable` in
 `examples/rule_action.zhl`, then use **F5 / Continue** to stop after it fires.
@@ -342,3 +376,15 @@ No GitHub Linguist submission or other editor port is part of this release.
 Support and issues: [ZLang HDL](https://github.com/postoroniy/zlang-hdl/issues).
 Copyright 2026 Viacheslav Vinogradov; Apache-2.0. The packaged extension includes
 the project license and attribution notice.
+
+The build-only dependency override pins Azure Identity's MSAL Node to 7.1.2
+for [GHSA-xcx6-jx8p-x3h5](https://github.com/advisories/GHSA-xcx6-jx8p-x3h5).
+The current Identity release still requests an affected major; do not remove
+the override until an upstream-compatible fix passes the complete audit and
+packaging tests. `qs` is locked to 6.17.0 for
+[GHSA-6pq8-jhm2-2vcw](https://github.com/advisories/GHSA-6pq8-jhm2-2vcw).
+`npm test` checks dependency loading, credential construction and query
+serialization; VSIX host tests qualify local packaging and editor behavior.
+These tests do not exercise Marketplace authentication or publication.
+`make editor-advisory-audit` checks all locked dependencies, including build
+tools. The override and build dependencies are excluded from the VSIX.

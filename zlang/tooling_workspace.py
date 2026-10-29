@@ -19,12 +19,14 @@ def _root_logical_source(
     source: Path,
     session: WorkspaceIndexOwner | None = None,
 ) -> str | None:
-    """Return the locked logical identity for the current root when known."""
+    """Return the compiler root identity, including standalone filename units."""
 
     try:
         location = discover_project(source)
         if location is None:
-            return None
+            # compiler.check_file_snapshot assigns this exact standalone unit.
+            # None would make indexed queries search imported source spans too.
+            return source.name
         index = (
             session._workspace_index_for(location.manifest_path)
             if session is not None

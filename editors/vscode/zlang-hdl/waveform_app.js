@@ -13,9 +13,9 @@ state.holders=new WaveformHolderCache();state.renderedRanges=new Map();
 state.cursorValuesA=null;state.cursorValuesB=null;
 state.browserSelection=new Set();state.openScopes=new Set();
 for(const [id,label] of [['saveSession','Save Session'],['loadSession','Load Session'],
-  ['addTraceSignals','Add signals'],['exportTrace','Export Trace']]){
+  ['addTraceSignals','Add signals'],['exportTrace','Export Trace'],['switchDebugSession','Switch debug…']]){
   const button=document.createElement('button');button.id=id;button.textContent=label;
-  button.hidden=['addTraceSignals','exportTrace'].includes(id);
+  button.hidden=['addTraceSignals','exportTrace','switchDebugSession'].includes(id);
   button.addEventListener('click',()=>vscode.postMessage({type:id}));
   el('toolbar').insertBefore(button,el('summary'));
 }

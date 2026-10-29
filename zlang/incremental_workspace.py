@@ -26,6 +26,8 @@ def _digest(payload: bytes) -> str:
 
 
 def _physical_fingerprint(session: CompilationSession) -> tuple[object, ...]:
+    from zlang.workspace import WorkspaceError, validate_project_toolchain
+
     inputs = session.physical_inputs
     overlays = dict(inputs.editor_source_overlays)
     files = []
@@ -51,12 +53,17 @@ def _physical_fingerprint(session: CompilationSession) -> tuple[object, ...]:
         if model is None:
             inventory: tuple[str, ...] = ()
         else:
+            validate_project_toolchain(model)
             root = model.source_directory.resolve(strict=True)
             inventory = tuple(
                 sorted(
                     path.relative_to(root).as_posix() for path in root.rglob("*.zhl")
                 )
             )
+    except WorkspaceError:
+        # A failed SDK admission is never a reusable "unavailable" inventory.
+        # In particular refresh() must not bless an old typed product after it.
+        raise
     except (OSError, ValueError, ProjectModelError):
         inventory = ("<unavailable>",)
     return (*files, ("root-package-inventory", inventory))

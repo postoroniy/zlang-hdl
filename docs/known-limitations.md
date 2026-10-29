@@ -67,3 +67,8 @@ Formal support is specific to each property family and observation boundary.
 `bounded_pass` is not an unbounded proof, and `skipped`, `unavailable`, and
 `unknown` make no proof claim. Report any accepted design that emits invalid
 RTL as a correctness defect.
+
+Community supports explicit passive taps and user-managed vendor debug wrappers.
+It does not provide automatic hardware instrumentation or an ASIC scan/ATPG flow.
+External tools and board capture are separately qualified; see the
+[vendor example](../examples/fpga_debug/README.md).

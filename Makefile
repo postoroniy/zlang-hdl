@@ -16,7 +16,7 @@ export MAKE
 CARGO_AUDIT ?= cargo-audit
 CARGO_AUDIT_VERSION ?= 0.22.2
 PIP_VERSION ?= 26.2.1
-SETUPTOOLS_VERSION ?= 84.0.0
+SETUPTOOLS_VERSION ?= 84.2.1
 RUFF_VERSION ?= 0.12.12
 PIP_AUDIT_VERSION ?= 2.10.1
 REUSE_VERSION ?= 5.1.1
@@ -291,7 +291,7 @@ release-tools:
 ci-bootstrap:
 	$(MAKE) --no-print-directory venv
 
-ci-fast-core:
+ci-fast-core: community-boundary-check
 	$(call RUN_PYTHON,ci-fast-status) -m tools.release_status check --root .
 	$(MAKE) --no-print-directory static
 	$(MAKE) --no-print-directory audit
@@ -299,7 +299,7 @@ ci-fast-core:
 	$(MAKE) --no-print-directory package \
 		BUILD_ROOT="$(CI_BUILD_ROOT)" DIST_DIR="$(CI_BUILD_ROOT)/dist"
 
-ci-full-regression:
+ci-full-regression: community-boundary-check
 	if [[ -z "$(CI_JUNIT)" ]]; then
 		echo 'ci-full-regression requires CI_JUNIT' >&2
 		exit 2
@@ -314,7 +314,7 @@ ci-full-regression:
 	$(call RUN_PYTHON,ci-full-floor) -m tools.release_status check-junit \
 		--root . --junit "$(CI_JUNIT)"
 
-ci-performance-regression:
+ci-performance-regression: community-boundary-check
 	if [[ -z "$(CI_JUNIT)" ]]; then
 		echo 'ci-performance-regression requires CI_JUNIT' >&2
 		exit 2
@@ -630,3 +630,7 @@ package:
 # This target prepares and validates local candidate artifacts. It deliberately
 # does not create commits/tags, upload artifacts, or publish a GitHub release.
 release-candidate: release-preflight release-sanity native-release-install native-editor-audit jit-check jit-audit jit-advisory-audit audit release-tools test-release-twice editor-host-test editor-native-host-test package
+
+.PHONY: community-boundary-check
+community-boundary-check:
+	$(call RUN_PYTHON,community-boundary) -m tools.community_boundary --root . --history

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Mapping
 
 from zlang.common.tool_inventory import ToolInventory, discover_tool_inventory
-from zlang.common.subprocess import subprocess_text
+from zlang.common.subprocess import run_bounded_process, subprocess_text
 from zlang.formal_trace import TraceBinding, decode_vcd_trace
 from zlang.ir.comparison_window import ComparisonWindow
 from zlang.ir.formal import (
@@ -453,7 +453,7 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
             *auxiliary_names, "",
         )))
         try:
-            completed = subprocess.run(("sby", "-f", config.name), cwd=root,
+            completed = run_bounded_process(("sby", "-f", config.name), cwd=root,
                                        capture_output=True, text=True,
                                        timeout=timeout_seconds)
         except subprocess.TimeoutExpired as error:
@@ -626,7 +626,7 @@ def run_verilog_cover(
             *auxiliary_names, "",
         )))
         try:
-            completed = subprocess.run(
+            completed = run_bounded_process(
                 ("sby", "-f", config.name),
                 cwd=root,
                 capture_output=True,

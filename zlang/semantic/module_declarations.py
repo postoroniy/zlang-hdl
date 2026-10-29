@@ -17,6 +17,7 @@ from zlang.definition_resolution import DefinitionTarget
 from .errors import SemanticError
 from . import context as semantic_context
 from . import callables as semantic_callables
+from . import callable_bodies
 from . import compile_time_evaluation
 from . import concise_module_items
 from . import imports as semantic_imports
@@ -559,17 +560,25 @@ class DeclarationAndCallablePreparer:
                     type_resolution.record_type_syntax_definitions(
                         declaration_context, field.type_name, type_resolver
                     )
-            for declaration in module.functions:
+            function_declarations = {item.name: item for item in module.functions}
+            for declaration in (*module.functions, *module.operators):
                 declaration_context = semantic_callables._context_for_source_declaration(
                     pure_context, declaration.source_identity
                 )
+                shadowed = frozenset(item.name for item in declaration.generic_parameters)
                 for parameter in declaration.parameters:
                     type_resolution.record_type_syntax_definitions(
-                        declaration_context, parameter.type_name, type_resolver
+                        declaration_context, parameter.type_name, type_resolver,
+                        shadowed_names=shadowed,
                     )
                 if declaration.return_type is not None:
                     type_resolution.record_type_syntax_definitions(
-                        declaration_context, declaration.return_type, type_resolver
+                        declaration_context, declaration.return_type, type_resolver,
+                        shadowed_names=shadowed,
+                    )
+                if declaration.generic_parameters or isinstance(declaration, ast.OperatorDecl):
+                    callable_bodies.record_deferred_body_definitions(
+                        declaration, function_declarations, declaration_context
                     )
             # Module-interface signatures are resolved independently of whether a
             # source module is selected as the physical top or reached through the

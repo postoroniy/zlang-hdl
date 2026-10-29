@@ -215,11 +215,10 @@ def _narrowest_source_record(
         origin = _origin_from_source(compiler_origin)
         if origin is None:
             continue
-        if (
-            source_unit is not None
-            and getattr(compiler_origin, "source_unit", None)
-            not in {None, source_unit}
-        ):
+        # None identifies the standalone root, not a wildcard over imports.
+        # Imported callable bodies can retain overlapping line/column spans;
+        # they must never win a root-document navigation query by being narrower.
+        if getattr(compiler_origin, "source_unit", None) not in {None, source_unit}:
             continue
         if not _position_in_origin(origin, line, character):
             continue

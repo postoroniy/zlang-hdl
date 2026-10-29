@@ -1,0 +1,25 @@
+import std.stream.composition
+
+// Put the generated DUT inside a board-level HDL wrapper. The debug outputs
+// connect to internal ILA/Signal Tap nets, not to additional package pins.
+module VendorDebugDut {
+    clock clk reset rst
+    in input : rv<u16>
+    out output : rv<u16>
+    out debug_payload : u16
+    out debug_valid, debug_ready, debug_transfer : bit
+    out debug_count : u16
+
+    tap : RvTee<T=u16>
+    input -> tap.input
+    tap.output -> output
+    debug_payload = tap.tap_payload
+    debug_valid = tap.tap_valid
+    debug_ready = tap.tap_ready
+    debug_transfer = tap.tap_transfer
+
+    reg accepted : u16 = 0
+    when input.transfer { accepted <- truncate<16>(accepted + 1) }
+    // A scalar needs no helper: a direct assignment is also a passive tap.
+    debug_count = accepted
+}

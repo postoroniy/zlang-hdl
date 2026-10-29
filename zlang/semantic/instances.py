@@ -572,7 +572,7 @@ class InstanceSpecializer:
                 ))
             elif parameter.kind == "type":
                 complete.append(ast.SpecializationArgument(
-                    parameter.name, ast.TypeName(str(types[parameter.name]))
+                    parameter.name, ast.TypeName(parameter.name)
                 ))
             elif parameter.kind == "value":
                 complete.append(ast.SpecializationArgument(
@@ -593,6 +593,7 @@ class InstanceSpecializer:
                 (),
                 self.context.expression_context,
                 self.context.value_symbols,
+                resolved_types=types,
             )
         )
         dependency = (

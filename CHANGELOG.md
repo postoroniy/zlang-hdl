@@ -13,6 +13,16 @@ incompatible input explicitly.
 
 ### Added
 
+- Passive typed `Tee`/`RvTee` stream taps with explicit debug outputs and
+  external-wrapper examples for Vivado ILA and Quartus Signal Tap. No storage,
+  flow control, CDC or vendor IP implementation is added by a tap.
+
+- Optional exact SDK locking through project schema 2 and lock schema 3, including
+  compiler/runtime and bundled stdlib inventories with fail-closed cache reuse.
+  Legacy project and lock schemas remain supported.
+- Shared binary32/binary64 floating-point stdlib components under `std.math.fp`,
+  with explicit operations, rounding modes, flags and buffered transaction flow.
+
 - Three manifest-driven manuals: Language Reference, Standard Library Guide
   and User Guide. Canonical Markdown chapters also build the PDFs; schema-3
   documentation metadata, portable inter-book navigation and whole-set release
@@ -20,6 +30,39 @@ incompatible input explicitly.
 
 ### Fixed
 
+- Every supplied runnable JSONL example has a named debug launch. The live
+  waveform can switch examples with automatic session termination and correct
+  top/stimulus selection, including multi-root workspace paths.
+
+- Typed signed/ready-valid JSONL now launches in the native debugger. The
+  checked-in CORDIC launch and live waveform session switching replace stale
+  RuleAction rows and identify the active module in the live tab.
+
+- Retain nominal enum and aggregate type facts in generic module
+  specialization (ZL-070); compare tagged-union wire outputs through the
+  native packed wire/protocol ABI instead of invalid DTO repacking (SIM-006).
+
+- Patch locked VSIX build dependencies for MSAL and qs security advisories, and
+  keep language-client and setuptools upgrades aligned with their toolchain pins.
+
+- Invalid callable bodies and empty vector literals report source-positioned
+  diagnostics instead of Python tracebacks, including `--check` and LSP edits
+  (ZL-069). Empty vectors remain unsupported; valid callable semantics are unchanged.
+- Go to Definition resolves declaration names and type/constructor/direct-call
+  references in deferred generic function and operator bodies. Lookup preserves
+  lexical shadowing and exact imported origins; stale symbol shards are invalidated.
+- Failed incremental SDK validation cannot retain cached typed products or
+  replace a project lock with an incompatible compiler/runtime/stdlib inventory.
+- Compile-time packed slices preserve arithmetic grouping and lexical generate
+  indices. Packed-vector offset scaling preserves a conditional index's exact
+  width, and native/RTL comparison gathers strided aggregate ABI fields.
+- Native plan lowering keeps capture-dependent memoization local to each pure
+  function invocation, including repeated and nested calls.
+- Formal deadlines terminate owned descendant processes as well as their
+  wrappers, without changing solver limits or proof-status requirements.
+- Standalone navigation isolates imported source spans; indexed standard-library
+  resolution avoids repeated dependency-closure parsing and reuses retained
+  source paths. SystemVerilog physical bindings escape the `config` keyword.
 - Secret scanning distinguishes the two documentation source SHA-256 fields
   in release metadata from API credentials. The exception is restricted to the
   exact file and whole hash fields; default rules and full-history scanning

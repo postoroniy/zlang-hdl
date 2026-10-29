@@ -54,6 +54,39 @@ class WorkspaceError(ValueError):
     """A project cannot be locked or compiled reproducibly."""
 
 
+def _validate_toolchain_contracts(manifest, dependencies=(), lock=None):
+    """Admit opt-in SDK inputs before indexing or reusing compiler products."""
+    from zlang.toolchain_lock import require_toolchain
+
+    requirements = tuple(owner.toolchain for owner in (manifest, *dependencies)
+                         if owner.toolchain is not None)
+    if manifest.toolchain is None:
+        if requirements:
+            raise WorkspaceError("toolchain-pinned dependency requires root project schema 2")
+        if lock is not None and lock.toolchain is not None:
+            raise WorkspaceError("legacy project cannot consume a toolchain-pinned lock")
+        return None
+    if lock is not None and lock.toolchain is None:
+        raise WorkspaceError("project schema 2 requires complete lock schema 3")
+    try:
+        return require_toolchain(requirements, None if lock is None else lock.toolchain)
+    except ValueError as error:
+        raise WorkspaceError(str(error)) from error
+
+
+def validate_project_toolchain(manifest: ProjectManifest) -> None:
+    """Fresh opt-in guard for callers about to reuse a cached tooling product."""
+    if manifest.toolchain is None:
+        return
+    try:
+        lock = ProjectLock.load(manifest.project_root / "zlang.lock")
+    except ProjectModelError as error:
+        raise WorkspaceError(str(error)) from error
+    if lock.manifest_resolution_digest != manifest.resolution_digest:
+        raise WorkspaceError("zlang.lock does not match zlang.toml; run 'zlang lock update'")
+    _validate_toolchain_contracts(manifest, lock=lock)
+
+
 def source_path_for_logical_unit(
     root_modules: Iterable[object],
     dependency_modules: Iterable[object],
@@ -661,6 +694,7 @@ def load_project_workspace(
         raise WorkspaceError(
             "zlang.lock does not match zlang.toml; run 'zlang lock update'"
         )
+    _validate_toolchain_contracts(manifest, lock=lock)
     _validate_external_mappings(manifest, lock)
 
     locations: dict[str, _PackageLocation] = {}
@@ -686,6 +720,7 @@ def load_project_workspace(
         dependency_manifest = _load_manifest_at(root)
         locations[package.name] = _PackageLocation(dependency_manifest, root, spec)
     _validate_graph(manifest, lock, locations)
+    _validate_toolchain_contracts(manifest, tuple(v.manifest for v in locations.values()), lock)
 
     root_records, _ = _index_package(
         manifest,
@@ -789,6 +824,7 @@ def update_project_lock(project: Path | str = Path("zlang.toml")) -> ProjectLock
     except ProjectModelError as error:
         raise WorkspaceError(str(error)) from error
     assert manifest is not None
+    _validate_toolchain_contracts(manifest)
     state_root = _validated_state_root(manifest.project_root, create=True)
     locations: dict[str, _PackageLocation] = {}
     specs: dict[str, DependencySpec] = {}
@@ -902,11 +938,13 @@ def update_project_lock(project: Path | str = Path("zlang.toml")) -> ProjectLock
         for dependency in manifest.dependencies:
             visit(manifest, dependency)
 
+        toolchain = _validate_toolchain_contracts(manifest, tuple(v.manifest for v in locations.values()))
         lock = ProjectLock(
-            LOCK_SCHEMA,
+            LOCK_SCHEMA if toolchain is None else 3,
             manifest.resolution_digest,
             tuple(packages.values()),
             _lock_external_mappings(manifest),
+            toolchain,
         )
         _validate_graph(manifest, lock, locations)
         root_records, _ = _index_package(
@@ -972,6 +1010,7 @@ def update_project_lock(project: Path | str = Path("zlang.toml")) -> ProjectLock
                 source.rename(destination)
 
         lock_path = manifest.project_root / "zlang.lock"
+        _validate_toolchain_contracts(manifest, tuple(v.manifest for v in locations.values()), lock)
         publish_text_atomically(lock_path, lock.render())
         return lock
 

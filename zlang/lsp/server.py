@@ -794,7 +794,8 @@ class LspServer:
         top = request.get("top")
         project = request.get("project")
         profile = request.get("profile")
-        for value, label in ((top, "top"), (project, "project"), (profile, "profile")):
+        events = request.get("events")
+        for value, label in ((top, "top"), (project, "project"), (profile, "profile"), (events, "events")):
             if value is not None and not isinstance(value, str):
                 raise LspProtocolError(f"debug {label} must be a string")
         logic_state = request.get("logicState", True)
@@ -806,6 +807,7 @@ class LspServer:
             project=project,
             profile=profile,
             logic_state=logic_state,
+            events=events,
         )
         return bundle.to_data()
 

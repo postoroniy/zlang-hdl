@@ -1,0 +1,128 @@
+import std.math.fp_arithmetic
+import std.math.fp_convert
+
+// Complete non-iterative operation selection; div/sqrt finite datapaths belong
+// to RvBinaryFloat below. This function also owns their exceptional results.
+fn fp_compute<E,F,W=1+E+F>(request:FpRequest<W>) -> FpResult {
+    a = request.a
+    b = request.b
+    op = request.operation
+    rm = request.rounding
+    left = fp_decode<E=E,F=F>(a)
+    right = fp_decode<E=E,F=F>(b)
+    copied_sign = op == 9 ? right.sign : op == 10 ? ~right.sign : left.sign ^ right.sign
+    signed_bits = concat(bitcast<bits<1>>(copied_sign),a[W-2:0])
+    sign_result = FpResult {value=extend<64>(signed_bits) flags=0 illegal=0}
+    class_result = FpResult {value=extend<64>(fp_classify<E=E,F=F>(a)) flags=0 illegal=0}
+    move_result = FpResult {
+        value=op == 22 ? extend<64>(request.integer[W-1:0])
+            : if W == 32 {bitcast<bits<64>>(extend<64>(bitcast<s32>(a)))} else {extend<64>(a)}
+        flags=0 illegal=0
+    }
+    converted = if W == 32 {fp_convert<SE=11,SF=52,DE=E,DF=F>(request.integer,rm)}
+        else {fp_convert<SE=8,SF=23,DE=E,DF=F>(request.integer[31:0],rm)}
+    invalid_long = left.signaling | ((op == 3) & right.signaling) |
+        ((op == 3) & ((left.is_zero & right.is_zero) | (left.infinity & right.infinity))) |
+        ((op == 4) & left.sign & ~left.is_zero & ~left.nan)
+    nan_long = left.nan | ((op == 3) & right.nan) | invalid_long
+    division_zero = (op == 3) & right.is_zero & ~left.is_zero & ~left.infinity & ~left.nan
+    infinite_long = (op == 3) ? left.infinity | right.is_zero : left.infinity
+    long_sign = op == 3 ? left.sign ^ right.sign : left.sign
+    special = FpResult {
+        value=nan_long ? extend<64>(fp_nan<E=E,F=F>())
+            : infinite_long ? extend<64>(fp_infinity<E=E,F=F>(long_sign))
+            : extend<64>(concat(bitcast<bits<1>>(long_sign),zeros<E+F>))
+        flags=invalid_long ? 16 : division_zero ? 8 : 0 illegal=rm > 4
+    }
+    op <= 1 ? fp_add<E=E,F=F>(a,b,op == 1,rm)
+        : op == 2 ? fp_multiply<E=E,F=F>(a,b,rm)
+        : (op == 3) | (op == 4) ? special
+        : op <= 8 ? fp_fused<E=E,F=F>(a,b,request.c,op >= 7,(op == 6) | (op == 8),rm)
+        : op <= 11 ? sign_result
+        : op <= 13 ? fp_minmax<E=E,F=F>(a,b,op == 13)
+        : op <= 16 ? fp_compare<E=E,F=F>(a,b,op)
+        : op == 17 ? class_result
+        : op == 18 ? fp_to_integer<E=E,F=F>(a,request.word,request.unsigned_integer,rm)
+        : op == 19 ? fp_from_integer<E=E,F=F>(request.integer,request.word,request.unsigned_integer,rm)
+        : op == 20 ? converted : op <= 22 ? move_result
+        : FpResult {value=0 flags=0 illegal=1}
+}
+
+// Keep combinational arithmetic outside the sequential control process. This
+// is an ordinary reusable source boundary, not a vendor/black-box primitive.
+module BinaryFloatFast<E=8,F=23,W=1+E+F> {
+    in request:FpRequest<W>
+    out result:FpResult
+    result=fp_compute<E=E,F=F>(request)
+}
+
+// One in-flight request, one buffered result. Simple operations take one edge;
+// finite division takes F+6 edges and sqrt F+5 edges. No overlap, no hidden CSR.
+// Output stalls preserve all bits/flags. Cancellation discards work/result.
+// Only the two IEEE interchange profiles are admitted by this public wrapper.
+module RvBinaryFloat<E=8,F=23,W=1+E+F,X=E+5,D=F+5,S=F+4,R=F*2+8,H=F+6>
+where ((E == 8 && F == 23) || (E == 11 && F == 52)) && W == 1+E+F
+   && X == E+5 && D == F+5 && S == F+4 && R == F*2+8 && H == F+6 {
+    clock clk reset rst
+    in input:rv<FpRequest<W>>
+    out output:rv<FpResult>
+    in cancel:bit
+    reg phase:u2 = 0
+    reg count:u8 = 0
+    reg remainder:uint<F+6> = 0
+    reg divisor:uint<F+6> = 0
+    reg quotient:bits<F+5> = 0
+    reg radicand:bits<F*2+8> = 0
+    reg root:uint<F+4> = 0
+    reg result_sign:bit = 0
+    reg result_scale:sint<E+5> = 0
+    reg rounding:u3 = 0
+    reg result:FpResult = FpResult {value=0 flags=0 illegal=0}
+    input.ready = ((phase == 0) | ((phase == 3) & output.ready)) & ~cancel
+    output.valid = (phase == 3) & ~cancel
+    output.payload = result
+    a = fp_decode<E=E,F=F>(input.payload.a)
+    b = fp_decode<E=E,F=F>(input.payload.b)
+    operation = input.payload.operation
+    division = (operation == 3) & ~a.nan & ~b.nan & ~a.infinity & ~b.infinity & ~a.is_zero & ~b.is_zero
+    square_root = (operation == 4) & ~a.nan & ~a.infinity & ~a.is_zero & ~a.sign
+    fast : BinaryFloatFast<E=E,F=F>
+    fast.request=input.payload
+    fast_result = fast.result
+    div_ge = remainder >= divisor
+    div_next = div_ge ? truncate<H>(remainder-divisor) : remainder
+    div_quotient = (quotient << 1) | extend<D>(bitcast<bits<1>>(div_ge))
+    div_sticky = div_quotient | extend<D>(bitcast<bits<1>>(div_next != 0))
+    sqrt_remainder = truncate<H>((remainder << 2) | extend<H>(bitcast<uint<2>>(radicand[R-1:R-2])))
+    sqrt_trial = (extend<H>(root) << 2) | 1
+    sqrt_ge = sqrt_remainder >= sqrt_trial
+    sqrt_next = sqrt_ge ? truncate<H>(sqrt_remainder-sqrt_trial) : sqrt_remainder
+    sqrt_root = (root << 1) | extend<S>(bitcast<uint<1>>(sqrt_ge))
+    sqrt_sticky = bitcast<bits<S>>(sqrt_root) | extend<S>(bitcast<bits<1>>(sqrt_next != 0))
+    division_result = fp_round_pack<E=E,F=F,M=D>(result_sign,div_sticky,result_scale,rounding)
+    sqrt_result = fp_round_pack<E=E,F=F,M=S>(0,sqrt_sticky,result_scale,rounding)
+
+    when cancel { phase <- 0 count <- 0 }
+    else when input.transfer {
+        rounding <- input.payload.rounding
+        result_sign <- a.sign ^ b.sign
+        when (input.payload.rounding > 4) & (division | square_root) {
+            phase <- 3 result <- FpResult {value=0 flags=0 illegal=1}
+        } else when division {
+            phase <- 1 count <- D
+            remainder <- extend<H>(bitcast<uint<F+1>>(a.significand))
+            divisor <- extend<H>(bitcast<uint<F+1>>(b.significand))
+            quotient <- 0 result_scale <- truncate<X>(a.exponent-b.exponent-(F+4))
+        } else when square_root {
+            phase <- 2 count <- S remainder <- 0 root <- 0
+            radicand <- extend<R>(a.significand) << (F+6+extend<8>(bitcast<uint<1>>(a.exponent[0])))
+            result_scale <- truncate<X>((a.exponent >> 1)-(F+3))
+        } else { phase <- 3 result <- fast_result }
+    } else when phase == 1 {
+        remainder <- div_next << 1 quotient <- div_quotient count <- truncate<8>(count-1)
+        when count == 1 { phase <- 3 result <- division_result }
+    } else when phase == 2 {
+        remainder <- sqrt_next radicand <- radicand << 2 root <- sqrt_root count <- truncate<8>(count-1)
+        when count == 1 { phase <- 3 result <- sqrt_result }
+    } else when output.transfer { phase <- 0 }
+}

@@ -18,6 +18,7 @@ import tempfile
 import time
 
 import z3
+from zlang.common.subprocess import run_bounded_process
 
 from zlang.formal_bitvector_rewrite import (
     ArithmeticProofUnavailable,
@@ -110,7 +111,7 @@ def _yosys(script, root, deadline, name):
     if remaining <= 0:
         raise ArithmeticProofUnavailable("RTL arithmetic preparation timeout")
     try:
-        result = subprocess.run(
+        result = run_bounded_process(
             ("yosys", "-Q", "-T", "-p", script),
             cwd=root,
             capture_output=True,

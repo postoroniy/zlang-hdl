@@ -1,5 +1,31 @@
 import std.stream.core
 
+// Combinational observation. Both outputs retain the exact input type/value;
+// the tap has no handshake, storage, reset or clock-domain conversion.
+module Tee<type T> {
+    in input : T
+    out output : T
+    out tap : T
+
+    output = input
+    tap = input
+}
+
+// Passive ready/valid observation. Only the functional output drives ready;
+// the tap cannot stall traffic and does not buffer or retain accepted items.
+module RvTee<type T> {
+    in input : rv<T>
+    out output : rv<T>
+    out tap_payload : T
+    out tap_valid, tap_ready, tap_transfer : bit
+
+    connect input -> output
+    tap_payload = input.payload
+    tap_valid = input.valid
+    tap_ready = input.ready
+    tap_transfer = input.transfer
+}
+
 // Buffered broadcast. A register slice owns the generic payload; flags track which
 // consumers still need this item, independently of their ready signals.
 module RvFork2<type T> {

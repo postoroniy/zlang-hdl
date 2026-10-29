@@ -1,0 +1,76 @@
+// CPU-independent IEEE binary interchange encodings. No language float type,
+// host floating-point operation, architectural CSR or flush-to-zero behavior.
+struct FpDecoded<E,F> {
+    sign:bit exponent:sint<E+5> significand:bits<F+1>
+    is_zero:bit subnormal:bit infinity:bit nan:bit signaling:bit
+}
+
+struct FpResult {
+    value:bits<64>
+    // RISC-V/IEEE flag order: NV DZ OF UF NX, most significant first.
+    flags:bits<5>
+    illegal:bit
+}
+
+struct FpRequest<W> {
+    a:bits<W> b:bits<W> c:bits<W> integer:bits<64>
+    // 0 add,1 sub,2 mul,3 div,4 sqrt,5 fma,6 fmsub,7 fnmsub,8 fnmadd;
+    // 9/10/11 sign/copy-negate/xor;12 min,13 max;14 eq,15 lt,16 le;
+    // 17 classify,18 float->integer,19 integer->float,20 other format->float;
+    // 21 float bits->integer,22 integer bits->float.
+    operation:u5 rounding:u3 word:bit unsigned_integer:bit
+}
+
+fn fp_bit_length<M>(value:bits<M>) -> u8 {
+    truncate<8>(sum(generate(i in 0..M) extend<8>(bitcast<uint<1>>((value >> i) != 0))))
+}
+
+fn fp_shift_jam<M>(value:bits<M>,distance:u16) -> bits<M> {
+    unit = extend<M>(1)
+    mask = bitcast<bits<M>>(truncate<M>((unit << distance) - unit))
+    shifted = value >> distance
+    shifted | extend<M>(bitcast<bits<1>>((distance >= M ? value : value & mask) != 0))
+}
+
+fn fp_decode<E,F,W=1+E+F,X=E+5>(value:bits<W>) -> FpDecoded<E,F> {
+    fraction = value[F-1:0]
+    field = value[F+E-1:F]
+    raw = concat(bitcast<bits<1>>(field != 0),fraction)
+    length = fp_bit_length<M=F+1>(raw)
+    shift = length == 0 ? extend<8>(0) : truncate<8>((F+1)-length)
+    biased = bitcast<sint<E+5>>(extend<X>(field == 0 ? bitcast<bits<E>>(extend<E>(1)) : field))
+    FpDecoded {
+        sign=value[W-1] exponent=truncate<X>(biased-((1 << (E-1))-1)-extend<X>(bitcast<s8>(shift)))
+        significand=raw << shift
+        is_zero=(field == 0) & (fraction == 0)
+        subnormal=(field == 0) & (fraction != 0)
+        infinity=(field == ((1 << E)-1)) & (fraction == 0)
+        nan=(field == ((1 << E)-1)) & (fraction != 0)
+        signaling=(field == ((1 << E)-1)) & (fraction != 0) & ~fraction[F-1]
+    }
+}
+
+fn fp_nan<E,F,W=1+E+F>() -> bits<W> {
+    concat(bitcast<bits<1>>(0),bitcast<bits<E>>((1 << E)-1),bitcast<bits<F>>(1 << (F-1)))
+}
+
+fn fp_infinity<E,F,W=1+E+F>(sign:bit) -> bits<W> {
+    concat(bitcast<bits<1>>(sign),bitcast<bits<E>>((1 << E)-1),zeros<F>)
+}
+
+fn fp_classify<E,F,W=1+E+F>(value:bits<W>) -> bits<10> {
+    d = fp_decode<E=E,F=F>(value)
+    normal = ~d.is_zero & ~d.subnormal & ~d.infinity & ~d.nan
+    concat(bitcast<bits<1>>(d.nan & ~d.signaling),bitcast<bits<1>>(d.signaling),
+        bitcast<bits<1>>(d.infinity & ~d.sign),bitcast<bits<1>>(normal & ~d.sign),
+        bitcast<bits<1>>(d.subnormal & ~d.sign),bitcast<bits<1>>(d.is_zero & ~d.sign),
+        bitcast<bits<1>>(d.is_zero & d.sign),bitcast<bits<1>>(d.subnormal & d.sign),
+        bitcast<bits<1>>(normal & d.sign),bitcast<bits<1>>(d.infinity & d.sign))
+}
+
+fn fp_round_increment(sign:bit,rounding:u3,low:bits<3>,odd:bit) -> bit {
+    rounding == 0 ? low[2] & ((low[1:0] != 0) | odd)
+        : rounding == 2 ? sign & (low != 0)
+        : rounding == 3 ? ~sign & (low != 0)
+        : rounding == 4 ? low[2] : bitcast<bit>(0)
+}

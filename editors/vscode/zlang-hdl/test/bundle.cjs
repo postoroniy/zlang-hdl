@@ -61,7 +61,7 @@ async function buildBundle() {
     const normalized = input.replaceAll('\\', '/');
     assert.ok([
       'extension.js', 'project_metadata.js', 'waveform_cache.js', 'waveform_channel.js', 'waveform_client.js',
-      'debug_waveform.js',
+      'debug_waveform.js', 'debug_launch.js',
       'waveform_live.js', 'waveform_view.js', 'waveform_wcp.js', 'waveform_session_io.js',
       'waveform_document.js',
       'waveform_clipboard.js',

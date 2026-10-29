@@ -167,6 +167,11 @@ def _runtime_struct_field_projection(expression: expr.FieldAccess) -> str:
     assert isinstance(vector.element_type, ir_types.StructType)
     rendered_vector = _expression(indexed.expression)
     rendered_index = _expression(indexed.index)
+    if isinstance(indexed.index, expr.Mux):
+        # A size cast used for packed offset scaling is context-determined.
+        # Seal a conditional's exact type before widening it to the offset
+        # type, otherwise SV propagates 32 bits into its narrow branches.
+        rendered_index = f"{sv_rendering._width(indexed.index.type)}'({rendered_index})"
     if sv_rendering._uses_native_vector_indexing(indexed.expression):
         return sv_rendering._struct_field_expression(
             f"{rendered_vector}[{rendered_index}]",
@@ -191,6 +196,8 @@ def _vector_index_expression(
     rendered_vector = _expression(expression.expression)
     if isinstance(expression, expr.RuntimeIndex):
         rendered_index = _expression(expression.index)
+        if isinstance(expression.index, expr.Mux):
+            rendered_index = f"{sv_rendering._width(expression.index.type)}'({rendered_index})"
     else:
         rendered_index = (
             str(expression.index)

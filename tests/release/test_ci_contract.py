@@ -107,7 +107,7 @@ def test_dependency_pins_have_one_repository_owner() -> None:
     makefile = MAKEFILE.read_text(encoding="utf-8")
     for pin in (
         "PIP_VERSION ?= 26.2.1",
-        "SETUPTOOLS_VERSION ?= 84.0.0",
+        "SETUPTOOLS_VERSION ?= 84.2.1",
         "RUFF_VERSION ?= 0.12.12",
         "PIP_AUDIT_VERSION ?= 2.10.1",
         "TWINE_VERSION ?= 6.2.0",

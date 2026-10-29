@@ -26,12 +26,25 @@ from .expression_collections import _check_reduction
 if TYPE_CHECKING:
     from .context import ExpressionContext
 
+
+# Shared name classification: deferred navigation must not mistake an intrinsic
+# for a same-named source function whose body has not been specialized.
+CALL_INTRINSIC_NAMES = semantic_limits.REAL_INTRINSICS | frozenset({
+    "repeat", "enum_encode", "enum_valid", "enum_decode", "parity", "length",
+    "floor_log2", "ceil_log2", "index_width", "is_power_of_two",
+    "fixed_to_raw", "fixed_raw", "fixed_truncate_wrap", "fixed_truncate_saturate",
+    "fixed_round_even_wrap", "fixed_round_even_saturate",
+})
+
+
 def _check_call_intrinsic(
     expression: ast.CallExpr,
     inputs: dict[str, semantic_symbols.ValueSymbol],
     expected: ir_types.HardwareType | None,
     context: ExpressionContext,
 ) -> ir_expr.Expression | None:
+    if expression.function not in CALL_INTRINSIC_NAMES:
+        return None
     if expression.function == "repeat":
         if len(expression.arguments) != 1:
             raise SemanticError("repeat expects one value argument")

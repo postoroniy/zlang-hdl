@@ -1,0 +1,62 @@
+import std.math.fp_format
+
+// The sole finite rounding/packing owner. Exact input is magnitude*2^scale;
+// bit zero may carry a right-shift sticky bit. Tininess is after rounding.
+fn fp_round_pack<E,F,M,W=1+E+F,X=E+5,P=F+4,Q=F+2,L=M+F+4>(sign:bit,magnitude:bits<M>,scale:sint<E+5>,rounding:u3) -> FpResult {
+    length = fp_bit_length<M=M>(magnitude)
+    highest = truncate<X>(extend<X>(bitcast<s8>(length))-1)
+    exponent = truncate<X>(scale+highest)
+    distance = truncate<X>(highest-(F+3))
+    wide = extend<L>(magnitude)
+    normalized_wide = distance >= 0
+        ? fp_shift_jam<M=M+F+4>(wide,bitcast<u16>(extend<16>(distance)))
+        : wide << bitcast<u16>(extend<16>(truncate<X>(-distance)))
+    normalized = truncate<P>(normalized_wide)
+    minimum = bitcast<sint<X>>(extend<X>(2-(1 << (E-1))))
+    maximum = bitcast<sint<X>>(extend<X>((1 << (E-1))-1))
+    denormal_shift = exponent < minimum
+        ? bitcast<u16>(extend<16>(truncate<X>(minimum-exponent))) : 0
+    aligned = fp_shift_jam<M=F+4>(normalized,denormal_shift)
+    effective_exponent = exponent < minimum ? minimum : exponent
+    discarded = aligned[2:0]
+    increment = fp_round_increment(sign,rounding,discarded,aligned[3])
+    rounded = extend<Q>(bitcast<uint<F+1>>(aligned[F+3:3])) + extend<Q>(bitcast<uint<1>>(increment))
+    significand = bitcast<bits<Q>>(truncate<Q>(rounded))
+    carry = significand[F+1]
+    final_exponent = truncate<X>(effective_exponent+bitcast<sint<X>>(extend<X>(bitcast<bits<1>>(carry))))
+    final_significand = carry ? significand >> 1 : significand
+    tiny = (final_exponent == minimum) & ~final_significand[F]
+    overflow = final_exponent > maximum
+    inexact = discarded != 0
+    field = tiny ? zeros<E> : truncate<E>(bitcast<bits<E+5>>(truncate<X>(final_exponent+((1 << (E-1))-1))))
+    finite = concat(bitcast<bits<1>>(sign),field,final_significand[F-1:0])
+    to_infinity = (rounding == 0) | (rounding == 4) |
+        ((rounding == 2) & sign) | ((rounding == 3) & ~sign)
+    largest = concat(bitcast<bits<1>>(sign),bitcast<bits<E>>((1 << E)-2),bitcast<bits<F>>((1 << F)-1))
+    result = magnitude == 0 ? concat(bitcast<bits<1>>(sign),zeros<E+F>)
+        : overflow ? (to_infinity ? fp_infinity<E=E,F=F>(sign) : largest) : finite
+    FpResult {value=extend<64>(result)
+        flags=magnitude == 0 ? 0 : overflow ? 5 : (tiny & inexact) ? 3 : inexact ? 1 : 0
+        illegal=rounding > 4}
+}
+
+// Aligned signed magnitude addition. K is the exact binary point of both
+// input magnitudes relative to their leading unbiased exponent.
+fn fp_sum<E,F,M,K,X=E+5>(a:bits<M>,b:bits<M>,ea:sint<E+5>,eb:sint<E+5>,
+    sa:bit,sb:bit,rounding:u3) -> FpResult {
+    // A zero product/addend has no leading exponent. Letting its arbitrary
+    // decoded exponent dominate alignment can erase an exact tiny addend.
+    exponent = a == 0 ? eb : b == 0 ? ea : ea > eb ? ea : eb
+    da = bitcast<u16>(extend<16>(truncate<X>(exponent-ea)))
+    db = bitcast<u16>(extend<16>(truncate<X>(exponent-eb)))
+    left = fp_shift_jam<M=M>(a,da)
+    right = fp_shift_jam<M=M>(b,db)
+    same = sa == sb
+    unsigned_left = bitcast<uint<M>>(left)
+    unsigned_right = bitcast<uint<M>>(right)
+    larger = unsigned_left >= unsigned_right
+    magnitude = bitcast<bits<M>>(same ? truncate<M>(unsigned_left+unsigned_right)
+        : larger ? truncate<M>(unsigned_left-unsigned_right) : truncate<M>(unsigned_right-unsigned_left))
+    sign = magnitude == 0 ? (same ? sa : rounding == 2) : larger ? sa : sb
+    fp_round_pack<E=E,F=F,M=M>(sign,magnitude,truncate<X>(exponent-K),rounding)
+}

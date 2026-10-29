@@ -58,6 +58,8 @@ class SpecializationArgumentBinder:
         arguments: tuple[ir_expr.Expression, ...],
         context: ExpressionContext,
         specialization_symbols: dict[str, object] | None = None,
+        *,
+        resolved_types: dict[str, ir_types.HardwareType] | None = None,
     ) -> tuple[
         dict[str, ir_types.HardwareType],
         dict[str, int],
@@ -67,6 +69,13 @@ class SpecializationArgumentBinder:
         if context.environment.type_resolver is None:
             raise SemanticError("generic specialization requires a type resolver")
         parameters = {item.name: item for item in declaration.generic_parameters}
+        resolved_types = resolved_types or {}
+        if any(
+            name not in parameters or parameters[name].kind != "type"
+            or not isinstance(value, ir_types.HardwareType)
+            for name, value in resolved_types.items()
+        ):
+            raise SemanticError("invalid resolved module type bindings")
         type_bindings: dict[str, ir_types.HardwareType] = {}
         value_bindings: dict[str, int] = {}
         constant_bindings: dict[str, ir_expr.Expression] = {}
@@ -104,6 +113,9 @@ class SpecializationArgumentBinder:
                 deferred.append((parameter, item))
                 continue
             if parameter.kind == "type":
+                if name in resolved_types:
+                    type_bindings[name] = resolved_types[name]
+                    continue
                 syntax = (
                     item.value
                     if isinstance(

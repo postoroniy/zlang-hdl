@@ -27,6 +27,8 @@ class PrimitiveBuilder(Protocol):
 
     def spawn_region_builder(self, capture_slots: dict[str, int]) -> Self: ...
 
+    def spawn_lexical_builder(self, lowered: dict[int, int]) -> Self: ...
+
     def emit(
         self,
         op: str,

@@ -40,7 +40,7 @@ def test_slice_bounds_keep_compile_time_parameter_expressions() -> None:
     )
     expression = syntax.assignments[0].expression
     assert isinstance(expression, SliceExpr)
-    assert expression.msb == "N-1"
+    assert expression.msb == "(N-1)"
     assert expression.lsb == 0
 
 

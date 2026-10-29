@@ -9,8 +9,10 @@ const path = require('node:path');
 const vscode = require('vscode');
 const {checkWaveformHost}=require('./waveform-host.cjs');
 const {checkTypedWaveformHost}=require('./typed-waveform-host.cjs');
-const {checkRuleActionHost}=require('./rule-action-host.cjs');
+const {checkRuleActionHost,checkCordicSwitchHost}=require('./rule-action-host.cjs');
+const {checkDebugExampleSwitches}=require('./debug-examples-host.cjs');
 const {checkProjectMetadata}=require('./project-metadata-host.cjs');
+const {checkGenericReferences}=require('./generic-navigation-host.cjs');
 const toolchain = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../editor-toolchain.json'), 'utf8'));
 
 const extensionId = 'postoroniy.zlang-hdl';
@@ -115,6 +117,8 @@ async function checkNativeDebugger(installedPath, scratch) {
   }
   await checkTypedWaveformHost(scratch);
   await checkRuleActionHost();
+  await checkCordicSwitchHost();
+  await checkDebugExampleSwitches();
   return true;
 }
 
@@ -412,6 +416,8 @@ async function checkHost() {
       path.join(wifiProject, 'src', declarationFile)));
   }
   phase('project references');
+  await checkGenericReferences(path.resolve(__dirname,'../../../../stdlib/math/fp_format.zhl'));
+  phase('deferred generic references');
 
   // An unsaved imported source and both accepted instance spellings must use
   // one editor snapshot for diagnostics, completion, F12, and Shift+F12.
@@ -555,6 +561,7 @@ async function checkHost() {
       ] : []),
       'nested-project type/module F12 with unopened declaration targets',
       'same-file enum and nested-project type/module Shift+F12 from installed VSIX',
+      'language-scoped Shift+F12 preserves a repeatable list for a single usage',
       'multi-document unsaved live edit with explicit and concise instances',
       'installed line/block comment configuration and editor actions',
       'bracket auto-closing and Enter indentation',
@@ -562,6 +569,7 @@ async function checkHost() {
       ...(nativeDebugChecked ? [
         'Linux native DAP rule breakpoint, typed state, and live waveform trace',
         'F9 on a rule body → Continue → active stack frame and automatic source-line highlight',
+        'all supplied example schedules launch, step and switch live catalogs without manual stop or refresh',
       ] : []),
     ],
     notChecked: [

@@ -178,6 +178,8 @@ class CallableSpecializer:
         arguments: tuple[ir_expr.Expression, ...],
         context: ExpressionContext,
         specialization_symbols: dict[str, object] | None = None,
+        *,
+        resolved_types: dict[str, ir_types.HardwareType] | None = None,
     ) -> tuple[
         dict[str, ir_types.HardwareType],
         dict[str, int],
@@ -191,6 +193,7 @@ class CallableSpecializer:
             arguments,
             context,
             specialization_symbols,
+            resolved_types=resolved_types,
         )
 
     def contextualize_integer_arguments(

@@ -11,8 +11,467 @@
       "logicState": true,
       "strictUninitialized": false,
       "initialRegisters": {},
-      "traceSignals": ["clk", "rst", "enable", "fired", "count"],
+      "traceSignals": [
+        "clk",
+        "rst",
+        "enable",
+        "fired",
+        "count"
+      ],
       "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug CORDIC",
+      "program": "${workspaceFolder}/examples/cordic.zhl",
+      "top": "Cordic",
+      "events": "${workspaceFolder}/examples/cordic.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input.payload",
+        "input.valid",
+        "input.ready",
+        "output.payload.sine",
+        "output.payload.cosine",
+        "output.valid",
+        "output.ready"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Counter",
+      "program": "${workspaceFolder}/examples/counter.zhl",
+      "top": "Counter",
+      "events": "${workspaceFolder}/examples/counter.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "count",
+        "y"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Framed CRC",
+      "program": "${workspaceFolder}/examples/framed_crc.zhl",
+      "top": "FramedCrc",
+      "events": "${workspaceFolder}/examples/framed_crc.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "mirror",
+        "checksum"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Stream FIR8",
+      "program": "${workspaceFolder}/examples/stream_fir8.zhl",
+      "top": "StreamFir8",
+      "events": "${workspaceFolder}/examples/stream_fir8.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Farrow",
+      "program": "${workspaceFolder}/examples/farrow.zhl",
+      "top": "FarrowCubic",
+      "events": "${workspaceFolder}/examples/farrow.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Reloadable FIR",
+      "program": "${workspaceFolder}/examples/fir_reload.zhl",
+      "top": "ReloadableFir",
+      "events": "${workspaceFolder}/examples/fir_reload.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "reload",
+        "commit",
+        "commit_ready",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Folded FIR",
+      "program": "${workspaceFolder}/examples/fir_folded.zhl",
+      "top": "FoldedFir",
+      "events": "${workspaceFolder}/examples/fir_folded.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Interpolating FIR",
+      "program": "${workspaceFolder}/examples/fir_interpolate.zhl",
+      "top": "InterpolatingFir",
+      "events": "${workspaceFolder}/examples/fir_interpolate.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug CIC Interpolator",
+      "program": "${workspaceFolder}/examples/cic_interpolate.zhl",
+      "top": "CicInterpolatorExample",
+      "events": "${workspaceFolder}/examples/cic_interpolate.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug NCO",
+      "program": "${workspaceFolder}/examples/nco.zhl",
+      "top": "Nco",
+      "events": "${workspaceFolder}/examples/nco.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Linear NCO",
+      "program": "${workspaceFolder}/examples/nco_linear.zhl",
+      "top": "LinearNco",
+      "events": "${workspaceFolder}/examples/nco.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug CIC Decimator",
+      "program": "${workspaceFolder}/examples/multirate_filters.zhl",
+      "top": "CicDecimator",
+      "events": "${workspaceFolder}/examples/multirate_filters.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Polyphase FIR",
+      "program": "${workspaceFolder}/examples/multirate_filters.zhl",
+      "top": "PolyphaseFir",
+      "events": "${workspaceFolder}/examples/multirate_filters.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Halfband Decimator",
+      "program": "${workspaceFolder}/examples/halfband.zhl",
+      "top": "HalfbandDecimatorExample",
+      "events": "${workspaceFolder}/examples/halfband.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Halfband Interpolator",
+      "program": "${workspaceFolder}/examples/halfband.zhl",
+      "top": "HalfbandInterpolatorExample",
+      "events": "${workspaceFolder}/examples/halfband.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Scrambler24",
+      "program": "${workspaceFolder}/examples/coding_blocks.zhl",
+      "top": "Scrambler24",
+      "events": "${workspaceFolder}/examples/scrambler24.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Convolutional Encoder24",
+      "program": "${workspaceFolder}/examples/coding_blocks.zhl",
+      "top": "ConvolutionalEncoder24",
+      "events": "${workspaceFolder}/examples/convolutional24.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug SECDED32 Encode",
+      "program": "${workspaceFolder}/examples/secded.zhl",
+      "top": "Secded32Encode",
+      "events": "${workspaceFolder}/examples/secded32.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug SECDED32 Decode",
+      "program": "${workspaceFolder}/examples/secded.zhl",
+      "top": "Secded32Decode",
+      "events": "${workspaceFolder}/examples/secded32.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug DVB RS Encoder",
+      "program": "${workspaceFolder}/examples/rs_dvb.zhl",
+      "top": "DvbRsEncoder",
+      "events": "${workspaceFolder}/examples/rs_dvb.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "status",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug DVB RS Decoder",
+      "program": "${workspaceFolder}/examples/rs_dvb_decode.zhl",
+      "top": "DvbRsDecoder",
+      "events": "${workspaceFolder}/examples/rs_dvb_decode.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "status",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Viterbi",
+      "program": "${workspaceFolder}/examples/viterbi.zhl",
+      "top": "ViterbiFrame",
+      "events": "${workspaceFolder}/examples/viterbi.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "status",
+        "output"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug Vendor Debug Taps",
+      "program": "${workspaceFolder}/examples/fpga_debug/vendor_debug.zhl",
+      "top": "VendorDebugDut",
+      "events": "${workspaceFolder}/examples/fpga_debug/vendor_debug.events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input",
+        "output",
+        "debug_payload",
+        "debug_valid",
+        "debug_ready",
+        "debug_transfer",
+        "debug_count"
+      ],
+      "stopOnEntry": true
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug 802.11a Transmitter",
+      "program": "${workspaceFolder}/examples/projects/80211a_transmitter/src/transmitter.zhl",
+      "top": "Ieee80211aTransmitter",
+      "events": "${workspaceFolder}/examples/projects/80211a_transmitter/simulation/demo-events.jsonl",
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "command",
+        "psdu",
+        "signal",
+        "output"
+      ],
+      "stopOnEntry": true,
+      "project": "${workspaceFolder}/examples/projects/80211a_transmitter/zlang.toml",
+      "profile": "portable"
     }
   ]
 }

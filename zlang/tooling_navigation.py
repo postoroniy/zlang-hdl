@@ -167,41 +167,8 @@ def _reference_target_from_result(
 ) -> object | None:
     """Resolve the target identity under a cursor using compiler records."""
 
-    root_unit = tooling_workspace._root_logical_source(source, session)
-    occurrence_index = getattr(result, "occurrences_by_line", None)
-    resolutions = (
-        tooling_queries._indexed_symbol_line(occurrence_index, root_unit, line + 1)
-        if occurrence_index is not None
-        else result.definition_resolutions
-    )
-    resolution = tooling_symbols._narrowest_source_record(
-        resolutions,
-        source_unit=root_unit,
-        line=line,
-        character=character,
-        source_origin=lambda item: item.occurrence,
-    )
-    if resolution is not None:
-        return resolution.target
-
-    # A declaration may have no usages.  Declaration targets are still
-    # compiler-owned and allow includeDeclaration queries to resolve without
-    # inventing a name match in the LSP.
-    declaration_index = getattr(result, "declarations_by_line", None)
-    declarations = (
-        tooling_queries._indexed_symbol_line(declaration_index, root_unit, line + 1)
-        if declaration_index is not None
-        else result.definition_declarations
-    )
-    declaration = tooling_symbols._narrowest_source_record(
-        declarations,
-        source_unit=root_unit,
-        line=line,
-        character=character,
-        source_origin=lambda item: item.target,
-        include_column_span=False,
-    )
-    return None if declaration is None else declaration.target
+    record = tooling_queries._definition_record_at(source, result, line, character, session)
+    return None if record is None else record.target
 
 def _references_for_target(
     source: Path,

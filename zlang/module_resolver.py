@@ -363,6 +363,21 @@ def _materialize_record(record: ModuleSourceRecord) -> ModuleSourceRecord:
 class StdlibModuleResolver:
     """Compatibility resolver exposing only compiler-shipped ``std.*``."""
 
+    def load_source(self, logical: str) -> ModuleSourceRecord:
+        """Load one leaf; the caller owns dependency ordering and deduplication."""
+        from zlang.stdlib import load_stdlib_source
+
+        try:
+            source = load_stdlib_source(logical)
+            external = next((item for item in source.dependencies if not item.startswith("std.")), None)
+            if external is not None:
+                raise ModuleResolutionError(f"external imports are unsupported: '{external}'")
+            return source
+        except DiagnosticError:
+            raise
+        except ValueError as error:
+            raise ModuleResolutionError(str(error)) from error
+
     def resolve(
         self,
         imports: Iterable[str],
@@ -451,10 +466,10 @@ class IndexedModuleResolver:
                 raise ModuleResolutionError(
                     f"compiler-shipped import '{logical}' is unavailable in this resolver"
                 )
-            resolved = self._stdlib.resolve((logical,))
-            if not resolved:
-                raise ModuleResolutionError(f"unknown standard library module '{logical}'")
-            return resolved[-1]
+            # resolve() already visits the complete graph exactly once. Asking
+            # the fallback for a closure here reparses every nested dependency
+            # for each ancestor (particularly costly for project CPU tooling).
+            return self._stdlib.load_source(logical)
         owner = next(
             (
                 namespace

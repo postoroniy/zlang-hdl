@@ -30,3 +30,11 @@ def test_exhaustive_immutable_struct_destructure_has_explicit_syntax_node() -> N
     )
     assert declaration.fields == ("data", "last")
     assert declaration.origin is not None
+
+
+def test_empty_vector_literal_has_no_placeholder_expression() -> None:
+    syntax = parse("module M { out value:vec<1,u8> value=[] }")
+    literal = syntax.assignments[0].expression
+    assert isinstance(literal, VectorLiteralExpr)
+    assert literal.elements == ()
+    assert literal.origin is not None

@@ -81,6 +81,9 @@ class ToolingSession:
         """Return one session-local workspace projection for a manifest."""
 
         path = Path(manifest).expanduser().resolve()
+        model = discover_project_manifest(path, explicit=path)
+        if model is not None:
+            workspace_api.validate_project_toolchain(model)
         index = self._workspace_indexes.get(path)
         if index is None:
             # Resolve lazily so an unprojected standalone source never pays for

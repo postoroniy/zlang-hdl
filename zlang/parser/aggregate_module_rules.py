@@ -10,7 +10,7 @@ from lark import v_args
 
 from zlang.ast import nodes as ast_nodes
 from zlang.parser.errors import ParseError
-from zlang.source import SourceSpan
+from zlang.source import SourceOrigin, SourceSpan
 
 from .rules_support import _tagged
 
@@ -66,6 +66,10 @@ class AggregateCallableModuleRules:
 
     @v_args(meta=True)
     def vector_literal_expr(self, meta: object, items: list[object]) -> ast_nodes.VectorLiteralExpr:
+        # Lark supplies a placeholder for the absent optional argument_list.
+        # An empty literal must reach the semantic owner's non-empty check.
+        if items == [None]:
+            items = []
         elements = items[0] if items and isinstance(items[0], tuple) else tuple(items)
         return ast_nodes.VectorLiteralExpr(tuple(elements), origin=self._span(meta))
 
@@ -302,16 +306,25 @@ class AggregateCallableModuleRules:
             name_origin=self._token_span(items[0]),
         )
 
+    @v_args(meta=True)
     def callable_body(
-        self, items: list[object]
+        self, meta: object, items: list[object]
     ) -> tuple[tuple[ast_nodes.Assignment | ast_nodes.TupleDestructureDecl, ...], object]:
         binding_types = (ast_nodes.Assignment, ast_nodes.TupleDestructureDecl)
         if not items or isinstance(items[-1], binding_types):
-            raise ValueError("callable body requires one final result expression")
-        if any(not isinstance(item, binding_types) for item in items[:-1]):
-            raise ValueError(
-                "only immutable inferred bindings may precede a callable result"
+            span = (items[-1].origin if items else None) or self._span(meta)
+            raise ParseError(
+                "callable body requires one final result expression",
+                primary=SourceOrigin(span, "callable body"),
             )
+        for item in items[:-1]:
+            if not isinstance(item, binding_types):
+                raise ParseError(
+                    "only immutable inferred bindings may precede a callable result",
+                    primary=SourceOrigin(
+                        getattr(item, "origin", None) or self._span(meta), "callable body"
+                    ),
+                )
         return tuple(items[:-1]), items[-1]
 
     def _callable_decl(self, cls: type, meta: object, items: list[object]) -> object:

@@ -24,7 +24,7 @@ from zlang import tooling_workspace as tooling_workspace
 from zlang import workspace as workspace_api
 
 SYMBOL_CACHE_SCHEMA = 1
-_SYMBOL_CACHE_ANALYSIS_SCHEMA = 6
+_SYMBOL_CACHE_ANALYSIS_SCHEMA = 7
 _SYMBOL_MEMORY_MAX_ENTRIES = 64
 _SYMBOL_MEMORY_MAX_BYTES = 64 * 1024 * 1024
 _SYMBOL_DISK_MAX_ENTRIES = 512
@@ -42,6 +42,7 @@ def _symbol_root_inventory(inputs: models._SymbolPhysicalInputs) -> tuple[str, .
     )
     if manifest is None:
         raise models.ToolingError("symbol cache project manifest disappeared")
+    workspace_api.validate_project_toolchain(manifest)
     root = manifest.source_directory.resolve(strict=True)
     return tuple(sorted(
         path.relative_to(root).as_posix() for path in root.rglob("*.zhl")
@@ -162,6 +163,20 @@ def _normalized_symbol_payload(
             result.physical_inputs, "editor_source_overlays", ()
         )
     }
+    # These exact paths already belong to the compiler-retained input closure.
+    # Seed them before normalizing observations, rather than resolving a fresh
+    # project/import graph once for every stdlib source unit below.
+    for stdlib_source in getattr(result.physical_inputs, "stdlib_sources", ()):
+        stdlib_path = Path(stdlib_source).expanduser().resolve()
+        stdlib_unit = _stdlib_source_unit(stdlib_path)
+        if stdlib_unit is not None:
+            source_paths[stdlib_unit] = stdlib_path
+            path_by_unit[stdlib_unit] = stdlib_path
+            digest_by_unit[stdlib_unit] = (
+                overlay_digests[stdlib_path]
+                if stdlib_path in overlay_digests
+                else models._digest_file(stdlib_path)
+            )
 
     def normalize_origin(origin: SourceOrigin) -> SourceOrigin:
         coordinate = models._declaration_coordinate_key(origin)
@@ -292,11 +307,6 @@ def _normalized_symbol_payload(
 
     project_manifest = getattr(result.physical_inputs, "project_manifest", None)
     project_lock = getattr(result.physical_inputs, "project_lock", None)
-    for stdlib_source in getattr(result.physical_inputs, "stdlib_sources", ()):
-        stdlib_path = Path(stdlib_source).expanduser().resolve()
-        stdlib_unit = _stdlib_source_unit(stdlib_path)
-        if stdlib_unit is not None:
-            source_paths[stdlib_unit] = stdlib_path
     physical_inputs = models._SymbolPhysicalInputs(
         source.resolve(),
         Path(project_manifest).resolve() if project_manifest is not None else None,

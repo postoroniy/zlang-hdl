@@ -212,12 +212,17 @@ class ExpressionRules:
         if isinstance(expression, ast_nodes.NameExpr):
             return expression.name
         if isinstance(expression, ast_nodes.UnaryExpr):
-            return f"{expression.operator.value}{cls._slice_bound(expression.expression)}"
+            return f"({expression.operator.value}{cls._slice_bound(expression.expression)})"
+        if isinstance(expression, ast_nodes.AddExpr):
+            return (
+                f"({cls._slice_bound(expression.left)}"
+                f"+{cls._slice_bound(expression.right)})"
+            )
         if isinstance(expression, ast_nodes.BinaryExpr):
             return (
-                f"{cls._slice_bound(expression.left)}"
+                f"({cls._slice_bound(expression.left)}"
                 f"{expression.operator.value}"
-                f"{cls._slice_bound(expression.right)}"
+                f"{cls._slice_bound(expression.right)})"
             )
         if isinstance(expression, ast_nodes.CallExpr) and not expression.specializations:
             arguments = ",".join(

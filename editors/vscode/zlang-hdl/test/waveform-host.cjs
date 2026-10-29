@@ -56,7 +56,7 @@ async function focusLiveWaveform(control){
   await eventually(async()=>{
     await vscode.commands.executeCommand('zlang-hdl.openLiveWaveform');
     assert.equal(vscode.window.tabGroups.all.length,groups,'Reopening live waveform must not create another editor group');
-    if(vscode.window.tabGroups.activeTabGroup.activeTab?.label!=='ZLang HDL Live Waveform')return false;
+    if(!vscode.window.tabGroups.activeTabGroup.activeTab?.label.startsWith('ZLang HDL Live Waveform'))return false;
     return(await control.command({command:'export_session'})).session.catalogSignature==='live';
   });
 }

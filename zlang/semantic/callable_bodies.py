@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING
 
 from zlang.ast import nodes as ast
@@ -12,11 +13,71 @@ from zlang.ir import module as ir_module
 from zlang.ir import types as ir_types
 
 from .errors import SemanticError
-from . import observations
+from . import observations, expression_origins, type_resolution
 from . import symbols as semantic_symbols
 
 if TYPE_CHECKING:
     from .context import ExpressionContext
+
+
+def record_deferred_body_definitions(
+    declaration: ast.FunctionDecl | ast.OperatorDecl,
+    functions: dict[str, ast.FunctionDecl],
+    context: ExpressionContext,
+) -> None:
+    """Bind nominal type/direct-call heads without specializing a deferred body.
+
+    Only declaration-table lookups and parser-owned identifier spans are used.
+    This observes names, never types values, resolves overloads or admits code
+    as a valid specialization. Lexical callable/type parameters stay opaque.
+    """
+
+    resolver = context.environment.type_resolver
+    if resolver is None or context.services.tooling.definition_resolutions is None:
+        return
+    from .expression_calls import CALL_INTRINSIC_NAMES
+
+    type_parameters = frozenset(item.name for item in declaration.generic_parameters)
+    bound = type_parameters | frozenset(item.name for item in declaration.parameters)
+    roots = []
+    for binding in declaration.bindings:
+        roots.append((binding, bound))
+        names = binding.names if isinstance(binding, ast.TupleDestructureDecl) else (binding.target,)
+        bound = bound | frozenset(names)
+    roots.append((declaration.body, bound))
+    stack = list(reversed(roots))
+    while stack:
+        node, bound = stack.pop()
+        if isinstance(node, (ast.GenerateExpr, ast.MapExpr, ast.IndexedSumExpr)):
+            bound = bound | {node.index}
+        elif isinstance(node, ast.TaggedUnionMatchArm):
+            bound = bound | frozenset(node.binders)
+        if isinstance(node, ast.TypeName):
+            type_resolution.record_named_type_definition(
+                context, node, resolver, shadowed_names=type_parameters
+            )
+        elif isinstance(node, ast.StructConstructExpr):
+            type_resolution.record_named_type_definition(
+                context, ast.TypeName(node.struct_name, origin=node.name_origin), resolver,
+                shadowed_names=type_parameters,
+            )
+        elif (isinstance(node, ast.CallExpr)
+              and node.function not in bound
+              and node.function not in CALL_INTRINSIC_NAMES):
+            target = functions.get(node.function)
+            if target is not None and node.callee_origin is not None:
+                observations.record_definition(
+                    context, expression_origins.callable_reference_origin(node, context),
+                    observations.declaration_origin(
+                        target.name_origin, f"function {target.name}", context,
+                        source_unit=target.source_identity,
+                    ), name=target.name, kind="function",
+                )
+        if isinstance(node, tuple):
+            stack.extend((item, bound) for item in reversed(node))
+        elif is_dataclass(node) and type(node).__module__ == ast.__name__:
+            stack.extend((getattr(node, field.name), bound) for field in reversed(fields(node))
+                         if field.name not in {"origin", "name_origin", "callee_origin", "named_origins"})
 
 
 class CallableBodyAnalyzer:

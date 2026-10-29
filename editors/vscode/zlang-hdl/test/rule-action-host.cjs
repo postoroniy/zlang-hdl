@@ -5,6 +5,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vscode=require('vscode');
 const {connectControl,focusLiveWaveform}=require('./waveform-host.cjs');
+const {walk}=require('../waveform_workspace');
 
 async function waitFor(description,predicate){
   const deadline=Date.now()+10000;
@@ -128,4 +129,44 @@ async function checkRuleActionHost(){
     vscode.debug.removeBreakpoints(sourceBreakpoints());
   }
 }
-module.exports={checkRuleActionHost};
+async function checkCordicSwitchHost(){
+  const repository=path.resolve(__dirname,'../../../..');
+  const folder=vscode.workspace.workspaceFolders[0],workspace=folder.uri.fsPath;
+  for(const relative of ['examples/cordic.zhl','examples/cordic.events.jsonl']){
+    const destination=path.join(workspace,relative);
+    fs.mkdirSync(path.dirname(destination),{recursive:true});
+    fs.copyFileSync(path.join(repository,relative),destination);
+  }
+  let session,control;
+  try{
+    const source=await vscode.workspace.openTextDocument(path.join(workspace,'examples/cordic.zhl'));
+    await vscode.window.showTextDocument(source,{preview:false});
+    assert.equal(await vscode.debug.startDebugging(folder,'Debug CORDIC'),true);
+    session=vscode.debug.activeDebugSession;
+    assert.equal(session?.configuration.top,'Cordic');
+    assert.equal((await session.customRequest('zlang/waveformStatus')).event,0);
+    control=await connectControl();
+    // The RuleAction panel remains open. Do not refresh/reopen it or step the
+    // new simulator: switching active sessions must replace the old catalog.
+    const deadline=Date.now()+10000;
+    for(;;){
+      const state=(await control.command({command:'export_session'})).session;
+      const names=[];walk(state.items,item=>{if(item.signal)names.push(item.signal.name);});
+      if(names.includes('output.payload.sine')&&names.includes('output.payload.cosine')
+        &&!names.includes('count')&&!names.includes('fired'))break;
+      assert.ok(Date.now()<deadline,'CORDIC must replace RuleAction live rows before any step or manual refresh: '+names.join(', '));
+      await new Promise(resolve=>setTimeout(resolve,25));
+    }
+    assert.ok(vscode.window.tabGroups.all.some(group=>group.tabs.some(tab=>tab.label==='ZLang HDL Live Waveform — Cordic')));
+    for(let step=0;step<24;step++)await session.customRequest('next',{threadId:1});
+    await focusLiveWaveform(control);
+    const result=await session.customRequest('zlang/waveformQuery',{
+      command:'value_at',signals:['output.payload.sine','output.payload.cosine'],timestamp:48,
+    });
+    for(const value of Object.values(result.values))assert.match(value,/^[01]{16}$/);
+    console.log('VS Code RuleAction → CORDIC: retained live panel switches catalog before stepping, sine/cosine traces after 24 events passed');
+  }finally{
+    control?.close();if(session)await vscode.debug.stopDebugging(session);
+  }
+}
+module.exports={checkRuleActionHost,checkCordicSwitchHost};

@@ -844,6 +844,8 @@ def record_named_type_definition(
     context: semantic_context.ExpressionContext,
     syntax: ast.TypeSyntax,
     resolver: TypeResolver,
+    *,
+    shadowed_names: frozenset[str] = frozenset(),
 ) -> None:
     """Record a resolved named-type occurrence for editor definition lookup.
 
@@ -866,7 +868,8 @@ def record_named_type_definition(
         generic = resolver._generic_parts(name)
         base = generic[0] if generic is not None else name
         if (
-            resolver._resolve_builtin(base) is not None
+            base in shadowed_names
+            or resolver._resolve_builtin(base) is not None
             or base in resolver._type_bindings
             or base in resolver._parameter_values
         ):
@@ -909,16 +912,19 @@ def record_type_syntax_definitions(
     context: semantic_context.ExpressionContext,
     syntax: ast.TypeSyntax,
     resolver: TypeResolver,
+    *,
+    shadowed_names: frozenset[str] = frozenset(),
 ) -> None:
     """Record named types nested in one declaration's source type syntax."""
 
     if isinstance(syntax, ast.TypeName):
-        record_named_type_definition(context, syntax, resolver)
+        record_named_type_definition(context, syntax, resolver, shadowed_names=shadowed_names)
     elif isinstance(syntax, ast.VectorTypeName):
-        record_type_syntax_definitions(context, syntax.element_type, resolver)
+        record_type_syntax_definitions(context, syntax.element_type, resolver,
+                                       shadowed_names=shadowed_names)
     elif isinstance(syntax, ast.TupleTypeName):
         for element in syntax.elements:
-            record_type_syntax_definitions(context, element, resolver)
+            record_type_syntax_definitions(context, element, resolver, shadowed_names=shadowed_names)
 
 
 def record_enum_member_definition(

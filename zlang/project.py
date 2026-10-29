@@ -28,6 +28,9 @@ from zlang.dependencies import (
     validate_digest,
     validate_package_name,
 )
+from zlang.toolchain_lock import (
+    ToolchainRequirement, LockedToolchain, TOOLCHAIN_PROJECT_SCHEMA, TOOLCHAIN_LOCK_SCHEMA,
+)
 
 
 PROJECT_SCHEMA = 1
@@ -162,10 +165,15 @@ class ProjectManifest:
     profiles: Mapping[str, object] = field(default_factory=dict, repr=False)
     content_digest: str | None = field(default=None, compare=False, repr=False)
     external_mappings: tuple[ExternalMappingSpec, ...] = ()
+    toolchain: ToolchainRequirement | None = None
 
     def __post_init__(self) -> None:
-        if self.schema != PROJECT_SCHEMA:
+        if self.schema not in (PROJECT_SCHEMA, TOOLCHAIN_PROJECT_SCHEMA):
             raise ProjectModelError(f"unsupported project schema {self.schema}")
+        if self.schema == TOOLCHAIN_PROJECT_SCHEMA and not isinstance(self.toolchain, ToolchainRequirement):
+            raise ProjectModelError("unsupported project schema 2 without explicit toolchain")
+        if self.schema == PROJECT_SCHEMA and self.toolchain is not None:
+            raise ProjectModelError("toolchain requires project schema 2")
         object.__setattr__(self, "path", Path(self.path))
         validate_package_name(self.package)
         if not isinstance(self.version, str) or not self.version:
@@ -227,6 +235,8 @@ class ProjectManifest:
             },
             "schema": self.schema,
         }
+        if self.toolchain is not None:
+            data["toolchain"] = self.toolchain.to_data()
         return data
 
     def to_data(self, *, include_profiles: bool = True) -> dict[str, object]:
@@ -262,6 +272,8 @@ class ProjectManifest:
                 lines.append(f"{key} = {value}")
         if self.profiles:
             _render_mapping_tables(lines, ("profiles",), self.profiles)
+        if self.toolchain is not None:
+            _render_mapping_tables(lines, ("toolchain",), self.toolchain.to_data())
         for mapping in self.external_mappings:
             lines.extend((
                 "",
@@ -289,7 +301,7 @@ class ProjectManifest:
         _require_keys(
             data,
             {"schema", "package", "dependencies"},
-            {"profiles", "external_mappings"},
+            {"profiles", "external_mappings", "toolchain"},
             "project manifest",
         )
         package = _mapping(data["package"], "project package")
@@ -314,8 +326,9 @@ class ProjectManifest:
                     _external_mapping_from_data(item)
                     for item in _list(data.get("external_mappings", []), "external mappings")
                 ),
+                None if "toolchain" not in data else ToolchainRequirement.from_data(data["toolchain"]),
             )
-        except DependencyModelError as error:
+        except ValueError as error:
             raise ProjectModelError(str(error)) from error
 
     @classmethod
@@ -327,7 +340,7 @@ class ProjectManifest:
         _require_keys(
             raw,
             {"schema", "project"},
-            {"dependencies", "profiles", "external-mappings"},
+            {"dependencies", "profiles", "external-mappings", "toolchain"},
             "project manifest",
         )
         schema = _integer(raw["schema"], "project schema")
@@ -379,8 +392,9 @@ class ProjectManifest:
                 profiles,
                 digest,
                 external_mappings,
+                None if "toolchain" not in raw else ToolchainRequirement.from_data(raw["toolchain"]),
             )
-        except DependencyModelError as error:
+        except ValueError as error:
             raise ProjectModelError(str(error)) from error
 
     @classmethod
@@ -407,10 +421,15 @@ class ProjectLock:
     manifest_resolution_digest: str
     packages: tuple[LockedPackage, ...] = ()
     external_mappings: tuple[LockedExternalMapping, ...] = ()
+    toolchain: LockedToolchain | None = None
 
     def __post_init__(self) -> None:
-        if self.schema != LOCK_SCHEMA:
+        if self.schema not in (LOCK_SCHEMA, TOOLCHAIN_LOCK_SCHEMA):
             raise ProjectModelError(f"unsupported lock schema {self.schema}")
+        if self.schema == TOOLCHAIN_LOCK_SCHEMA and not isinstance(self.toolchain, LockedToolchain):
+            raise ProjectModelError("unsupported lock schema 3 without complete toolchain")
+        if self.schema == LOCK_SCHEMA and self.toolchain is not None:
+            raise ProjectModelError("toolchain requires lock schema 3")
         try:
             validate_digest(
                 self.manifest_resolution_digest,
@@ -452,11 +471,14 @@ class ProjectLock:
     def identity(self) -> str:
         # Physical external HDL is lock-pinned but never changes the semantic
         # dependency closure.  BackendArtifact text/hash carries that identity.
-        return stable_digest({
+        data = {
             "manifest_resolution_digest": self.manifest_resolution_digest,
             "packages": [package.to_data() for package in self.packages],
             "schema": self.schema,
-        })
+        }
+        if self.toolchain is not None:
+            data["toolchain"] = self.toolchain.to_data()
+        return stable_digest(data)
 
     def to_data(self) -> dict[str, object]:
         data = {
@@ -468,6 +490,8 @@ class ProjectLock:
             data["external_mappings"] = [
                 item.to_data() for item in self.external_mappings
             ]
+        if self.toolchain is not None:
+            data["toolchain"] = self.toolchain.to_data()
         return data
 
     def package(self, name: str) -> LockedPackage:
@@ -534,6 +558,8 @@ class ProjectLock:
                     f"relative-path = {_toml_string(source.relative_path)}",
                     f"digest = {_toml_string(source.digest)}",
                 ))
+        if self.toolchain is not None:
+            _render_mapping_tables(lines, ("toolchain",), self.toolchain.to_data())
         return "\n".join(lines) + "\n"
 
     @classmethod
@@ -545,7 +571,7 @@ class ProjectLock:
         _require_keys(
             raw,
             {"schema", "manifest-resolution-digest"},
-            {"packages", "external-mappings"},
+            {"packages", "external-mappings", "toolchain"},
             "project lock",
         )
         raw_packages = raw.get("packages", [])
@@ -603,8 +629,9 @@ class ProjectLock:
                 _string(raw["manifest-resolution-digest"], "manifest resolution digest"),
                 tuple(packages),
                 external_mappings,
+                None if "toolchain" not in raw else LockedToolchain.from_data(raw["toolchain"]),
             )
-        except DependencyModelError as error:
+        except ValueError as error:
             raise ProjectModelError(str(error)) from error
 
     @classmethod
@@ -612,7 +639,7 @@ class ProjectLock:
         _require_keys(
             data,
             {"schema", "manifest_resolution_digest", "packages"},
-            {"external_mappings"},
+            {"external_mappings", "toolchain"},
             "project lock",
         )
         raw_packages = data["packages"]
@@ -630,8 +657,9 @@ class ProjectLock:
                     _locked_external_mapping_from_data(item)
                     for item in _list(data.get("external_mappings", []), "locked external mappings")
                 ),
+                None if "toolchain" not in data else LockedToolchain.from_data(data["toolchain"]),
             )
-        except DependencyModelError as error:
+        except ValueError as error:
             raise ProjectModelError(str(error)) from error
 
     @classmethod

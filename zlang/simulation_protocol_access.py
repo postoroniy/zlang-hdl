@@ -77,8 +77,9 @@ class SimulationProtocolAccess:
                     f"{port.name}.{field}: {error}"
                 ) from error
 
+    @classmethod
     def port_updates(
-        self,
+        cls,
         port: Port,
         value: object,
         *,
@@ -94,7 +95,7 @@ class SimulationProtocolAccess:
             raise SimulationRuntimeError(
                 f"{label} input '{port.name}' must be a field mapping"
             )
-        fields = self.input_fields(port)
+        fields = cls.input_fields(port)
         expected = {name for name, _ in fields}
         if set(value) != expected:
             rendered = ", ".join(sorted(expected))
@@ -102,7 +103,7 @@ class SimulationProtocolAccess:
                 f"{label} input '{port.name}' requires fields: {rendered}"
             )
         return tuple(
-            (field, self.field_name(port, field), type_, value[field])
+            (field, cls.field_name(port, field), type_, value[field])
             for field, type_ in fields
         )
 
@@ -306,8 +307,9 @@ class SimulationProtocolAccess:
         ):
             self._simulator._set_scalar(internal, type_, field_value)
 
+    @classmethod
     def request_response_updates(
-        self,
+        cls,
         interface: RequestResponseInterface,
         value: object,
     ) -> tuple[tuple[str, HardwareType, object], ...]:
@@ -320,7 +322,7 @@ class SimulationProtocolAccess:
             "request": {},
             "response": {},
         }
-        for channel, field, type_ in self.request_response_input_fields(interface):
+        for channel, field, type_ in cls.request_response_input_fields(interface):
             expected[channel.value][field] = type_
         updates: list[tuple[str, HardwareType, object]] = []
         for channel_name, fields in expected.items():

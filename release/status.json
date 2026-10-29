@@ -1,23 +1,167 @@
 {
-  "schema": 3,
-  "release": {
-    "channel": "alpha",
-    "repository": "https://github.com/postoroniy/zlang-hdl",
-    "version": "0.1.0a24"
+  "documentation": {
+    "manifest": "docs/manuals.toml",
+    "manifest_sha256": "f8595bd23f8e286736ae5e8cb734c792d23ecc930c7e83e19de1aee33a4c4c5b",
+    "manuals": {
+      "language-reference": {
+        "builder_sha256": "4fd9d4b5a0023fe2f3cd5c3b79bd0a25624d978a977d2201dc4473202ba9a6c2",
+        "cover_height": 524,
+        "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
+        "cover_width": 1983,
+        "examples": {
+          "linked_sources": 5,
+          "json_blocks": 1,
+          "python_blocks": 0,
+          "referenced_tops": 0,
+          "shell_blocks": 4,
+          "standalone_compiled": 21,
+          "syntax_fragments": 106,
+          "toml_blocks": 1,
+          "zlang_fences": 127
+        },
+        "format": "PDF-1.5",
+        "pages": 66,
+        "page_height_points": 841.89,
+        "page_width_points": 595.28,
+        "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
+        "title": "Language Reference",
+        "version": "0.1.0a24",
+        "pdf_sha256": "6b66100b848b1b5d0759dcb8ef71bae93e4f909cfc57ffc9c67c65dfaa6f22f8",
+        "syntax_grammar_sha256": "a46c11a27ce5b8b8bafb4759438134cba47fdf1283b7b2e31c5a77a0e682d0cc",
+        "sources": {
+          "docs/language-reference.md": "9cdc91aac9e8530cadd668ed55ff49c26dba63163bf4388a203bea18de300fe6",
+          "docs/language-overview.md": "99825d4517cf4b0010393e0e42983e0f4859261aee7f1e2f72fc4e882975cba2",
+          "docs/types-and-numerics.md": "943a24baf761d7617d56f806606c0275aca18a0d7c79314bab4e96d62a277788",
+          "docs/expressions-functions-generics.md": "9ec233baa3f1c49718f374c25cc674a0f99169421381a2c8018202cadb3d6bb5",
+          "docs/compile-time-integers.md": "cee5c9a475cabdb9943a3732749bacef7bf0053b27c1aca586687c354b3838bb",
+          "docs/sequential-state-storage.md": "8fc5eeb4c6ef358e278e93f247b6afd67ea69a67e2a63bf83349a40edd928823",
+          "docs/physical-clock-reset-contract.md": "b918795a78271117f009e2354fc738c21c404bed7ee7c4da4ac73e613c46eb16",
+          "docs/hierarchy-protocols.md": "7b8ad1f0283c4d4f691422a211fcfb646dcab3cbeca760cd7b14f7d52af83d78",
+          "docs/named-module-interfaces.md": "186e9f7254c3fabdfdfdca13986f306a6e025abdee32431758cc7c8688152882",
+          "docs/tagged-unions.md": "b2800cafe4bc6ab45527cd6237ea091a50d733de8010692f7bacaf53ac984f63",
+          "docs/parameterized-aggregate-protocol.md": "b38f223154166b6b08f2d978509d39e32587e472a5d850aed5baac963d8d29b8",
+          "docs/implementation-intent.md": "7b5c26d4be5f5881a055990f8c311620078530448a30e678e7b0bb85f062aeb3",
+          "docs/optimization-formal.md": "5ee07703beea19a9a4cef50de0132b69e5f410d911f0f46f6a238e5952b221a1",
+          "docs/storage-instance-arrays.md": "8ae66faedb4ba81e6c977ca21dab90ff73899167d6858c527d523466f7498c64",
+          "docs/source-product-identity.md": "12b25ffd8634fb1d113405edf0f8d0c0a93f3056a55437dcb4bdc25a8dbc656e",
+          "docs/syntax-support-matrix.md": "491c6f7881d328bc106d3dee00eec23aa52e409772fbc7ecc4adb0f85b5fde78",
+          "docs/known-limitations.md": "7f143acfa4c0840afcc23a5338aee1977ff37e2da9c05aee86db626fe57aec29",
+          "docs/language-quick-reference.md": "86551311f430ac16b7ebe13e7e1f407fd6e47638a65c542f0809ca238edb4ca4"
+        },
+        "source_date_epoch": 1792713600
+      },
+      "standard-library": {
+        "builder_sha256": "4fd9d4b5a0023fe2f3cd5c3b79bd0a25624d978a977d2201dc4473202ba9a6c2",
+        "cover_height": 524,
+        "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
+        "cover_width": 1983,
+        "examples": {
+          "linked_sources": 25,
+          "json_blocks": 0,
+          "python_blocks": 0,
+          "referenced_tops": 19,
+          "shell_blocks": 18,
+          "standalone_compiled": 1,
+          "syntax_fragments": 2,
+          "toml_blocks": 0,
+          "zlang_fences": 3
+        },
+        "format": "PDF-1.5",
+        "pages": 109,
+        "page_height_points": 841.89,
+        "page_width_points": 595.28,
+        "pdf": "docs/ZLang-HDL-Standard-Library-Guide.pdf",
+        "title": "Standard Library Guide",
+        "version": "0.1.0a24",
+        "pdf_sha256": "d6a68ebd0083c3e9df8790a0eed9ac1c7e4971b9eac46ab7a0928289f65546fc",
+        "syntax_grammar_sha256": "a46c11a27ce5b8b8bafb4759438134cba47fdf1283b7b2e31c5a77a0e682d0cc",
+        "sources": {
+          "docs/stdlib.md": "573d5ec315e53d6618ae0cca22008277fdd48a4f71302d1e873457998eac5259",
+          "docs/stdlib-overview.md": "7d58eb99d60286a1354f32370564aad87eeb0b007ce6c87d5b31fc9f6339b265",
+          "docs/standard-bus-library.md": "8125c715f7a3c14de3715807790e0a28315598a2d252553d075eebc13243b73d",
+          "docs/stdlib-stream-dsp.md": "5193a1a5a005e25cd486fac41f8b1aa5a868490b2d40a1e0183a3d23f4e6088b",
+          "docs/stdlib-reloadable-fir.md": "b37f30b999d0cb60768446fe47b908c0dff6cc9078f58907c50150088c082d9c",
+          "docs/stdlib-multirate-coding.md": "36b4d8e9d72592ae70a83def9150cf5210a96bacea223b9138213cf10658cde2",
+          "docs/stdlib-secded.md": "b5c7c1bf0ab45eb4fb4cfba2833b07c628798d045155fa8ecf6a0ca470f0319e",
+          "docs/stdlib-farrow.md": "22a238e7e09e1321c934a556e9dc402264ac19d5168ee7894dc4b8725c0f5d79",
+          "docs/stdlib-rs-dvb.md": "ccb95e7ac19ec4586eca76979f908d55d0aed9725a95f21d0191d7ba817e4e5e",
+          "docs/stdlib-viterbi.md": "d3e9c7e9641ec25af73b4e096d71f204a58755b5260aff7bd5d098120cf9d280",
+          "docs/stdlib-recipes.md": "192ff301c16cd4b2d6021177dd0a90e906823332f475c4f0fa0f16fd05842346",
+          "docs/stdlib-formal-coverage.md": "e3aace8277650eb223f7d9b251ee7e790a536ad7dc084812b340affeb0d5ff88",
+          "docs/stdlib-api.md": "bd1cee0042ad6da1607a5b75345bf6e80023f2b7cd96b93ff8114c7cf5dcef43"
+        },
+        "source_date_epoch": 1792713600
+      },
+      "user-guide": {
+        "builder_sha256": "4fd9d4b5a0023fe2f3cd5c3b79bd0a25624d978a977d2201dc4473202ba9a6c2",
+        "cover_height": 524,
+        "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
+        "cover_width": 1983,
+        "examples": {
+          "linked_sources": 11,
+          "json_blocks": 5,
+          "python_blocks": 2,
+          "referenced_tops": 6,
+          "shell_blocks": 49,
+          "standalone_compiled": 3,
+          "syntax_fragments": 4,
+          "toml_blocks": 3,
+          "zlang_fences": 7
+        },
+        "format": "PDF-1.5",
+        "pages": 53,
+        "page_height_points": 841.89,
+        "page_width_points": 595.28,
+        "pdf": "docs/ZLang-HDL-User-Guide.pdf",
+        "title": "User Guide",
+        "version": "0.1.0a24",
+        "pdf_sha256": "384f93e766c126145c036d8f549b1d927b84a1098d57313c2f887eba56d7af5c",
+        "syntax_grammar_sha256": "a46c11a27ce5b8b8bafb4759438134cba47fdf1283b7b2e31c5a77a0e682d0cc",
+        "sources": {
+          "docs/user-guide.md": "a0012c1ed6644fae274d4c05dfb6151f58f6d30eeadc79cf9c34569689ba476c",
+          "docs/tutorial.md": "5da8651ff90b1b56e634f698f17a28b1244dcf02688087f22d6b445c7a26847f",
+          "docs/getting-started.md": "3972824ace5501c71607ab8f7597e0ebc1ca32cbe5ae20ae0b724652e23eb5a9",
+          "docs/installing-toolchain.md": "26153756dadaf464e2ff7bcee9a01cb580657ac3c8f6e0156af2e35831483218",
+          "docs/projects-dependencies.md": "816b2fcbde2cf72744eb5773637bf3b59aa0aca6c58528ce25e758620d0b0add",
+          "docs/native-jit-simulation.md": "cead077423a582db9aeaea9e54e1b92120303358e11675d6f48ba17615806974",
+          "docs/native-debugging.md": "15007ed4c2b04e9faeedc674c0d5216c023c872f830e08c219c53e021df17a3c",
+          "docs/waveform-workspace.md": "c3a49a60d0ffd6d2d1818317d2c09f64499a035a6594a2e2bc7f50811e9c68c4",
+          "docs/backends-tooling.md": "b43d6d783520902cc50d71da73c6a236619eb624f73a224e7d6edefcae9110d1",
+          "docs/implementation-profiles.md": "d1398973d4a61543912fd362cfffd45fab28dd6a003a65c3d1ed877ab04e87c1",
+          "docs/target-platform-architecture-description.md": "348debe9fd86d89e4419b9276833e92b91b537c39e57b7aca072055142e5a4d6",
+          "docs/low-level-target-resource-library.md": "700a4aae6cc1873180a383b394c1509cfb32b49fc931cd1407bab59984c28906",
+          "docs/high-level-target-aware-architecture-pipeline-planner.md": "1cad6fa8ea58d06f204d3625aa47e2a41946464b765e89800fc99949c6a36eac",
+          "docs/platform-constraint-publication.md": "3c17113e7b5b87d9c0da0f0b456374c0f4a410a9df60620192a7629d67917d50",
+          "docs/direct-systemverilog.md": "5000d7338e1a6737fba9d78d239695939038672be43db0e7fbb21f12689a143f",
+          "docs/formal-verification.md": "71b67ace1b3b0f22028190dae96d5ee5871b4a26e7e9656b37696059f60a603d",
+          "docs/whole-build-manifests.md": "10b03479aa0e759fed0384bd58c94bfc8b4b4527ac7d27992355ce98fd4eeb1e",
+          "docs/structured-diagnostics.md": "be102056e7e4b5ed5b4943ce0a5b89469cc49a1ea99af81d4d90d215c79f3d4b",
+          "docs/generated-source-maps.md": "a85bfbf1f2503b7257f8ec1a78b9368e21f7e22d6c74fb3e191642d09a086760",
+          "docs/generated-navigation-bundles.md": "2c20638614d4ac924879840c4ba895a8e30abbbded04fcf69c0eecc044cc1be4",
+          "docs/tooling-integration-api.md": "2b19e307560f2e06d26c78eed0f08b4e6b6094cbb9c62f1b691875d047fd5be7",
+          "docs/zlang-lsp.md": "dbd04afb65d0cc197cf19353545780611a68a954582f6fd82e74c7a7e6393f0c"
+        },
+        "source_date_epoch": 1792713600
+      }
+    },
+    "build_sources": {
+      "tools/build_community_pdf.py": "4fd9d4b5a0023fe2f3cd5c3b79bd0a25624d978a977d2201dc4473202ba9a6c2",
+      "tools/documentation_sources.py": "7ea8bdbed8a7fa4e21d4719963d94f48fca0de304c024bca9cb1dc40535a6964",
+      "tools/documentation_manifest.py": "45dded7b07190bcdb35c2ce4a08d9be62213fea3fc3646059fb0a25946cc072d",
+      "tools/document_stdlib.py": "833b8d2e41172805700a6fd0c689f32a177a9363544a2f9a6b0feef9d713198e",
+      "tools/documentation_pdf.py": "3d91732c8eebd11694fdbc0f848e4acb1e465b30f4eefac28bf3e5be2bf0a725",
+      "LICENSES/Bitstream-Vera.txt": "0d8ac81fabd2b3b8bff78268cc18f26f481fe103c5077c079fbc3fce5a509f15"
+    }
   },
-  "platform": {
-    "operating_system": "Linux",
-    "python": ">=3.12,<3.13",
-    "architecture": "x86_64"
+  "eda_toolchain": {
+    "iverilog": "14.0",
+    "sby": "0.70",
+    "verilator": "5.053",
+    "vvp": "14.0",
+    "yosys": "0.70",
+    "z3": "5.3.1"
   },
-  "native_runtime": {
-    "version": "0.1.0a24",
-    "abi": "cp312-abi3",
-    "source_distribution": false,
-    "platforms": [
-      "manylinux_2_28_x86_64"
-    ]
-  },
+  "generated_by": "tools/release_status.py",
   "native_editor": {
     "contracts": {
       "debug_adapter": "zlang-debug-adapter-v1",
@@ -46,183 +190,39 @@
       "sha256": "f8b67cabb37b33b8f6541663a9f7f4f59028387e0adf672b5df887ce0ad84e17"
     }
   },
-  "validation": {
-    "minimum_tests_passed": 4424,
-    "minimum_tests_collected": 4424,
-    "maximum_tests_skipped": 0,
-    "example_corpus": {
-      "source_files": 130,
-      "module_roots": 241,
-      "standalone_supported": 224,
-      "child_or_template_only": 17,
-      "direct_unsupported": 0
-    }
+  "native_runtime": {
+    "abi": "cp312-abi3",
+    "platforms": [
+      "manylinux_2_28_x86_64"
+    ],
+    "source_distribution": false,
+    "version": "0.1.0a24"
   },
   "oss_cad_suite": {
-    "version": "2026-10-21",
-    "linux_x64_sha256": "dde9f1700dece195a98a9b15845a4f4043b2aab1dacf9be498bbad0c3be1f247"
+    "linux_x64_sha256": "dde9f1700dece195a98a9b15845a4f4043b2aab1dacf9be498bbad0c3be1f247",
+    "version": "2026-10-21"
   },
-  "eda_toolchain": {
-    "iverilog": "14.0",
-    "sby": "0.70",
-    "verilator": "5.053",
-    "vvp": "14.0",
-    "yosys": "0.70",
-    "z3": "5.3.1"
+  "platform": {
+    "architecture": "x86_64",
+    "operating_system": "Linux",
+    "python": ">=3.12,<3.13"
   },
-  "documentation": {
-    "manifest": "docs/manuals.toml",
-    "manifest_sha256": "f8595bd23f8e286736ae5e8cb734c792d23ecc930c7e83e19de1aee33a4c4c5b",
-    "manuals": {
-      "language-reference": {
-        "builder_sha256": "4fd9d4b5a0023fe2f3cd5c3b79bd0a25624d978a977d2201dc4473202ba9a6c2",
-        "cover_height": 524,
-        "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
-        "cover_width": 1983,
-        "examples": {
-          "linked_sources": 5,
-          "json_blocks": 1,
-          "python_blocks": 0,
-          "referenced_tops": 0,
-          "shell_blocks": 4,
-          "standalone_compiled": 21,
-          "syntax_fragments": 106,
-          "toml_blocks": 1,
-          "zlang_fences": 127
-        },
-        "format": "PDF-1.5",
-        "pages": 66,
-        "page_height_points": 841.89,
-        "page_width_points": 595.28,
-        "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
-        "title": "Language Reference",
-        "version": "0.1.0a24",
-        "pdf_sha256": "4a307e73cabe1793af7a62fc4f966cd151e8118aa9b1d8483b3b38302196977a",
-        "syntax_grammar_sha256": "a46c11a27ce5b8b8bafb4759438134cba47fdf1283b7b2e31c5a77a0e682d0cc",
-        "sources": {
-          "docs/language-reference.md": "c0a64a560e5fa161b2696dccf19ef75afa79b18e4a81486863a4f2e021a91496",
-          "docs/language-overview.md": "99825d4517cf4b0010393e0e42983e0f4859261aee7f1e2f72fc4e882975cba2",
-          "docs/types-and-numerics.md": "943a24baf761d7617d56f806606c0275aca18a0d7c79314bab4e96d62a277788",
-          "docs/expressions-functions-generics.md": "9ec233baa3f1c49718f374c25cc674a0f99169421381a2c8018202cadb3d6bb5",
-          "docs/compile-time-integers.md": "cee5c9a475cabdb9943a3732749bacef7bf0053b27c1aca586687c354b3838bb",
-          "docs/sequential-state-storage.md": "8fc5eeb4c6ef358e278e93f247b6afd67ea69a67e2a63bf83349a40edd928823",
-          "docs/physical-clock-reset-contract.md": "b918795a78271117f009e2354fc738c21c404bed7ee7c4da4ac73e613c46eb16",
-          "docs/hierarchy-protocols.md": "7b8ad1f0283c4d4f691422a211fcfb646dcab3cbeca760cd7b14f7d52af83d78",
-          "docs/named-module-interfaces.md": "186e9f7254c3fabdfdfdca13986f306a6e025abdee32431758cc7c8688152882",
-          "docs/tagged-unions.md": "b2800cafe4bc6ab45527cd6237ea091a50d733de8010692f7bacaf53ac984f63",
-          "docs/parameterized-aggregate-protocol.md": "b38f223154166b6b08f2d978509d39e32587e472a5d850aed5baac963d8d29b8",
-          "docs/implementation-intent.md": "7b5c26d4be5f5881a055990f8c311620078530448a30e678e7b0bb85f062aeb3",
-          "docs/optimization-formal.md": "5ee07703beea19a9a4cef50de0132b69e5f410d911f0f46f6a238e5952b221a1",
-          "docs/storage-instance-arrays.md": "8ae66faedb4ba81e6c977ca21dab90ff73899167d6858c527d523466f7498c64",
-          "docs/source-product-identity.md": "12b25ffd8634fb1d113405edf0f8d0c0a93f3056a55437dcb4bdc25a8dbc656e",
-          "docs/syntax-support-matrix.md": "491c6f7881d328bc106d3dee00eec23aa52e409772fbc7ecc4adb0f85b5fde78",
-          "docs/known-limitations.md": "5331b1b3d99abe8ba2d50533b8b14062cb3abb5dd45f09c9623eee7585b2e7d5",
-          "docs/language-quick-reference.md": "907650c39bbc8c5fba00c70467ff872eda3e2769c131a1cb12e007d249000ad2"
-        },
-        "source_date_epoch": 1792713600
-      },
-      "standard-library": {
-        "builder_sha256": "4fd9d4b5a0023fe2f3cd5c3b79bd0a25624d978a977d2201dc4473202ba9a6c2",
-        "cover_height": 524,
-        "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
-        "cover_width": 1983,
-        "examples": {
-          "linked_sources": 24,
-          "json_blocks": 0,
-          "python_blocks": 0,
-          "referenced_tops": 19,
-          "shell_blocks": 18,
-          "standalone_compiled": 1,
-          "syntax_fragments": 2,
-          "toml_blocks": 0,
-          "zlang_fences": 3
-        },
-        "format": "PDF-1.5",
-        "pages": 104,
-        "page_height_points": 841.89,
-        "page_width_points": 595.28,
-        "pdf": "docs/ZLang-HDL-Standard-Library-Guide.pdf",
-        "title": "Standard Library Guide",
-        "version": "0.1.0a24",
-        "pdf_sha256": "acb289c1b075b1bc29b53dca6b3789add1933109ddca8e465ba8b818969806df",
-        "syntax_grammar_sha256": "a46c11a27ce5b8b8bafb4759438134cba47fdf1283b7b2e31c5a77a0e682d0cc",
-        "sources": {
-          "docs/stdlib.md": "573d5ec315e53d6618ae0cca22008277fdd48a4f71302d1e873457998eac5259",
-          "docs/stdlib-overview.md": "ae807c7c18dc25da474ef94bc9ab1faef198480979ac8ec71acae943a86ffe31",
-          "docs/standard-bus-library.md": "8125c715f7a3c14de3715807790e0a28315598a2d252553d075eebc13243b73d",
-          "docs/stdlib-stream-dsp.md": "9d15443759a02d0a306fe2036976649e7ed18c58cd3284028e1d91d8e041e137",
-          "docs/stdlib-reloadable-fir.md": "b37f30b999d0cb60768446fe47b908c0dff6cc9078f58907c50150088c082d9c",
-          "docs/stdlib-multirate-coding.md": "36b4d8e9d72592ae70a83def9150cf5210a96bacea223b9138213cf10658cde2",
-          "docs/stdlib-secded.md": "b5c7c1bf0ab45eb4fb4cfba2833b07c628798d045155fa8ecf6a0ca470f0319e",
-          "docs/stdlib-farrow.md": "22a238e7e09e1321c934a556e9dc402264ac19d5168ee7894dc4b8725c0f5d79",
-          "docs/stdlib-rs-dvb.md": "ccb95e7ac19ec4586eca76979f908d55d0aed9725a95f21d0191d7ba817e4e5e",
-          "docs/stdlib-viterbi.md": "d3e9c7e9641ec25af73b4e096d71f204a58755b5260aff7bd5d098120cf9d280",
-          "docs/stdlib-recipes.md": "192ff301c16cd4b2d6021177dd0a90e906823332f475c4f0fa0f16fd05842346",
-          "docs/stdlib-formal-coverage.md": "e3aace8277650eb223f7d9b251ee7e790a536ad7dc084812b340affeb0d5ff88",
-          "docs/stdlib-api.md": "369192d019dcfa968e1a316ac208899d10ef5d3b1d304f565cec1516c6ccd668"
-        },
-        "source_date_epoch": 1792713600
-      },
-      "user-guide": {
-        "builder_sha256": "4fd9d4b5a0023fe2f3cd5c3b79bd0a25624d978a977d2201dc4473202ba9a6c2",
-        "cover_height": 524,
-        "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
-        "cover_width": 1983,
-        "examples": {
-          "linked_sources": 11,
-          "json_blocks": 5,
-          "python_blocks": 2,
-          "referenced_tops": 6,
-          "shell_blocks": 48,
-          "standalone_compiled": 3,
-          "syntax_fragments": 4,
-          "toml_blocks": 3,
-          "zlang_fences": 7
-        },
-        "format": "PDF-1.5",
-        "pages": 52,
-        "page_height_points": 841.89,
-        "page_width_points": 595.28,
-        "pdf": "docs/ZLang-HDL-User-Guide.pdf",
-        "title": "User Guide",
-        "version": "0.1.0a24",
-        "pdf_sha256": "65a44f8b1b5c0e28516b9ebb91f03de68318d830fdb4a61584ec3f0ef0ce3a91",
-        "syntax_grammar_sha256": "a46c11a27ce5b8b8bafb4759438134cba47fdf1283b7b2e31c5a77a0e682d0cc",
-        "sources": {
-          "docs/user-guide.md": "a0012c1ed6644fae274d4c05dfb6151f58f6d30eeadc79cf9c34569689ba476c",
-          "docs/tutorial.md": "5da8651ff90b1b56e634f698f17a28b1244dcf02688087f22d6b445c7a26847f",
-          "docs/getting-started.md": "3972824ace5501c71607ab8f7597e0ebc1ca32cbe5ae20ae0b724652e23eb5a9",
-          "docs/installing-toolchain.md": "26153756dadaf464e2ff7bcee9a01cb580657ac3c8f6e0156af2e35831483218",
-          "docs/projects-dependencies.md": "1f24d69fc0990b81f3b4e5326e2a8cf2303cb9b75218f82f9076e8d52993d663",
-          "docs/native-jit-simulation.md": "cead077423a582db9aeaea9e54e1b92120303358e11675d6f48ba17615806974",
-          "docs/native-debugging.md": "15007ed4c2b04e9faeedc674c0d5216c023c872f830e08c219c53e021df17a3c",
-          "docs/waveform-workspace.md": "c3a49a60d0ffd6d2d1818317d2c09f64499a035a6594a2e2bc7f50811e9c68c4",
-          "docs/backends-tooling.md": "ae8cf4a0fd765f7601d9a94934be54254a3af4f2099d05390cf9708c77900d1b",
-          "docs/implementation-profiles.md": "d1398973d4a61543912fd362cfffd45fab28dd6a003a65c3d1ed877ab04e87c1",
-          "docs/target-platform-architecture-description.md": "348debe9fd86d89e4419b9276833e92b91b537c39e57b7aca072055142e5a4d6",
-          "docs/low-level-target-resource-library.md": "700a4aae6cc1873180a383b394c1509cfb32b49fc931cd1407bab59984c28906",
-          "docs/high-level-target-aware-architecture-pipeline-planner.md": "1cad6fa8ea58d06f204d3625aa47e2a41946464b765e89800fc99949c6a36eac",
-          "docs/platform-constraint-publication.md": "3c17113e7b5b87d9c0da0f0b456374c0f4a410a9df60620192a7629d67917d50",
-          "docs/direct-systemverilog.md": "5000d7338e1a6737fba9d78d239695939038672be43db0e7fbb21f12689a143f",
-          "docs/formal-verification.md": "71b67ace1b3b0f22028190dae96d5ee5871b4a26e7e9656b37696059f60a603d",
-          "docs/whole-build-manifests.md": "10b03479aa0e759fed0384bd58c94bfc8b4b4527ac7d27992355ce98fd4eeb1e",
-          "docs/structured-diagnostics.md": "be102056e7e4b5ed5b4943ce0a5b89469cc49a1ea99af81d4d90d215c79f3d4b",
-          "docs/generated-source-maps.md": "a85bfbf1f2503b7257f8ec1a78b9368e21f7e22d6c74fb3e191642d09a086760",
-          "docs/generated-navigation-bundles.md": "2c20638614d4ac924879840c4ba895a8e30abbbded04fcf69c0eecc044cc1be4",
-          "docs/tooling-integration-api.md": "2b19e307560f2e06d26c78eed0f08b4e6b6094cbb9c62f1b691875d047fd5be7",
-          "docs/zlang-lsp.md": "dbd04afb65d0cc197cf19353545780611a68a954582f6fd82e74c7a7e6393f0c"
-        },
-        "source_date_epoch": 1792713600
-      }
+  "release": {
+    "channel": "alpha",
+    "repository": "https://github.com/postoroniy/zlang-hdl",
+    "version": "0.1.0a24"
+  },
+  "schema": 3,
+  "validation": {
+    "example_corpus": {
+      "child_or_template_only": 17,
+      "direct_unsupported": 0,
+      "module_roots": 242,
+      "source_files": 131,
+      "standalone_supported": 225
     },
-    "build_sources": {
-      "tools/build_community_pdf.py": "4fd9d4b5a0023fe2f3cd5c3b79bd0a25624d978a977d2201dc4473202ba9a6c2",
-      "tools/documentation_sources.py": "7ea8bdbed8a7fa4e21d4719963d94f48fca0de304c024bca9cb1dc40535a6964",
-      "tools/documentation_manifest.py": "45dded7b07190bcdb35c2ce4a08d9be62213fea3fc3646059fb0a25946cc072d",
-      "tools/document_stdlib.py": "6e405ee3f5ca32bb6ec98053135831078ba74b51543362437a79a64d8c222bc8",
-      "tools/documentation_pdf.py": "3d91732c8eebd11694fdbc0f848e4acb1e465b30f4eefac28bf3e5be2bf0a725",
-      "LICENSES/Bitstream-Vera.txt": "0d8ac81fabd2b3b8bff78268cc18f26f481fe103c5077c079fbc3fce5a509f15"
-    }
-  },
-  "generated_by": "tools/release_status.py"
+    "maximum_tests_skipped": 0,
+    "minimum_tests_collected": 4424,
+    "minimum_tests_passed": 4424
+  }
 }

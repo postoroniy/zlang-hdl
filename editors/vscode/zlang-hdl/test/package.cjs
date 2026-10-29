@@ -14,6 +14,22 @@ const staticAssets = [
   'syntaxes/zlang.tmLanguage.json', 'snippets/zlang-hdl.json',
 ];
 
+function editorOnlyManifest(source) {
+  const manifest = structuredClone(source);
+  const nativeCommands = new Set(manifest.contributes.commands.map(item => item.command));
+  manifest.contributes.keybindings = manifest.contributes.keybindings.filter(
+    binding => !nativeCommands.has(binding.command));
+  delete manifest.contributes.breakpoints;
+  delete manifest.contributes.debuggers;
+  delete manifest.contributes.customEditors;
+  delete manifest.contributes.menus;
+  manifest.contributes.commands = [];
+  delete manifest.contributes.configuration.properties['zlang.waveform.wcp.enabled'];
+  delete manifest.contributes.configuration.properties['zlang.waveform.wcp.port'];
+  manifest.categories = manifest.categories.filter(item => item === 'Programming Languages');
+  return manifest;
+}
+
 async function main() {
   const targetIndex = process.argv.indexOf('--target');
   const target = targetIndex === -1 ? null : process.argv[targetIndex + 1];
@@ -49,17 +65,9 @@ async function main() {
       fs.mkdirSync(path.dirname(destination), { recursive: true });
       fs.copyFileSync(source, destination);
     }
-    const manifest = JSON.parse(fs.readFileSync(path.join(extension, 'package.json'), 'utf8'));
+    let manifest = JSON.parse(fs.readFileSync(path.join(extension, 'package.json'), 'utf8'));
     if (target === null) {
-      delete manifest.contributes.breakpoints;
-      delete manifest.contributes.debuggers;
-      delete manifest.contributes.customEditors;
-      delete manifest.contributes.menus;
-      delete manifest.contributes.keybindings;
-      manifest.contributes.commands = [];
-      delete manifest.contributes.configuration.properties['zlang.waveform.wcp.enabled'];
-      delete manifest.contributes.configuration.properties['zlang.waveform.wcp.port'];
-      manifest.categories = manifest.categories.filter((item) => item === 'Programming Languages');
+      manifest = editorOnlyManifest(manifest);
     } else {
       const binaryRoot = developmentRoot===null
         ? path.resolve(repository, 'release/native-editor', target) : fs.realpathSync(developmentRoot);
@@ -88,6 +96,7 @@ async function main() {
     if(developmentRoot!==null)manifest.zlangDevelopmentNativeBuild=true;
     delete manifest.files;
     delete manifest.devDependencies;
+    delete manifest.overrides;
     delete manifest.scripts;
     fs.writeFileSync(path.join(stage, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     const bundle = await buildBundle();
@@ -124,4 +133,6 @@ function isReviewedExecutable(candidate) {
   }
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+module.exports = {editorOnlyManifest};
+if (require.main === module)
+  main().catch((error) => { console.error(error); process.exitCode = 1; });

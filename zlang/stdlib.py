@@ -164,6 +164,12 @@ def load_stdlib_source(path: str) -> StdlibSource:
     return StdlibSource(path, source_path, module, digest, dependencies)
 
 
+def stdlib_source_inventory() -> tuple[tuple[str, str], ...]:
+    """Exact active resolver inventory without parsing or exposing host paths."""
+    return tuple((name, hashlib.sha256(_locate(name).read_bytes()).hexdigest())
+                 for name in available_stdlib_modules())
+
+
 def resolve_stdlib(imports: Iterable[str]) -> tuple[StdlibSource, ...]:
     """Resolve imports and their dependency closure in dependency-first order."""
     loaded: dict[str, StdlibSource] = {}
@@ -197,4 +203,5 @@ __all__ = [
     "StdlibSource", "available_stdlib_modules", "load_stdlib_source",
     "resolve_stdlib", "stdlib_source", "stdlib_source_hash",
     "track_resolved_stdlib_source_paths",
+    "stdlib_source_inventory",
 ]

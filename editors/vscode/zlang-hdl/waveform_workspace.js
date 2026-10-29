@@ -209,6 +209,7 @@ function updateTraceStatus(){
   button.classList.toggle('enabled',state.traceChanged);
   el('followLive').hidden=!state.live;
   el('addTraceSignals').hidden=!state.live;el('exportTrace').hidden=!state.live;
+  el('switchDebugSession').hidden=!state.live;
   el('traceStatus').textContent=state.live?'':state.reloading?'Reading trace…':state.traceChanged?'File changed — reload to update':'';
 }
 function cancelWaveformQueries(){

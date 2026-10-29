@@ -12,7 +12,7 @@ from zlang.analysis_needs import AnalysisNeeds
 from zlang.ast import nodes as ast_nodes
 from zlang.completion_resolution import CompletionScope
 from zlang.compiler import TopSelectionError, check_file_snapshot
-from zlang.definition_resolution import DefinitionResolution
+from zlang.definition_resolution import DefinitionResolution, DefinitionTarget
 from zlang.dependencies import DependencyModelError
 from zlang.diagnostics import DiagnosticError
 from zlang.ir import expressions as ir_expressions
@@ -150,7 +150,7 @@ def _definition_snapshot(
 
 def _definition_target_path(
     source: Path,
-    resolution: DefinitionResolution,
+    resolution: DefinitionResolution | DefinitionTarget,
     physical_inputs: object,
     session: tooling_session.ToolingSession | None = None,
 ) -> Path | None:
@@ -158,13 +158,15 @@ def _definition_target_path(
         source, resolution.target, physical_inputs, session
     )
 
-def _definition_from_result(
+def _definition_record_at(
     source: Path,
     result: object,
     line: int,
     character: int,
     session: tooling_session.ToolingSession | None = None,
-) -> tooling_symbols.ToolingDefinition | None:
+) -> DefinitionResolution | DefinitionTarget | None:
+    """Select an exact compiler occurrence or the declaration under the cursor."""
+
     root_unit = tooling_workspace._root_logical_source(source, session)
     indexed = getattr(result, "occurrences_by_line", None)
     resolutions = (
@@ -179,7 +181,37 @@ def _definition_from_result(
         character=character,
         source_origin=lambda item: item.occurrence,
     )
+    if resolution is not None:
+        return resolution
+    declaration_index = getattr(result, "declarations_by_line", None)
+    declarations = (
+        _indexed_symbol_line(declaration_index, root_unit, line + 1)
+        if declaration_index is not None
+        else getattr(result, "definition_declarations", ())
+    )
+    return tooling_symbols._narrowest_source_record(
+        declarations,
+        source_unit=root_unit,
+        line=line,
+        character=character,
+        source_origin=lambda item: item.target,
+        include_column_span=False,
+    )
+
+
+def _definition_from_result(
+    source: Path,
+    result: object,
+    line: int,
+    character: int,
+    session: tooling_session.ToolingSession | None = None,
+) -> tooling_symbols.ToolingDefinition | None:
+    resolution = _definition_record_at(source, result, line, character, session)
     if resolution is None:
+        return None
+    # An instance's local name is not its module declaration. The exact
+    # module-type occurrence remains the authority for that navigation edge.
+    if isinstance(resolution, DefinitionTarget) and resolution.kind == "instance":
         return None
     target_path = _definition_target_path(
         source, resolution, result.physical_inputs, session

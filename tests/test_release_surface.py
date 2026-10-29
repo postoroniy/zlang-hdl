@@ -42,7 +42,7 @@ def test_package_and_build_metadata_share_one_version_source() -> None:
     assert configuration["project"]["scripts"]["zlang"] == "zlang.cli:main"
     assert "zlangc" not in configuration["project"]["scripts"]
     assert configuration["build-system"] == {
-        "requires": ["setuptools==84.0.0"],
+        "requires": ["setuptools==84.2.1"],
         "build-backend": "setuptools.build_meta",
     }
     assert configuration["tool"]["setuptools"]["dynamic"]["version"] == {
