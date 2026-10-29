@@ -70,7 +70,12 @@ function syncWaveformSelection() {
   state.selectedSignalId=rows.get(state.selectedRowId)?.signalId||null;
   state.selectedSignalIds=new Set([...state.selectedRowIds].map(id=>rows.get(id)?.signalId).filter(Boolean));
   const active=rows.get(state.selectedRowId);
+  el('displayMode').value=active?.display||state.display;
+  el('displayMode').disabled=Boolean(active&&active.type!=='signal');
   el('format').value=active?.format||state.format;el('format').disabled=Boolean(active&&active.type!=='signal');
+}
+function waveformDisplayRows() {
+  return waveformRows(state.layout,item=>waveformDefaultRowHeight(item,signalFor(item)||item.holder?.signal,state.display));
 }
 function selectWaveformRow(rowId, render=true, toggle=false) {
   const item=rowId&&findItem(rowId);
@@ -89,7 +94,7 @@ function selectWaveformRow(rowId, render=true, toggle=false) {
 }
 function waveformItemAtY(y) {
   const position = y - rulerHeight + el('wavePane').scrollTop;
-  return waveformRows(state.layout).rows.find(row =>
+  return waveformDisplayRows().rows.find(row =>
     row.top <= position && position < row.top + row.height)?.item;
 }
 function selectRowAtY(y) {
@@ -276,4 +281,4 @@ function receive(message) {
   else if(message.type==='liveStatus')receiveLiveStatus(message);
 }
 
-module.exports = { walk, findItem, visibleItems, visibleSignals, removeItem, parentArray, moveWaveformRows, syncWaveformSelection, selectWaveformRow, waveformItemAtY, selectRowAtY, signalIdsForChangeJump, addSignal, canAddWaveformRows, addSignals, restore, addCatalogPaths, save, persistLayout, scheduleQuery, revealTime, renderAll, renderTimeView, updateTraceStatus, cancelWaveformQueries, beginTraceReload, requestTraceReload, receive };
+module.exports = {waveformDisplayRows, walk, findItem, visibleItems, visibleSignals, removeItem, parentArray, moveWaveformRows, syncWaveformSelection, selectWaveformRow, waveformItemAtY, selectRowAtY, signalIdsForChangeJump, addSignal, canAddWaveformRows, addSignals, restore, addCatalogPaths, save, persistLayout, scheduleQuery, revealTime, renderAll, renderTimeView, updateTraceStatus, cancelWaveformQueries, beginTraceReload, requestTraceReload, receive };

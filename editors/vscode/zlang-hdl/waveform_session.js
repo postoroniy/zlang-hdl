@@ -32,7 +32,7 @@ function sessionColor(value, fallback) {
     throw new Error('Waveform color must be #RRGGBB');
   return value;
 }
-function sessionPresentation(item) {
+function sessionPresentation(item, width=4096) {
   const mnemonic = Object.create(null);
   if (item.mnemonic !== undefined) {
     if (!item.mnemonic || Array.isArray(item.mnemonic) || typeof item.mnemonic !== 'object'
@@ -49,7 +49,29 @@ function sessionPresentation(item) {
     color: sessionColor(item.color, undefined),
     height: Number.isInteger(item.height) ? Math.max(24,Math.min(128,item.height)) : undefined,
     mnemonic,
+    ...(item.display===undefined?{}:{display:sessionDisplay(item.display)}),
+    ...(item.analog===undefined?{}:{analog:sessionAnalog(item.analog,width)}),
   };
+}
+function sessionDisplay(value) {
+  if(!['auto','digital','analog'].includes(value))throw new Error('Invalid waveform display mode');
+  return value;
+}
+function sessionAnalog(value,width=4096) {
+  if(!value||typeof value!=='object'||Array.isArray(value)
+    ||Object.keys(value).some(key=>!['signed','fraction'].includes(key)))
+    throw new Error('Invalid analog interpretation');
+  const result={};
+  if(value.signed!==undefined){
+    if(typeof value.signed!=='boolean')throw new Error('Analog signedness must be boolean');
+    result.signed=value.signed;
+  }
+  if(value.fraction!==undefined){
+    if(!Number.isInteger(value.fraction)||value.fraction<0||value.fraction>4095||value.fraction>=width)
+      throw new Error('Analog fraction must be 0..4095 bits and less than the signal width');
+    result.fraction=value.fraction;
+  }
+  return result;
 }
 function serializeSessionLayout(items,catalogById) {
   const count={value:0};
@@ -62,7 +84,7 @@ function serializeSessionLayout(items,catalogById) {
       if(item.type!=='signal')throw new Error('Unknown waveform row type');
       const signal=catalogById.get(item.signalId)||item.unresolved;
       if(!signal)throw new Error('Waveform row has no signal identity');
-      return {type:'signal',id:String(item.id),signal:{name:signal.name,width:signal.width},...sessionPresentation(item)};
+      return {type:'signal',id:String(item.id),signal:{name:signal.name,width:signal.width},...sessionPresentation(item,signal.width)};
     });
   }
   return encode(items,0);
@@ -88,7 +110,7 @@ function rebindSessionLayout(items,catalog) {
       const signal=byKey.get(signalKey(identity));
       if(++signalRows>MAX_SESSION_ITEMS)throw new Error('Waveform session exceeds 4096 signal rows');
       return {type:'signal',id,signalId:signal?.id||null,
-        unresolved:signal?null:{name:identity.name,width:identity.width},...sessionPresentation(item)};
+        unresolved:signal?null:{name:identity.name,width:identity.width},...sessionPresentation(item,identity.width)};
     });
   }
   return decode(items,0);
@@ -153,10 +175,11 @@ function normalizeWaveformSession(session,catalog,minimum,maximum) {
     bookmarks:normalizeBookmarks(session.bookmarks,minimum,maximum),
     selectedRowId:active?.id||null,selectedRowIds:selectedRows,selectedSignalId:active?.signalId||null,
     format:['hex','binary','unsigned','signed','enum','typed'].includes(session.format)?session.format:'hex',
+    display:session.display===undefined?'auto':sessionDisplay(session.display),
     search:{kind:['exact','pattern','any_change','rising','falling','unknown_entry','uninitialized_entry'].includes(session.search?.kind)?session.search.kind:'any_change',value:typeof session.search?.value==='string'?session.search.value.slice(0,4096):''},
     inspectorCollapsed:Boolean(session.inspectorCollapsed),followLive:session.followLive!==false,
   };
 }
 module.exports={WAVEFORM_SESSION_SCHEMA,MAX_SESSION_ITEMS,MAX_LAYOUT_ITEMS,MAX_BOOKMARKS,waveformLayoutUsage,signalKey,
-  sessionColor,sessionPresentation,serializeSessionLayout,rebindSessionLayout,
+  sessionColor,sessionPresentation,sessionDisplay,sessionAnalog,serializeSessionLayout,rebindSessionLayout,
   sessionTimestamp,normalizeBookmarks,normalizeWaveformSession};

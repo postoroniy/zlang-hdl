@@ -39,7 +39,7 @@ function receiveQuery(message) {
   return false;
 }
 function requestedRows() {
-  return waveformRowWindow(waveformRows(state.layout).rows,
+  return waveformRowWindow(waveformDisplayRows().rows,
     el('wavePane').scrollTop, Math.max(1,el('wavePane').clientHeight-rulerHeight));
 }
 async function queryAll() {

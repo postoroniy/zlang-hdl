@@ -2,13 +2,13 @@
 'use strict';
 
 // One row geometry is shared by the signal list, canvas and hit testing.
-function waveformRows(items) {
+function waveformRows(items, defaultHeight = () => 34) {
   const rows = [];
   let top = 0;
   function append(children, depth) {
     for (const item of children) {
       const height = item.type === 'group' ? 28 : item.type === 'divider' ? 24
-        : Math.max(24, Math.min(128, Number(item.height) || 34));
+        : Math.max(24, Math.min(128, Number(item.height) || defaultHeight(item)));
       rows.push({ item, depth, top, height });
       top += height;
       if (item.type === 'group' && !item.collapsed) append(item.children, depth + 1);

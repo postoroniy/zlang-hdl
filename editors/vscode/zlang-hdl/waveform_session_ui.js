@@ -9,7 +9,7 @@ function exportWaveformSession() {
     cursorA:state.cursor,cursorB:state.marker,bookmarks:state.bookmarks,
     selectedSignal:selected?{name:selected.name,width:selected.width}:null,
     selectedRow:state.selectedRowId,selectedRows:[...state.selectedRowIds],
-    format:state.format,search:{kind:el('searchKind').value,value:el('searchValue').value},
+    format:state.format,display:state.display,search:{kind:el('searchKind').value,value:el('searchValue').value},
     inspectorCollapsed:state.inspectorCollapsed,followLive:state.followLive,
   };
 }
@@ -22,7 +22,8 @@ function applyWaveformSession(session) {
   state.selectedRowId=normalized.selectedRowId;
   state.selectedRowIds=new Set(normalized.selectedRowIds);
   syncWaveformSelection();
-  state.format=normalized.format;state.statistics=null;
+  state.format=normalized.format;state.display=normalized.display;state.statistics=null;
+  el('displayMode').value=findItem(state.selectedRowId)?.display||state.display;
   state.followLive=normalized.followLive;state.inspectorCollapsed=normalized.inspectorCollapsed;
   el('format').value=findItem(state.selectedRowId)?.format||state.format;
   el('format').disabled=Boolean(state.selectedRowId&&findItem(state.selectedRowId)?.type!=='signal');

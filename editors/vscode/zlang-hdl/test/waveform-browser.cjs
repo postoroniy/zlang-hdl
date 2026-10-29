@@ -12,6 +12,7 @@ const {WaveformTileCache,waveformQueryKey}=require('../waveform_cache');
 const {writeScaleVcd}=require('./waveform-fixtures.cjs');
 const {checkContinuousPan,checkDensePan}=require('./waveform-pan.cjs');
 const {checkTypedLiveBrowser}=require('./typed-waveform-browser.cjs');
+const {checkAnalogBrowser}=require('./analog-waveform-browser.cjs');
 const {checkNativeTraceShutdown}=require('./waveform-client-native.cjs');
 
 async function main(){
@@ -373,6 +374,7 @@ async function main(){
     assert.ok(requests.every(request=>request.unique),'copies must share channel queries');
     assert.ok(cacheHits>0);assert.ok(cache.bytes<=128*1024*1024);
     await checkTypedLiveBrowser(browser,root,waveformHtml(buildWaveformBundle().toString()));
+    await checkAnalogBrowser(browser,root,waveformHtml(buildWaveformBundle().toString()),executable);
     console.log(JSON.stringify({result:'passed',requests:requests.length,cacheHits,cacheBytes:cache.bytes,screenshots:root},null,2));
   }catch(error){
     console.error(JSON.stringify({browserErrors:errors,evidence:root}));

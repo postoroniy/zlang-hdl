@@ -33,7 +33,7 @@ function renderInspector() {
     for(const frame of selectedItem.holder.frames)appendMetric(signalCard,'Saved trace ticks',frame.start+' … '+frame.end);
   }
   if (selected) {
-    appendMetric(signalCard, "Width", selected.width + " bits");
+    if(!waveformNumericType(selected).real)appendMetric(signalCard, "Width", selected.width + " bits");
     appendMetric(signalCard, "Kind", selected.kind || "signal");
     if(selected.type_hint)appendMetric(signalCard,'Type',selected.type_hint);
     if(selected.direction)appendMetric(signalCard,'Direction',selected.direction);

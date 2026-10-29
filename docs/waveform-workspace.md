@@ -90,6 +90,36 @@ With **Sync** enabled, panning or zooming applies the same interval to all
 viewports. Otherwise each retains its own range. **Split−** removes the active
 viewport.
 
+## Numeric analog display
+
+**Display: Auto / Digital / Analog** controls waveform shape independently of
+**Format**, which controls value text. Auto plots multi-bit typed integers,
+`fixed`/`ufixed` fields and file `real` channels. Clocks, one-bit handshake
+controls, raw bit buses and enums retain digital shapes. Aggregate fields use
+their own leaf types; neither signal names nor bit patterns determine a type.
+
+For example, the live CORDIC `fixed<16,14>` sine/cosine fields are signed and
+scaled by `2^-14` automatically: raw `0x4000` plots as `1`, `0xC000` as `-1`.
+The input phase remains a signed integer; the viewer does not guess physical
+units. Auto uses the compiler catalog or explicit compatible file type hints.
+An ordinary saved VCD/FST bus often has no signedness/fraction metadata; choose
+Analog and set **Interpretation** and **Fraction bits** in the Inspector in that
+case. A blank fraction override uses the declared scale, or zero for raw buses.
+These per-row settings survive session files, autosave and Cut/Copy/Paste.
+
+Analog lanes auto-scale the fetched visible values and use sample-and-hold
+steps. They do not insert samples, smooth data, gate ready/valid payloads or
+infer transfers. U/X/Z, inactive variants and non-finite/unrepresentable values
+break the numeric trace. Plot coordinates/axis labels use floating-point
+presentation; the original samples and raw/exact typed formats remain available.
+Analog rows default to 72 pixels; the existing row-height control overrides it.
+
+Dense v3 query tiles contain activity and first/last values, not numeric extrema.
+At zoom-out these lanes show a labelled **dense activity · zoom in** band, which
+retains subpixel activity even when the endpoints agree. Zoom in for exact
+sample levels; the viewer does not present that band as a measured min/max
+amplitude envelope. No additional native protocol or simulator ABI is required.
+
 ## Navigate the trace
 
 | Action | Result |
@@ -270,6 +300,6 @@ editor action.
 hierarchical names select all displayed copies of that signal. `focus_item`
 selects exactly one row by its row ID.
 
-The workspace supports digital VCD and FST only. Analog lanes, GHW, expression
-evaluation, protocol decoding, source cross-probing, driver tracing, and
-simulator-state mutation are outside its supported surface.
+The workspace reads VCD and FST, including numeric analog-style lanes. GHW,
+expression evaluation, protocol decoding, source cross-probing, driver tracing,
+and simulator-state mutation remain outside its supported surface.

@@ -115,7 +115,7 @@
         "pdf": "docs/ZLang-HDL-User-Guide.pdf",
         "title": "User Guide",
         "version": "0.1.0a24",
-        "pdf_sha256": "384f93e766c126145c036d8f549b1d927b84a1098d57313c2f887eba56d7af5c",
+        "pdf_sha256": "ab7ca21641d332cc0d0d80d526f69a69265c990c49859ad0248c9196e3a7b158",
         "syntax_grammar_sha256": "a46c11a27ce5b8b8bafb4759438134cba47fdf1283b7b2e31c5a77a0e682d0cc",
         "sources": {
           "docs/user-guide.md": "a0012c1ed6644fae274d4c05dfb6151f58f6d30eeadc79cf9c34569689ba476c",
@@ -125,7 +125,7 @@
           "docs/projects-dependencies.md": "816b2fcbde2cf72744eb5773637bf3b59aa0aca6c58528ce25e758620d0b0add",
           "docs/native-jit-simulation.md": "cead077423a582db9aeaea9e54e1b92120303358e11675d6f48ba17615806974",
           "docs/native-debugging.md": "15007ed4c2b04e9faeedc674c0d5216c023c872f830e08c219c53e021df17a3c",
-          "docs/waveform-workspace.md": "c3a49a60d0ffd6d2d1818317d2c09f64499a035a6594a2e2bc7f50811e9c68c4",
+          "docs/waveform-workspace.md": "e21ee939acf258f08a310a6410431ac45a4a4cb413d0e8d55567e783e05370e5",
           "docs/backends-tooling.md": "b43d6d783520902cc50d71da73c6a236619eb624f73a224e7d6edefcae9110d1",
           "docs/implementation-profiles.md": "d1398973d4a61543912fd362cfffd45fab28dd6a003a65c3d1ed877ab04e87c1",
           "docs/target-platform-architecture-description.md": "348debe9fd86d89e4419b9276833e92b91b537c39e57b7aca072055142e5a4d6",

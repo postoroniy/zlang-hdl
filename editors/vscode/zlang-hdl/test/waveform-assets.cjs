@@ -8,7 +8,7 @@ const esbuild = require('esbuild');
 const root = path.resolve(__dirname, '..');
 const domains = [
   'navigation', 'measurement', 'session', 'rows', 'holders', 'clipboard', 'clipboard_ui', 'dialog', 'session_ui', 'workspace', 'renderer', 'browser',
-  'viewport', 'presentation', 'inspector', 'queries', 'controls', 'live_ui',
+  'viewport', 'numeric', 'analog', 'presentation', 'inspector', 'queries', 'controls', 'live_ui',
 ];
 
 // Compose the domain functions in one browser scope, then minify that scope

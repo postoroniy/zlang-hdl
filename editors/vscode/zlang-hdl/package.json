@@ -54,7 +54,7 @@
   ],
   "scripts": {
     "static": "node test/javascript-static.cjs",
-    "test": "npm run static && node test/javascript-static.test.cjs && node test/dependencies.test.cjs && node test/host-log.test.cjs && node test/project-metadata.test.cjs && node test/navigation.test.cjs && node test/debug-launch.test.cjs && node test/tokenize.test.cjs && node test/wcp.test.cjs && node test/waveform-model.test.cjs && node test/waveform-client.test.cjs && node test/waveform-clipboard.test.cjs && node test/debug-waveform.test.cjs && node test/waveform-live-ui.test.cjs && node test/bundle.test.cjs",
+    "test": "npm run static && node test/javascript-static.test.cjs && node test/dependencies.test.cjs && node test/host-log.test.cjs && node test/project-metadata.test.cjs && node test/navigation.test.cjs && node test/debug-launch.test.cjs && node test/tokenize.test.cjs && node test/wcp.test.cjs && node test/waveform-model.test.cjs && node test/waveform-analog.test.cjs && node test/waveform-client.test.cjs && node test/waveform-clipboard.test.cjs && node test/debug-waveform.test.cjs && node test/waveform-live-ui.test.cjs && node test/bundle.test.cjs",
     "test:waveform": "node test/waveform-browser.cjs",
     "prepackage": "npm run static",
     "package": "node test/package.cjs",

@@ -249,7 +249,7 @@
     {
       "mode": "0644",
       "path": "docs/ZLang-HDL-User-Guide.pdf",
-      "sha256": "384f93e766c126145c036d8f549b1d927b84a1098d57313c2f887eba56d7af5c"
+      "sha256": "ab7ca21641d332cc0d0d80d526f69a69265c990c49859ad0248c9196e3a7b158"
     },
     {
       "mode": "0644",
@@ -654,7 +654,7 @@
     {
       "mode": "0644",
       "path": "docs/waveform-workspace.md",
-      "sha256": "c3a49a60d0ffd6d2d1818317d2c09f64499a035a6594a2e2bc7f50811e9c68c4"
+      "sha256": "e21ee939acf258f08a310a6410431ac45a4a4cb413d0e8d55567e783e05370e5"
     },
     {
       "mode": "0644",
@@ -669,12 +669,12 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/CHANGELOG.md",
-      "sha256": "fb465b5e387222a0f0218c4fd398f501589ab00de7162f662c0d7f1d49289463"
+      "sha256": "2e9635dd8c5788acae08e0d188e831b950dc1fae6d91554bafb72a2e517e5e36"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/README.md",
-      "sha256": "139351f1d0fcec78cb6325f0d96aa7bb30db87e1908affaf77e0651cf2266c09"
+      "sha256": "c31f6a914ed6df7a5659c28acfdedacf3c58e01eeaec1b1e98015c6d423152c9"
     },
     {
       "mode": "0644",
@@ -714,7 +714,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package.json",
-      "sha256": "6c32ef2feacfe0920edeff57b07278dfa4e63fbebb0a6aa85424803341a9b190"
+      "sha256": "50b6aec6e449fbbd7d2d8f47d7329b41c1630597b6e0254732c7a0d97d6b8e0b"
     },
     {
       "mode": "0644",
@@ -740,6 +740,11 @@
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/syntaxes/zlang.tmLanguage.json",
       "sha256": "a46c11a27ce5b8b8bafb4759438134cba47fdf1283b7b2e31c5a77a0e682d0cc"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/analog-waveform-browser.cjs",
+      "sha256": "b20761d103e1e72cfc0a00e9559200c622faca0f940254f6ff06a615cca74696"
     },
     {
       "mode": "0644",
@@ -848,13 +853,18 @@
     },
     {
       "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/waveform-analog.test.cjs",
+      "sha256": "5f884b93e7e10302ebd8312ab117d03a0e6a1662db81aa34e4c927bbc0181f2b"
+    },
+    {
+      "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/waveform-assets.cjs",
-      "sha256": "81269fe4fe34eb14a761353110851dcb9a39065ae4ec71575396ef5712ad4c7e"
+      "sha256": "43d9ba2067c8223d604e5b68620ad9bfa75b980d0a2a434c1937567775b31f0a"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/waveform-browser.cjs",
-      "sha256": "7b478e2ebc85f17f4b403ae3030dfa82db2c76dcbcf9238de9d64e812b32d20d"
+      "sha256": "4e81b1b037174249a611112fa687f30a4657d95a9e4859f79c5a3fd1d95399ea"
     },
     {
       "mode": "0644",
@@ -903,13 +913,18 @@
     },
     {
       "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_analog.js",
+      "sha256": "d6a679309c64e6f2918f3694b93c2fd49ac22b79c0360fafdc4b99c4d8fb9040"
+    },
+    {
+      "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_app.js",
-      "sha256": "86cc7a2b1b58b96efdb5e381c76c0acb75f350ee9647f1a096f6a167b4f8fbc9"
+      "sha256": "4f6672d4cf2921515b03817b228307e1646d1a732fef16bdf485ad6b8558a533"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_browser.js",
-      "sha256": "5c07bb6b0e843e75e66d7ce375b0cbf5300f53d8cecb627a26a446dcc0ed4ae3"
+      "sha256": "dfe8162bd735b1e1848e57fd91de05df89cd0c7a56e29f13e7a5d5a6a68935ab"
     },
     {
       "mode": "0644",
@@ -959,7 +974,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_inspector.js",
-      "sha256": "dea33a7001111afb57c836bf8f54cfa2fecb0d45cf62c3b1fbe1a73c504e1434"
+      "sha256": "3b69121318fa4fa4070bd0b9ddd369886afd2fcd5129e31e38f75ebde7b6ca79"
     },
     {
       "mode": "0644",
@@ -983,28 +998,33 @@
     },
     {
       "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/waveform_numeric.js",
+      "sha256": "023696fe4cbdf2cf47073d2699e521d59051e54fe27e8efef052d67038b8b1f9"
+    },
+    {
+      "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_presentation.js",
-      "sha256": "2ca78d97101f6306c55a6e7c9d9dfe07fff3b633a18b90c45530894b5b728e72"
+      "sha256": "7dc74b08554e393c731f44f0cd7e774af5c6f0092b2404f12f2bbdfa8010d3be"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_queries.js",
-      "sha256": "4b91821f7977fe1373e32041dee41dd00c425228e7a7feaeb6b5f0475f571d1f"
+      "sha256": "73e8d77ff57f44bdbac6781bc5ef39b7fb693c1b781c020d5a448fad8778af49"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_renderer.js",
-      "sha256": "bdb88aaea2a73bdbfed5c6097fe32f79c3edbd37603d0c33488c7e57495e4b1d"
+      "sha256": "01e8e78ae50f483247496f60f3a546b8ec9f37a2256db336e348bf4683c3b0d0"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_rows.js",
-      "sha256": "482ed8dd8290f671571e64375c55a0f371eba5698254eec217592e65047f19e6"
+      "sha256": "a76819307978b1c69d8fb021c9acc884e8d8d467dee4c37aaf0daec336315e8c"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_session.js",
-      "sha256": "de1234175ab575569304753b968a16ac89a87154970d3ea0a3da9d5e8d3c443f"
+      "sha256": "e7c91f7ff5153f74008108add630e240da2ce80dc35847db9126db948e7dfc44"
     },
     {
       "mode": "0644",
@@ -1014,12 +1034,12 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_session_ui.js",
-      "sha256": "472c8f9be9be003534f4d16d2580bbfc5fe7fa9a0077c4af182e05d899f2e8b4"
+      "sha256": "960f0818cf681f60423b843fda6f76b77adc26b35aadb7553f666a4c149c2431"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_view.js",
-      "sha256": "4aa7002acec700de510b7a48f0f994d6076031226ec4d9dec166f30976dd9bb4"
+      "sha256": "0ffeba77469bbd515e38183afdfb8c85945440a98f4ce87a068b1a1c664dcef1"
     },
     {
       "mode": "0644",
@@ -1034,7 +1054,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/waveform_workspace.js",
-      "sha256": "cc092a3de1fa8a00edfc01c04a12bf563214ed2d960d77b37b0a3da5a04319f6"
+      "sha256": "d0428be0b0bfd2a03ff3254699664c9c802338ef5369389b5bf1a100455f1e4e"
     },
     {
       "mode": "0644",
@@ -2044,7 +2064,7 @@
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "9d8f0b18f2643a9e4e5cd378ebf61099e1d95dc431e5ae736b1adcf3c13e91fd"
+      "sha256": "8aefb0051bc59418413630a39c2044017d863186dec1797252fd5099015b4eda"
     },
     {
       "mode": "0644",

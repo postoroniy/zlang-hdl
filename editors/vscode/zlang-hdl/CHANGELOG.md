@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add Auto/Digital/Analog waveform display with typed signed/fixed-point scaling,
+  real channels, unknown-value gaps and saved per-row numeric overrides.
+
 - Add all supplied runnable example launches and a live-waveform Switch debug
   picker; terminate the previous active ZLang session before replacement and
   use the current file's configured top, stimulus and workspace folder.

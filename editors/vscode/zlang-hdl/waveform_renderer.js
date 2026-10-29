@@ -18,6 +18,13 @@ function formatSignalBits(bits, signal, item, display) {
   if (/^\?+$/.test(normalized)) return 'unknown variant';
   const custom = item?.mnemonic && item.mnemonic[normalized], declared = (signal?.enum_values || []).find((value) => String(value.bits).toLowerCase() === normalized)?.name;
   const format=item?.format||state.format;
+  const numericType=waveformNumericType(signal,item);
+  if(numericType.real&&normalized.startsWith('real:'))return normalized.slice(5);
+  if(format==='typed'&&waveformAnalogEnabled(signal,item,state.display)
+    &&signal.width<=53&&numericType.fraction<=1022){
+    const value=waveformNumericValue(normalized,signal,item);
+    if(value!==null)return String(value);
+  }
   if(format==='typed')return display||formatBits(normalized,signal?.width,'binary');
   if(format==='enum'&&(custom||declared))return custom||declared;
   return formatBits(normalized, signal?.width, format==='enum'?'hex':format);
@@ -60,6 +67,9 @@ function waveformRulerTicks(view) {
   return ticks;
 }
 function drawWaveformSignal(ctx,item,signal,rendered,values,view,width,y,rowSize){
+  if(waveformAnalogEnabled(signal,item,state.display)){
+    drawWaveformAnalog(ctx,item,signal,rendered,values,view,width,y,rowSize,colors,timeToX);return;
+  }
   const alpha=ctx.globalAlpha,top=y+6,bottom=y+rowSize-6,mid=(top+bottom)/2;
   if(rendered&&!rendered.exact){
     for(const bucket of rendered.buckets||[]){
@@ -141,7 +151,7 @@ function drawViewport(canvas, index) {
   }
   const scrollTop = el('wavePane').scrollTop;
   ctx.save();ctx.beginPath();ctx.rect(0, rulerHeight, width, height-rulerHeight);ctx.clip();
-  const rows = waveformRowWindow(waveformRows(state.layout).rows, scrollTop, height-rulerHeight);
+  const rows = waveformRowWindow(waveformDisplayRows().rows, scrollTop, height-rulerHeight);
   rows.forEach(({item, top: rowTop, height: rowSize}, rowIndex) => {
     const signal = signalFor(item), y = rulerHeight + rowTop - scrollTop;
     const selected = state.selectedRowIds.has(item.id);
@@ -236,7 +246,7 @@ function renderOverview() {
   });
 }
 function renderViewports() {
-  const host = el("viewports"), geometry = waveformRows(state.layout);
+  const host = el("viewports"), geometry = waveformDisplayRows();
   const height = Math.max(el('wavePane').clientHeight, rulerHeight + geometry.height);
   while(host.children.length>state.viewports.length)host.lastElementChild.remove();
   state.viewports.forEach((_, index) => {

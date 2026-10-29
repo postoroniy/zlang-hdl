@@ -263,6 +263,12 @@ canvas draws scalar high/low levels, labelled bus segments and distinct `U` and
   buttons, and Left/Right navigate changes of that selected signal only.
 - Click places cursor A; **Shift+click** places marker B and reports the delta.
 - Values may be displayed as hexadecimal, binary, unsigned or signed.
+- **Display: Auto / Digital / Analog** plots typed numeric signals and file real
+  values as scaled sample-and-hold traces. CORDIC fixed-point outputs use their
+  signedness and fractional bits automatically. Raw VCD/FST buses without type
+  hints need explicit signedness/scale in the Inspector. Unknowns create gaps;
+  dense tiles show labelled activity until zoomed in. Modes and overrides persist
+  in sessions and clipboard rows.
 - Signals load lazily, and hierarchy filtering keeps large traces bounded.
 - Drag rows to reorder them; named nested groups can be collapsed or renamed.
 - Split the plot into as many as four independently zoomed/panned viewports.

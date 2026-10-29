@@ -3,7 +3,7 @@
 function buildSourceTree() {
   const host = el("tree"), filter = el("filter").value.trim().toLowerCase(), root = { path: "", children: /* @__PURE__ */ new Map(), signals: [] };
   const counts=new Map();walk(state.layout,item=>{if(item.type==='signal')counts.set(item.signalId,(counts.get(item.signalId)||0)+1);});
-  const describe=signal=>signal.width+'b'+(counts.has(signal.id)?' · '+counts.get(signal.id)+' rows':'');
+  const describe=signal=>(waveformNumericType(signal).real?'real':signal.width+'b')+(counts.has(signal.id)?' · '+counts.get(signal.id)+' rows':'');
   if(state.browserCatalog===state.catalog&&state.browserFilter===filter){
     for(const row of host.querySelectorAll('.variable[data-signal-id]')){
       row.classList.toggle('selected',state.selectedSignalIds.has(row.dataset.signalId)||state.browserSelection.has(row.dataset.signalId));
@@ -103,7 +103,7 @@ function buildSourceTree() {
 function renderDisplay() {
   const host = el("displayRows");
   const scrollTop = host.scrollTop;
-  const geometry = waveformRows(state.layout);
+  const geometry = waveformDisplayRows();
   const windowRows = waveformRowWindow(geometry.rows, scrollTop, host.clientHeight);
   host.replaceChildren();
   const spacer = height => { const node = document.createElement('div'); node.style.height = height + 'px'; host.append(node); };
@@ -204,6 +204,7 @@ function updateWaveformRowValues(cells){
 }
 function renderDisplayValues(){
   for(const row of el('displayRows').querySelectorAll('.displayRow'))updateWaveformRowValues(row.waveformValueCells);
+  renderAnalogCursorValue();
 }
 function dropOn(targetId) {
   if (!dragged) return;

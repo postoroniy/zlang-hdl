@@ -4,6 +4,7 @@
 const vscode = acquireVsCodeApi(), el = (id) => document.getElementById(id), colors = { bg: "#11161c", alt: "#151c23", selection: "#20394d", grid: "#29333d", wave: "#77d84b", x: "#ff5a62", u: "#e9b949", z: "#b78cff", cursor: "#66b8ff", marker: "#ff9d45", muted: "#81909d" };
 const state = { catalog: [], metadata: { time_domain: "physical", ticks_per_event: null, catalog_signature: "" }, byId: /* @__PURE__ */ new Map(), layout: [], panelLayout: { browser: 240, signals: 400, inspector: 270 }, viewports: [{ start: 0, end: 1 }], syncViewports: false, data: /* @__PURE__ */ new Map(), rendered: /* @__PURE__ */ new Map(), overview: null, active: 0, min: 0, max: 1, cursor: 0, marker: null, bookmarks: [], selectedSignalId: null, selectedSignalIds: /* @__PURE__ */ new Set(), format: "hex", sequence: 0, drag: null, middlePan: null, overviewDrag: null, splitterDrag: null, statistics: null, live: false, followLive: true };
 state.querySlots=new Map();
+state.display='auto';
 colors.inactive=colors.muted;
 state.queryRunning=false;state.queryDirty=false;state.queryEpoch=0;
 state.selectedRowId=null;state.selectedRowIds=new Set();
@@ -47,6 +48,11 @@ el("filter").addEventListener("input", buildSourceTree);
 const typedFormatOption=document.createElement('option');
 typedFormatOption.value='typed';typedFormatOption.textContent='Type';
 el('format').append(typedFormatOption);
+el('displayMode').addEventListener('change',event=>{
+  if(state.selectedSignalId)setRowPresentation({display:event.target.value});
+  else state.display=event.target.value;
+  renderAll();scheduleQuery();save();
+});
 el("format").addEventListener("change", (event) => {
   if (state.selectedSignalId) {
     walk(state.layout, (item) => {

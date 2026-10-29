@@ -10,11 +10,12 @@ const WAVEFORM_PALETTE=[
 
 function setRowPresentation(patch) {
   walk(state.layout,item=>{
-    if(item.type==='signal'&&state.selectedRowIds.has(item.id))Object.assign(item,patch);
+    if(item.type==='signal'&&state.selectedRowIds.has(item.id))Object.assign(item,typeof patch==='function'?patch(item):patch);
   });
   renderDisplay();renderViewports();save();
 }
 function renderRowPresentation(host,item) {
+  renderAnalogPresentation(host,item);
   const label=document.createElement('div');label.className='presentationLabel';
   const title=document.createElement('span');title.textContent='Color';
   const current=document.createElement('span');current.className='muted';
@@ -39,17 +40,58 @@ function renderRowPresentation(host,item) {
   const height=document.createElement('label');height.className='heightControl';
   const caption=document.createElement('span');caption.textContent='Row height';
   const input=document.createElement('input');input.type='number';input.min='24';input.max='128';input.step='1';
-  input.value=String(item.height||34);input.setAttribute('aria-label','Row height');
+  input.value=String(item.height||waveformDefaultRowHeight(item,signalFor(item),state.display));input.setAttribute('aria-label','Row height');
   const units=document.createElement('span');units.className='muted';units.textContent='px';
   const apply=()=>{if(input.value!==''&&input.checkValidity()){
     setRowPresentation({height:Number(input.value)});scheduleQuery();
   }};
   input.addEventListener('input',apply);
   input.addEventListener('change',()=>{
-    if(!input.checkValidity()||input.value==='')input.value=String(item.height||34);
+    if(!input.checkValidity()||input.value==='')input.value=String(item.height||waveformDefaultRowHeight(item,signalFor(item),state.display));
     apply();
   });
   input.addEventListener('blur',()=>setTimeout(renderInspector,0));
   height.append(caption,input,units);host.append(height);
 }
-module.exports={WAVEFORM_PALETTE,setRowPresentation,renderRowPresentation};
+function renderAnalogPresentation(host,item) {
+  const selected=signalFor(item),type=waveformNumericType(selected,item);
+  const label=document.createElement('div');label.className='muted';
+  const analog=waveformAnalogEnabled(selected,item,state.display);
+  label.textContent=analog?'Analog · '+(type.real?'real':(type.signed?'signed':'unsigned')+' · '+type.fraction+' fractional bits'):'Digital';
+  host.append(label);
+  if(!analog)return;
+  const readout=document.createElement('div');readout.id='analogCursorValue';readout.className='metric';
+  readout.textContent=waveformAnalogCursorText(item);host.append(readout);
+  if(type.real)return;
+  const signed=document.createElement('label');signed.className='heightControl';
+  const caption=document.createElement('span');caption.textContent='Interpretation';
+  const choice=document.createElement('select');choice.setAttribute('aria-label','Analog interpretation');
+  choice.title='Auto uses the declared type; untyped buses are unsigned';
+  for(const [value,name] of [['auto','Auto'],['signed','Signed'],['unsigned','Unsigned']]){
+    const option=document.createElement('option');option.value=value;option.textContent=name;choice.append(option);
+  }
+  choice.value=item.analog?.signed===undefined?'auto':item.analog.signed?'signed':'unsigned';
+  const update=(key,value)=>{
+    setRowPresentation(row=>{const analog={...row.analog};if(value===undefined)delete analog[key];else analog[key]=value;return {analog};});
+    renderInspector();scheduleQuery();
+  };
+  choice.addEventListener('change',()=>update('signed',choice.value==='auto'?undefined:choice.value==='signed'));
+  signed.append(caption,choice);host.append(signed);
+  const fraction=document.createElement('label');fraction.className='heightControl';
+  const title=document.createElement('span');title.textContent='Fraction bits';
+  const input=document.createElement('input');input.type='number';input.min='0';input.max=String(Math.min(4095,(selected?.width||1)-1));input.step='1';
+  input.placeholder='Auto';input.value=item.analog?.fraction===undefined?'':String(item.analog.fraction);
+  input.setAttribute('aria-label','Analog fraction bits');input.title='Blank uses typed scale; raw VCD/FST defaults to zero';
+  input.addEventListener('change',()=>{if(input.value===''||input.checkValidity())update('fraction',input.value===''?undefined:Number(input.value));});
+  fraction.append(title,input);host.append(fraction);
+}
+function waveformAnalogCursorText(item) {
+  const value=waveformNumericValue(cursorValue(item.signalId),signalFor(item),item);
+  return 'A: '+(value===null?'unavailable / unknown':waveformNumericLabel(value));
+}
+function renderAnalogCursorValue() {
+  const readout=el('analogCursorValue'),item=findItem(state.selectedRowId);
+  if(readout&&item?.type==='signal')readout.textContent=waveformAnalogCursorText(item);
+}
+module.exports={WAVEFORM_PALETTE,setRowPresentation,renderRowPresentation,renderAnalogPresentation,
+  waveformAnalogCursorText,renderAnalogCursorValue};
