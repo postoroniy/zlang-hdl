@@ -322,6 +322,8 @@ def _git(root, *args, binary=False):
 
 
 def validate_history(root: Path, policy: dict) -> int:
+    if _git(root, "rev-parse", "--is-shallow-repository") != "false":
+        raise BoundaryError("public ancestry requires complete Git history (checkout fetch-depth: 0)")
     base = policy["public_base"]
     _git(root, "merge-base", "--is-ancestor", base, "HEAD")
     reachable = set(_git(root, "rev-list", "HEAD").splitlines())

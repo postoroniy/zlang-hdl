@@ -88,6 +88,9 @@ _JOB_TARGETS: dict[str, dict[str, tuple[str, ...]]] = {
     },
 }
 
+# These lanes execute the fail-closed Community ancestry gate before testing.
+_HISTORY_REQUIRED_TARGETS = {"ci-fast-core", "ci-full-regression", "ci-performance-regression"}
+
 _PDF_TOOL_ACTION = "./.github/actions/setup-pdf-tools"
 _PDF_TOOL_JOBS: dict[str, tuple[str, ...]] = {
     "ci.yml": ("fast-core", "full-regression", "performance-regression"),
@@ -208,6 +211,17 @@ def hosted_lane_contract_failures(path: Path) -> tuple[str, ...]:
         if not commands:
             failures.append(f"{path}: job {job_name!r} has no executable run steps")
             continue
+        if _HISTORY_REQUIRED_TARGETS.intersection(targets):
+            checkouts = [step for step in job.get("steps", ())
+                         if isinstance(step, dict)
+                         and str(step.get("uses", "")).startswith("actions/checkout@")]
+            if (len(checkouts) != 1
+                    or not isinstance(checkouts[0].get("with"), dict)
+                    or str(checkouts[0]["with"].get("fetch-depth")) != "0"):
+                failures.append(
+                    f"{path}: job {job_name!r} requires complete Git history "
+                    "(checkout fetch-depth: 0) for Community ancestry validation"
+                )
         for target in targets:
             if re.search(rf"\bmake\s+(?:-s\s+)?{re.escape(target)}(?:\s|$)", combined) is None:
                 failures.append(

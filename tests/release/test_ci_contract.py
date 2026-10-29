@@ -346,3 +346,25 @@ def test_workflow_contract_requires_pdf_tools_for_status_lanes(
         for item in failures
     )
 
+
+
+@pytest.mark.parametrize("filename, job", [
+    ("ci.yml", "fast-core"), ("ci.yml", "full-regression"),
+    ("ci.yml", "performance-regression"), ("eda.yml", "real-tools"),
+    ("daily-regression.yml", "deterministic"), ("release.yml", "eda"),
+])
+def test_ancestry_lanes_require_complete_checkout_history(tmp_path, filename, job):
+    source = ROOT / ".github/workflows" / filename
+    workflow = yaml.load(source.read_text(), Loader=yaml.BaseLoader)
+    assert not hosted_lane_contract_failures(source)
+    checkout = next(step for step in workflow["jobs"][job]["steps"]
+                    if step.get("uses", "").startswith("actions/checkout@"))
+    for depth in (None, "1", "2"):
+        if depth is None:
+            checkout["with"].pop("fetch-depth", None)
+        else:
+            checkout["with"]["fetch-depth"] = depth
+        mutated = tmp_path / filename
+        mutated.write_text(yaml.safe_dump(workflow))
+        assert any("complete Git history" in failure
+                   for failure in hosted_lane_contract_failures(mutated))

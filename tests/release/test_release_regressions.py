@@ -54,10 +54,11 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
     )
     assert report == {
         "schema": 1,
-        "entries": 43,
+        "entries": 44,
         "included": [
             "CI-001",
             "CI-002",
+            "CI-003",
             "DOC-001",
             "FORMAL-001",
             "FORMAL-002",
@@ -103,7 +104,7 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
         "dispositions": {
             "deferred": 0,
             "excluded_experiment": 0,
-            "included": 43,
+            "included": 44,
             "private_only": 0,
         },
     }
@@ -172,6 +173,7 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
     )
     assert report["included"] == [
         "CI-002",
+        "CI-003",
         "DOC-001",
         "FORMAL-001",
         "FORMAL-002",
@@ -246,5 +248,5 @@ def test_cli_reports_the_validated_inclusion_count(capsys: pytest.CaptureFixture
         "--previous-tag", "v0.1.0a23",
     ]) == 0
     assert capsys.readouterr().out == (
-        "release regressions valid: 43 entries, 43 included\n"
+        "release regressions valid: 44 entries, 44 included\n"
     )

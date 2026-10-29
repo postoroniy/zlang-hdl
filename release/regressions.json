@@ -41,6 +41,25 @@
       ]
     },
     {
+      "id": "CI-003",
+      "source_paths": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/daily-regression.yml",
+        ".github/workflows/eda.yml",
+        ".github/workflows/release.yml",
+        "tests/release/test_ci_contract.py",
+        "tests/release/test_community_boundary.py",
+        "tools/audit_workflow_structure.py",
+        "tools/community_boundary.py"
+      ],
+      "status": "included",
+      "summary": "Ancestry-gated hosted lanes fetch complete history. Shallow repositories fail closed even when the public baseline is visible; unshallowing exposes older denied ancestors rather than laundering them.",
+      "tests": [
+        "tests/release/test_ci_contract.py::test_ancestry_lanes_require_complete_checkout_history",
+        "tests/release/test_community_boundary.py::test_shallow_history_cannot_hide_an_older_denied_commit"
+      ]
+    },
+    {
       "id": "DOC-001",
       "source_paths": [
         "docs/expressions-functions-generics.md",

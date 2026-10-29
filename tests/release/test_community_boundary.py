@@ -165,3 +165,27 @@ def test_production_source_symlink_is_rejected(tmp_path):
     (tmp_path / "zlang/alias.py").symlink_to(target)
     with pytest.raises(BoundaryError, match="symlink"):
         validate_tree(tmp_path)
+
+
+@pytest.mark.parametrize("depth", (1, 2))
+def test_shallow_history_cannot_hide_an_older_denied_commit(tmp_path, depth):
+    source = tmp_path / "source"
+    source.mkdir()
+    p = repo(source)
+    denied = p["public_base"]
+    (source / "README").write_text("reviewed baseline")
+    git(source, "commit", "-qam", "reviewed fixture baseline")
+    p["public_base"] = git(source, "rev-parse", "HEAD")
+    (source / "README").write_text("public candidate")
+    git(source, "commit", "-qam", "public fixture candidate")
+    p["denied_commits"] = [denied]
+    shallow = tmp_path / "shallow"
+    git(tmp_path, "clone", "-q", "--depth", str(depth), source.as_uri(), str(shallow))
+    assert git(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    with pytest.raises(BoundaryError, match="complete Git history"):
+        validate_history(shallow, p)
+    git(shallow, "fetch", "-q", "--unshallow", "origin")
+    with pytest.raises(BoundaryError, match="private-only commit"):
+        validate_history(shallow, p)
+    p["denied_commits"] = []
+    assert validate_history(shallow, p) == 1

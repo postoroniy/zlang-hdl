@@ -30,6 +30,10 @@ incompatible input explicitly.
 
 ### Fixed
 
+- Hosted ancestry-gated CI lanes fetch complete Git history. Community history
+  validation rejects shallow repositories even when the public baseline is
+  visible, preserving detection of older denied ancestors.
+
 - Every supplied runnable JSONL example has a named debug launch. The live
   waveform can switch examples with automatic session termination and correct
   top/stimulus selection, including multi-root workspace paths.
