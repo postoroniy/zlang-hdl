@@ -6,19 +6,38 @@
         ".github/dependabot.yml",
         ".github/workflows/codeql.yml",
         "editors/vscode/zlang-hdl/editor-toolchain.json",
+        "editors/vscode/zlang-hdl/test/bundle.cjs",
+        "editors/vscode/zlang-hdl/test/bundle.test.cjs",
+        "release/status.json",
         "tests/editor/test_vscode_package.py",
+        "tests/integration/test_formal_tool_binding.py",
+        "tests/release/test_ci_contract.py",
+        "tests/semantic/test_equivalence_replay_integrity.py",
         "tests/semantic/test_formal_bitvector_rewrite.py",
+        "tests/semantic/test_formal_execution_tools.py",
+        "tests/semantic/test_verification_result_cache.py",
         "tools/audit_workflow_structure.py",
-        "tools/release_status.py"
+        "tools/release_status.py",
+        "zlang/candidate_equivalence.py",
+        "zlang/formal.py",
+        "zlang/formal_execution_tools.py",
+        "zlang/formal_exploration.py",
+        "zlang/verification_bundle_execution.py"
       ],
       "status": "included",
-      "summary": "Dependency updates retain coherent CodeQL steps, solver/status and editor/lock pins; preparation failure tests are independent of ambient EDA discovery.",
+      "summary": "Dependency updates retain exact solver/status and manifest/lock/installed editor pins; formal children execute the selected Z3 across OSS launchers, and result caches bind executable identities; CodeQL pins and preparation-failure checks remain strict.",
       "tests": [
         "tests/editor/test_vscode_package.py::VSCodePackageTests::test_playwright_manifest_and_lock_must_match_reviewed_toolchain",
+        "tests/editor/test_vscode_package.py::VSCodePackageTests::test_vsce_manifest_and_lock_must_match_reviewed_toolchain",
+        "tests/integration/test_formal_tool_binding.py::test_actual_rtl_proof_executes_selected_solver",
         "tests/release/test_ci_contract.py::test_dependabot_groups_codeql_and_defers_incompatible_compiler_api",
         "tests/release/test_ci_contract.py::test_solver_pin_rejects_stale_missing_ranged_or_duplicate_dependencies",
         "tests/release/test_ci_contract.py::test_workflow_audit_rejects_mixed_or_unpinned_codeql",
-        "tests/semantic/test_formal_bitvector_rewrite.py::test_preparation_failure_is_unknown_not_a_proof"
+        "tests/semantic/test_formal_bitvector_rewrite.py::test_preparation_failure_is_unknown_not_a_proof",
+        "tests/semantic/test_formal_execution_tools.py::test_frozen_binding_rejects_changed_solver_before_launch",
+        "tests/semantic/test_formal_execution_tools.py::test_oss_child_uses_exact_selected_solver_without_changing_suite",
+        "tests/semantic/test_formal_execution_tools.py::test_same_version_binary_replacement_invalidates_selection_and_bundle_keys",
+        "tests/semantic/test_formal_execution_tools.py::test_unbindable_oss_launcher_fails_closed"
       ]
     },
     {

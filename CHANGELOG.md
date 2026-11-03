@@ -30,6 +30,13 @@ incompatible input explicitly.
 
 ### Fixed
 
+- Keep dependency upgrades coherent with release checks: Z3 5.3.3 matches the
+  solver package pin, and VSCE 4.1.0 is checked against the shared editor
+  toolchain, package manifest, lockfile and installed build dependency (CI-001).
+  Formal subprocesses retain the selected Z3 across OSS CAD Suite launchers;
+  result caches now bind executable identities and reject earlier unbound
+  entries without changing DUT semantics or solver limits.
+
 - Hosted EDA and release regression concurrency matches the qualified four-worker
   full CI lane; LSP deadlines and test coverage remain unchanged. EDA JUnit
   reports are retained even when the regression fails (CI-004).

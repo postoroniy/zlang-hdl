@@ -159,7 +159,7 @@
     "verilator": "5.053",
     "vvp": "14.0",
     "yosys": "0.70",
-    "z3": "5.3.1"
+    "z3": "5.3.3"
   },
   "generated_by": "tools/release_status.py",
   "native_editor": {

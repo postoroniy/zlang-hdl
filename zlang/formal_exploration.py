@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping
 
 from zlang.common import stable_digest
 from zlang.common.content_cache import load_json_object, publish_json_atomically
+from zlang.formal_execution_tools import FormalToolBinding, binding_identity
 from zlang.formal import tool_versions
 from zlang.formal_counterexample_codec import counterexample_to_data
 from zlang.formal_artifact_provider import (
@@ -90,6 +91,9 @@ class FormalExplorationConfig:
     _tool_version_snapshots: dict[
         tuple[str, ...], tuple[tuple[str, str], ...]
     ] = field(default_factory=dict, compare=False, repr=False)
+    _tool_binding_snapshots: dict[str, FormalToolBinding | None] = field(
+        default_factory=dict, compare=False, repr=False,
+    )
     # Execution workspace is operational metadata.  It must not participate in
     # candidate, property, proof-cache, or implementation identities.
     work_directory: Path | None = field(
@@ -218,6 +222,7 @@ def proof_cache_key(candidate: Any, *, property_identity: str,
         # Only the tools on this exact route can affect its evidence.  Merely
         # installing another solver must not invalidate a Z3 proof cache key.
         "tool_versions": _formal_tool_versions(config, requested_tools),
+        "formal_execution_tools": _formal_tool_binding(config),
     }
     if backend_identity is not None:
         payload["backend_identity"] = backend_identity
@@ -230,6 +235,15 @@ def proof_cache_key(candidate: Any, *, property_identity: str,
     if resolved_dependency_identity is not None:
         payload["dependency_identity"] = resolved_dependency_identity
     return stable_digest(payload)
+
+
+def _formal_tool_binding(config: FormalExplorationConfig) -> dict:
+    resolve = getattr(config.tool_resolver, "formal_context", None)
+    if callable(resolve):
+        return resolve(engine=config.engine, solver=config.solver).execution_identity
+    if config.solver not in config._tool_binding_snapshots:
+        config._tool_binding_snapshots[config.solver] = FormalToolBinding.discover(config.solver)
+    return binding_identity(config._tool_binding_snapshots[config.solver])
 
 
 def _formal_tool_versions(

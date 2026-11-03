@@ -21,11 +21,14 @@ function assertToolchain() {
   const installedClient = json('node_modules/vscode-languageclient/package.json');
   const installedEsbuild = json('node_modules/esbuild/package.json');
   const installedTest = json('node_modules/@vscode/test-electron/package.json');
+  const installedVsce = json('node_modules/@vscode/vsce/package.json');
   assert.equal(manifest.engines.vscode, `^${toolchain.vscodeStable.version}`);
   assert.equal(manifest.dependencies['vscode-languageclient'], toolchain.vscodeLanguageClient);
   assert.equal(manifest.devDependencies.esbuild, toolchain.esbuild);
   assert.equal(manifest.devDependencies['@vscode/test-electron'], toolchain.vscodeTestElectron);
   assert.equal(manifest.devDependencies.typescript, toolchain.typescript);
+  assert.equal(manifest.devDependencies['@vscode/vsce'], toolchain.vsce);
+  assert.equal(installedVsce.version, toolchain.vsce);
   assert.equal(installedClient.version, toolchain.vscodeLanguageClient);
   assert.equal(installedEsbuild.version, toolchain.esbuild);
   assert.equal(installedTest.version, toolchain.vscodeTestElectron);

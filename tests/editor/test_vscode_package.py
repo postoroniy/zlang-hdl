@@ -22,7 +22,7 @@ EXT = ROOT / "editors" / "vscode" / "zlang-hdl"
 TOOLCHAIN = json.loads((EXT / "editor-toolchain.json").read_text(encoding="utf-8"))
 PINS = {
     "@vscode/test-electron": TOOLCHAIN["vscodeTestElectron"],
-    "@vscode/vsce": "4.0.0",
+    "@vscode/vsce": TOOLCHAIN["vsce"],
     "esbuild": TOOLCHAIN["esbuild"],
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2",
@@ -584,6 +584,31 @@ class VSCodePackageTests(unittest.TestCase):
         with self.assertRaisesRegex(VSIXAuditError, "unlocked direct dependency: playwright"):
             validate_lock(package, lock)
 
+    def test_vsce_manifest_and_lock_must_match_reviewed_toolchain(self) -> None:
+        package = _json((EXT / "package.json").read_bytes())
+        lock = _json((EXT / "package-lock.json").read_bytes())
+        self.assertEqual(package["devDependencies"]["@vscode/vsce"], TOOLCHAIN["vsce"])
+        validate_metadata(package, native=True)
+        validate_lock(package, lock)
+        for version in (None, "4.0.0", "^4.1.0"):
+            with self.subTest(version=version):
+                altered = copy.deepcopy(package)
+                if version is None:
+                    altered["devDependencies"].pop("@vscode/vsce")
+                else:
+                    altered["devDependencies"]["@vscode/vsce"] = version
+                with self.assertRaisesRegex(VSIXAuditError, "dev dependencies must be pinned"):
+                    validate_metadata(altered, native=True)
+        for location in ("", "node_modules/@vscode/vsce"):
+            with self.subTest(location=location):
+                altered = copy.deepcopy(lock)
+                if location:
+                    altered["packages"][location]["version"] = "4.0.0"
+                else:
+                    altered["packages"][location]["devDependencies"]["@vscode/vsce"] = "4.0.0"
+                with self.assertRaises(VSIXAuditError):
+                    validate_lock(package, altered)
+
     def test_source_metadata_and_lock_are_runtime_pinned(self) -> None:
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
@@ -657,7 +682,7 @@ class VSCodePackageTests(unittest.TestCase):
         status = json.loads((ROOT / "release/status.json").read_text(encoding="utf-8"))
         self.assertEqual(
             {tool: status["eda_toolchain"][tool] for tool in ("verilator", "yosys", "z3")},
-            {"verilator": "5.053", "yosys": "0.70", "z3": "5.3.1"},
+            {"verilator": "5.053", "yosys": "0.70", "z3": "5.3.3"},
         )
         self.assertNotIn("python3.12", guide)
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

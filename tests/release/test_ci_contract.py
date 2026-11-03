@@ -133,13 +133,13 @@ def test_dependency_pins_have_one_repository_owner() -> None:
 
 
 @pytest.mark.parametrize("dependencies", (
-    ["z3-solver==5.1.0.0"], [], ["z3-solver>=5.3.1"],
-    ["z3-solver==5.3.1.0", "z3-solver==5.3.1.1"],
+    ["z3-solver==5.1.0.0"], [], ["z3-solver>=5.3.3"],
+    ["z3-solver==5.3.3.0", "z3-solver==5.3.3.1"],
 ))
 def test_solver_pin_rejects_stale_missing_ranged_or_duplicate_dependencies(dependencies) -> None:
     project = {"project": {"optional-dependencies": {"test": dependencies}}}
     with pytest.raises(StatusError, match="z3-solver pin must match"):
-        _check_solver_pin(project, {"z3": "5.3.1"})
+        _check_solver_pin(project, {"z3": "5.3.3"})
 
 
 def test_codeql_actions_use_one_reviewed_revision() -> None:
