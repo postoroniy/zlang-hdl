@@ -192,6 +192,35 @@ compiler has no AXI/APB/AHB transaction special case.
 | `std.bus.axi_stream` | Ready/valid stream with data/keep/strb/last and pipe. | `examples/streaming_packet_engine.zhl` |
 | `std.bus.wishbone` | Wishbone B4 Classic single-beat bridge to RegBus. | `examples/wishbone_csr_top.zhl` |
 
+## Peripherals and RegBus32
+
+Use [the peripheral guide](../../../../docs/stdlib-peripherals.md) and
+[compiler-generated API catalog](../../../../docs/stdlib-api.md) for exact
+parameters, ports and maps. All seven families have both cores and wrappers:
+
+| Import | RegBus32 wrapper |
+| --- | --- |
+| `std.peripheral.gpio` | `Gpio8RegBus32` |
+| `std.peripheral.timer` | `PeriodicTimer32RegBus32` |
+| `std.peripheral.pwm` | `Pwm16RegBus32` |
+| `std.peripheral.capture` | `RisingCapture32RegBus32` |
+| `std.peripheral.uart` | `Uart8N1RegBus32` |
+| `std.peripheral.spi` | `SpiMode0RegBus32` |
+| `std.peripheral.i2c` | `I2cWriteByteRegBus32` |
+
+These are deliberately small cores: fixed-divisor UART 8N1, 8-bit SPI
+mode 0, 7-bit single-byte I²C writes with STOP, GPIO8, timer32, PWM16 and
+rising-edge capture32. There are no IRQ/DMA or vendor-compatible register
+profiles. Configuration limits and register maps belong to the local guide.
+
+The wrappers use `RegBus<32,32>.responder`. Preserve byte strobes and
+alignment/permission errors, exactly-once effects at request acceptance and
+the pre-edge response snapshot. A stalled response remains stable; the
+transport does not accept a new request on the response-retirement edge.
+Clock/reset and sampled-pin synchronization are explicit caller contracts;
+these modules add no hidden CDC. Use named CSR projections and compiler-owned
+physical bindings rather than generated ordinal names or guessed RTL names.
+
 For CSR integration, instantiate the supplied bridge and connect the aggregate
 endpoint rather than wiring flattened members:
 

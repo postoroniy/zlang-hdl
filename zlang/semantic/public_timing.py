@@ -7,6 +7,8 @@ and hierarchy; no parsing, name resolution, or type inference occurs here.
 
 from __future__ import annotations
 
+from zlang.diagnostics import diagnostic_source
+
 from zlang.ast import nodes as ast
 from zlang.ir import cdc as ir_cdc
 from zlang.ir import csr as ir_csr
@@ -371,12 +373,17 @@ def analyze_public_module_timing(
         return None, (), ()
 
     local_expressions = {item.name: item.expression for item in locals_}
-    instance_timings = _derive_instance_output_timings(
-        elaborated_instances=elaborated_instances,
-        child_irs=child_irs,
-        bindings=instance_bindings,
-        local_expressions=local_expressions,
-    )
+    with diagnostic_source(
+        SourceOrigin(declaration.origin, "timing declaration", source_unit, source_digest)
+        if declaration.origin is not None
+        else None
+    ):
+        instance_timings = _derive_instance_output_timings(
+            elaborated_instances=elaborated_instances,
+            child_irs=child_irs,
+            bindings=instance_bindings,
+            local_expressions=local_expressions,
+        )
     instance_timing_map = {
         (item.instance, item.port): item.timing for item in instance_timings
     }
@@ -396,31 +403,53 @@ def analyze_public_module_timing(
         and assignment.signal is None
         and assignment.channel is None
     }
-    output_timings = tuple(
-        ir_timing.OutputTiming(
-            output.name,
-            _expression_timing(
-                assignment_by_output[output.name],
-                local_expressions=local_expressions,
-                instance_outputs=instance_timing_map,
+    with diagnostic_source(
+        SourceOrigin(declaration.origin, "timing declaration", source_unit, source_digest)
+        if declaration.origin is not None
+        else None
+    ):
+        output_timings = tuple(
+            ir_timing.OutputTiming(
+                output.name,
+                _expression_timing(
+                    assignment_by_output[output.name],
+                    local_expressions=local_expressions,
+                    instance_outputs=instance_timing_map,
+                )
+                if output.name in assignment_by_output
+                else ir_timing.ValueTiming.unknown(
+                    f"output '{output.name}' is driven by state or rules"
+                ),
             )
-            if output.name in assignment_by_output
-            else ir_timing.ValueTiming.unknown(
-                f"output '{output.name}' is driven by state or rules"
-            ),
+            for output in scalar_outputs
         )
-        for output in scalar_outputs
-    )
 
     if declaration.initiation_interval != 1:
-        raise SemanticError("module timing contracts currently require ii 1")
+        raise SemanticError(
+            "module timing contracts currently require ii 1",
+            primary=SourceOrigin(
+                declaration.origin, "timing declaration", source_unit, source_digest
+            )
+            if declaration.origin is not None
+            else None,
+        )
     if len(clock_domains) > 1:
         raise SemanticError(
-            "module timing contracts currently require at most one clock/reset domain"
+            "module timing contracts currently require at most one clock/reset domain",
+            primary=SourceOrigin(
+                declaration.origin, "timing declaration", source_unit, source_digest
+            )
+            if declaration.origin is not None
+            else None,
         )
     if declaration.latency > 0 and len(clock_domains) != 1:
         raise SemanticError(
-            "a positive module timing latency requires exactly one clock/reset domain"
+            "a positive module timing latency requires exactly one clock/reset domain",
+            primary=SourceOrigin(
+                declaration.origin, "timing declaration", source_unit, source_digest
+            )
+            if declaration.origin is not None
+            else None,
         )
     if (
         request_responses
@@ -428,8 +457,12 @@ def analyze_public_module_timing(
         or any(port.protocol is not InterfaceProtocol.WIRE for port in ports)
     ):
         raise SemanticError(
-            "module timing contracts currently support only scalar wire ports, "
-            "not protocols"
+            "module timing contracts currently support only scalar wire ports, not protocols",
+            primary=SourceOrigin(
+                declaration.origin, "timing declaration", source_unit, source_digest
+            )
+            if declaration.origin is not None
+            else None,
         )
     aggregate_output = next(
         (
@@ -443,15 +476,30 @@ def analyze_public_module_timing(
     if aggregate_output is not None:
         raise SemanticError(
             f"module timing contract output '{aggregate_output.name}' must be "
-            "a scalar wire value"
+            "a scalar wire value",
+            primary=SourceOrigin(
+                declaration.origin, "timing declaration", source_unit, source_digest
+            )
+            if declaration.origin is not None
+            else None,
         )
     if csr_blocks:
         raise SemanticError(
-            "module timing contracts do not cover stateful CSR behavior"
+            "module timing contracts do not cover stateful CSR behavior",
+            primary=SourceOrigin(
+                declaration.origin, "timing declaration", source_unit, source_digest
+            )
+            if declaration.origin is not None
+            else None,
         )
     if not scalar_outputs:
         raise SemanticError(
-            "module timing contract requires at least one scalar wire output"
+            "module timing contract requires at least one scalar wire output",
+            primary=SourceOrigin(
+                declaration.origin, "timing declaration", source_unit, source_digest
+            )
+            if declaration.origin is not None
+            else None,
         )
 
     domain = clock_domains[0] if clock_domains else None
@@ -476,7 +524,8 @@ def analyze_public_module_timing(
         if output.timing.knowledge is ir_timing.TimingKnowledge.UNKNOWN:
             raise SemanticError(
                 f"output '{output.port}' has unknown timing: "
-                f"{output.timing.reason}"
+                f"{output.timing.reason}",
+                primary=source_origin,
             )
         if (
             output.timing.knowledge is ir_timing.TimingKnowledge.KNOWN
@@ -488,6 +537,7 @@ def analyze_public_module_timing(
                 f"latency {contract.latency}",
                 code="ZL-TIMING-CONTRACT",
                 fixes=("make the declared and derived exact latencies equal",),
+                primary=source_origin,
             )
     return contract, output_timings, instance_timings
 

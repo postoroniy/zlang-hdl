@@ -257,7 +257,7 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
         mux(backend_read_request.transfer &
             (backend_read_request.payload.slot ==
              bitcast<bits<SW>>(truncate<SW>(i))),
-            truncate<9>(extend<9>(backend_read_request.payload.address.len) + 1),
+            backend_read_request.payload.address.len + 1,
             mux(backend_read_beat.transfer & read_slot[i],
                 truncate<9>(read_remaining[i] - 1), read_remaining[i]))
     read_failed <- generate(i in 0..D)

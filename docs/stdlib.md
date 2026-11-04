@@ -12,6 +12,7 @@ Candidate: **0.1.0a24**. Direct SystemVerilog is the production RTL backend.
 
 - [Standard library](stdlib-overview.md)
 - [Standard buses](standard-bus-library.md)
+- [Basic GPIO, timer and serial cores](stdlib-peripherals.md)
 - [Stream composition, CRC and fixed-point FIR](stdlib-stream-dsp.md)
 - [Reloadable and folded FIR](stdlib-reloadable-fir.md)
 - [Oscillators, CORDIC, multirate filters and coding](stdlib-multirate-coding.md)

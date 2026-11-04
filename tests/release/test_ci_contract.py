@@ -104,6 +104,9 @@ def test_dependency_pins_have_one_repository_owner() -> None:
     assert "PyYAML==6.0.3" in test_dependencies
     status = json.loads((ROOT / "release/status.json").read_text(encoding="utf-8"))
     _check_solver_pin(project, status["eda_toolchain"])
+    assert project["project"]["optional-dependencies"]["formal"] == [
+        next(item for item in test_dependencies if item.startswith("z3-solver=="))
+    ]
 
     makefile = MAKEFILE.read_text(encoding="utf-8")
     for pin in (
@@ -133,13 +136,38 @@ def test_dependency_pins_have_one_repository_owner() -> None:
 
 
 @pytest.mark.parametrize("dependencies", (
-    ["z3-solver==5.1.0.0"], [], ["z3-solver>=5.3.1"],
-    ["z3-solver==5.3.1.0", "z3-solver==5.3.1.1"],
+    ["z3-solver==5.1.0.0"], [], ["z3-solver>=5.3.3"],
+    ["z3-solver==5.3.3.0", "z3-solver==5.3.3.1"],
 ))
 def test_solver_pin_rejects_stale_missing_ranged_or_duplicate_dependencies(dependencies) -> None:
     project = {"project": {"optional-dependencies": {"test": dependencies}}}
     with pytest.raises(StatusError, match="z3-solver pin must match"):
-        _check_solver_pin(project, {"z3": "5.3.1"})
+        _check_solver_pin(project, {"z3": "5.3.3"})
+
+
+@pytest.mark.parametrize("invalid", ("missing", "ranged", "duplicate", "stale", "different-build"))
+def test_formal_extra_rejects_inconsistent_solver_packages(invalid) -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    status = json.loads((ROOT / "release/status.json").read_text())
+    extras = project["project"]["optional-dependencies"]
+    pin = extras["formal"][0]
+    choices = {
+        "missing": [],
+        "ranged": [pin.replace("==", ">=")],
+        "duplicate": [pin, pin],
+        "stale": ["z3-solver==4.8.12.0"],
+        "different-build": [pin.rsplit(".", 1)[0] + ".999"],
+    }
+    extras["formal"] = choices[invalid]
+    with pytest.raises(StatusError, match="z3-solver pin must match"):
+        _check_solver_pin(project, status["eda_toolchain"])
+
+
+def test_legacy_solver_metadata_without_formal_extra_remains_valid() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    del project["project"]["optional-dependencies"]["formal"]
+    status = json.loads((ROOT / "release/status.json").read_text())
+    _check_solver_pin(project, status["eda_toolchain"])
 
 
 def test_codeql_actions_use_one_reviewed_revision() -> None:
@@ -196,7 +224,7 @@ def test_bootstrap_isolates_external_release_tool_builds() -> None:
     # from the deliberately recursive native-release-install target, which
     # installs the already reviewed local wheel without resolving dependencies.
     assert len(pip_commands) == 4
-    editable = next(line for line in pip_commands if " -e '.[test]'" in line)
+    editable = next(line for line in pip_commands if ' -e "$project_requirement"' in line)
     release_tools = next(
         line for line in pip_commands if '"$@"' in line
     )
@@ -206,7 +234,7 @@ def test_bootstrap_isolates_external_release_tool_builds() -> None:
     assert "--no-build-isolation" in editable
     assert "--no-build-isolation" not in release_tools
     assert "reuse==5.1.1" in completed.stdout
-    uv_editable = next(line for line in bootstrap.splitlines() if "uv pip" in line and " -e '.[test]'" in line)
+    uv_editable = next(line for line in bootstrap.splitlines() if "uv pip" in line and ' -e "$project_requirement"' in line)
     assert "--no-build-isolation" in uv_editable
     assert "--force-reinstall --no-deps" in completed.stdout
     assert '"${wheels[0]}"' in completed.stdout

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
+from . import observations
 from zlang.ir import module as ir_module
 from zlang.ir import cdc as ir_cdc
 from zlang.ir import arbitration as ir_arbitration
@@ -118,22 +119,36 @@ class HardwareInterfacePreparer:
                 missing_name = (
                     declaration.source if source is None else declaration.destination
                 )
-                raise SemanticError(f"connection endpoint '{missing_name}' is not a port")
+                raise SemanticError(
+                    f"connection endpoint '{missing_name}' is not a port",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
+                )
             if source.direction is not ir_module.PortDirection.INPUT:
                 raise SemanticError(
                     f"connection source '{source.name}' must be an input interface",
                     code="ZL-PROTOCOL-OWNERSHIP",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if destination.direction is not ir_module.PortDirection.OUTPUT:
                 raise SemanticError(
                     f"connection destination '{destination.name}' must be an output interface",
                     code="ZL-PROTOCOL-OWNERSHIP",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if source.type != destination.type:
                 raise SemanticError(
                     f"connection payload mismatch: {source.name} is {source.type}, "
                     f"{destination.name} is {destination.type}",
                     code="ZL-PROTOCOL-TYPE",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if source.protocol in {
                 ir_interfaces.InterfaceProtocol.PACKET,
@@ -143,11 +158,18 @@ class HardwareInterfacePreparer:
                 ir_interfaces.InterfaceProtocol.VC_CREDIT,
             }:
                 raise SemanticError(
-                    "packet and virtual-channel credit ports require their "
-                    "explicit composition forms"
+                    "packet and virtual-channel credit ports require their explicit composition forms",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if source.name in connected_sources or destination.name in connected_destinations:
-                raise SemanticError("an interface may participate in only one connection")
+                raise SemanticError(
+                    "an interface may participate in only one connection",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
+                )
             adapter = (
                 ir_interfaces.ConnectionAdapter(declaration.adapter.value)
                 if declaration.adapter is not None
@@ -173,7 +195,10 @@ class HardwareInterfacePreparer:
                 declaration.buffer_depth or adapter is not None
             ):
                 raise SemanticError(
-                    "a clock-domain crossing cannot also specify a buffer or adapter"
+                    "a clock-domain crossing cannot also specify a buffer or adapter",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             expected_adapter: ir_interfaces.ConnectionAdapter | None
             if source.protocol is destination.protocol:
@@ -191,35 +216,57 @@ class HardwareInterfacePreparer:
             else:
                 raise SemanticError(
                     f"no explicit adapter exists from {source.protocol.value} to "
-                    f"{destination.protocol.value}"
+                    f"{destination.protocol.value}",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if expected_adapter is None and adapter is not None:
-                raise SemanticError("identical protocols must not specify an adapter")
+                raise SemanticError(
+                    "identical protocols must not specify an adapter",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
+                )
             if expected_adapter is not None and adapter is not expected_adapter:
                 raise SemanticError(
                     f"connection from {source.protocol.value} to "
                     f"{destination.protocol.value} requires adapter "
-                    f"{expected_adapter.value}"
+                    f"{expected_adapter.value}",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if (
                 adapter is ir_interfaces.ConnectionAdapter.CREDIT_TO_READY_VALID
                 and declaration.buffer_depth == 0
             ):
-                raise SemanticError("credit_to_rv requires an explicit buffer depth")
+                raise SemanticError(
+                    "credit_to_rv requires an explicit buffer depth",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
+                )
             if (
                 source.protocol is ir_interfaces.InterfaceProtocol.CREDIT
                 and destination.protocol is ir_interfaces.InterfaceProtocol.CREDIT
                 and source.capacity != destination.capacity
             ):
                 raise SemanticError(
-                    "identical credit connections require equal capacities"
+                    "identical credit connections require equal capacities",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if declaration.buffer_depth and expected_adapter is None and (
                 source.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID
             ):
                 raise SemanticError(
                     "explicit buffers are currently supported only for ready/valid "
-                    "connections and credit_to_rv adapters"
+                    "connections and credit_to_rv adapters",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if (
                 adapter is ir_interfaces.ConnectionAdapter.READY_VALID_TO_CREDIT
@@ -227,7 +274,10 @@ class HardwareInterfacePreparer:
             ):
                 raise SemanticError(
                     "rv_to_credit does not accept a buffer; add a separate buffered "
-                    "ready/valid connection"
+                    "ready/valid connection",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if (
                 adapter is ir_interfaces.ConnectionAdapter.CREDIT_TO_READY_VALID
@@ -236,7 +286,10 @@ class HardwareInterfacePreparer:
             ):
                 raise SemanticError(
                     f"credit_to_rv buffer depth {declaration.buffer_depth} is smaller "
-                    f"than source capacity {source.capacity}"
+                    f"than source capacity {source.capacity}",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if source.domain != destination.domain:
                 if crossing is None:
@@ -246,10 +299,16 @@ class HardwareInterfacePreparer:
                         f"({destination.domain}) is not allowed",
                         code="ZL-DOMAIN-CROSSING",
                         fixes=("use an explicit crossing with compatible endpoints",),
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
                     )
             elif crossing is not None:
                 raise SemanticError(
-                    f"crossing '{crossing.kind.value}' requires different domains"
+                    f"crossing '{crossing.kind.value}' requires different domains",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if crossing is not None:
                 if crossing.kind in {
@@ -262,11 +321,17 @@ class HardwareInterfacePreparer:
                         or source.type != ir_types.BitType()
                     ):
                         raise SemanticError(
-                            f"{crossing.kind.value} crossing requires bit wire endpoints"
+                            f"{crossing.kind.value} crossing requires bit wire endpoints",
+                            primary=observations.declaration_origin(
+                                declaration.origin, "hardware interface declaration", pure_context
+                            ),
                         )
                     if crossing.depth is not None:
                         raise SemanticError(
-                            f"{crossing.kind.value} crossing does not accept a depth"
+                            f"{crossing.kind.value} crossing does not accept a depth",
+                            primary=observations.declaration_origin(
+                                declaration.origin, "hardware interface declaration", pure_context
+                            ),
                         )
                 else:
                     if (
@@ -274,18 +339,27 @@ class HardwareInterfacePreparer:
                         or destination.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID
                     ):
                         raise SemanticError(
-                            f"{crossing.kind.value} crossing requires ready/valid endpoints"
+                            f"{crossing.kind.value} crossing requires ready/valid endpoints",
+                            primary=observations.declaration_origin(
+                                declaration.origin, "hardware interface declaration", pure_context
+                            ),
                         )
                     if crossing.kind is ir_cdc.CrossingKind.HANDSHAKE:
                         if not isinstance(
                             source.type, (ir_types.BitType, ir_types.UIntType, ir_types.SIntType, ir_types.BitsType)
                         ):
                             raise SemanticError(
-                                "handshake crossing currently requires a scalar payload"
+                                "handshake crossing currently requires a scalar payload",
+                                primary=observations.declaration_origin(
+                                    declaration.origin, "hardware interface declaration", pure_context
+                                ),
                             )
                         if crossing.depth is not None:
                             raise SemanticError(
-                                "handshake crossing does not accept a depth"
+                                "handshake crossing does not accept a depth",
+                                primary=observations.declaration_origin(
+                                    declaration.origin, "hardware interface declaration", pure_context
+                                ),
                             )
                     else:
                         depth = crossing.depth
@@ -295,7 +369,10 @@ class HardwareInterfacePreparer:
                             or depth & (depth - 1)
                         ):
                             raise SemanticError(
-                                "async_fifo depth must be a power of two and at least 4"
+                                "async_fifo depth must be a power of two and at least 4",
+                                primary=observations.declaration_origin(
+                                    declaration.origin, "hardware interface declaration", pure_context
+                                ),
                             )
             connections.append(
                 ir_module.Connection(
@@ -321,50 +398,96 @@ class HardwareInterfacePreparer:
             raise SemanticError("a module currently supports exactly one packet arbiter")
         for declaration in module.arbiters:
             if clock is None or reset is None:
-                raise SemanticError("packet arbiters require one module clock and reset")
+                raise SemanticError(
+                    "packet arbiters require one module clock and reset",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
+                )
             source_ports: list[ir_module.Port] = []
             for source_name in declaration.sources:
                 source = symbols.get(source_name)
                 if source is None:
-                    raise SemanticError(f"arbiter source '{source_name}' is not a port")
+                    raise SemanticError(
+                        f"arbiter source '{source_name}' is not a port",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
+                    )
                 if source.direction is not ir_module.PortDirection.INPUT:
-                    raise SemanticError(f"arbiter source '{source_name}' must be an input")
+                    raise SemanticError(
+                        f"arbiter source '{source_name}' must be an input",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
+                    )
                 if source.protocol is not ir_interfaces.InterfaceProtocol.PACKET:
                     raise SemanticError(
-                        f"arbiter source '{source_name}' must use packet<T>"
+                        f"arbiter source '{source_name}' must use packet<T>",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
                     )
                 if source.name in arbitrated_ports:
                     raise SemanticError(
-                        f"packet port '{source.name}' participates in more than one arbiter"
+                        f"packet port '{source.name}' participates in more than one arbiter",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
                     )
                 source_ports.append(source)
             if len({port.name for port in source_ports}) != len(source_ports):
-                raise SemanticError("arbiter sources must be distinct")
+                raise SemanticError(
+                    "arbiter sources must be distinct",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
+                )
             destination = symbols.get(declaration.destination)
             if destination is None:
                 raise SemanticError(
-                    f"arbiter destination '{declaration.destination}' is not a port"
+                    f"arbiter destination '{declaration.destination}' is not a port",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if destination.direction is not ir_module.PortDirection.OUTPUT:
                 raise SemanticError(
-                    f"arbiter destination '{destination.name}' must be an output"
+                    f"arbiter destination '{destination.name}' must be an output",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if destination.protocol is not ir_interfaces.InterfaceProtocol.PACKET:
                 raise SemanticError(
-                    f"arbiter destination '{destination.name}' must use packet<T>"
+                    f"arbiter destination '{destination.name}' must use packet<T>",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             if destination.name in arbitrated_ports:
                 raise SemanticError(
-                    f"packet port '{destination.name}' participates in more than one arbiter"
+                    f"packet port '{destination.name}' participates in more than one arbiter",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             for source in source_ports:
                 if source.type != destination.type:
                     raise SemanticError(
                         f"arbiter payload mismatch: {source.name} is {source.type}, "
-                        f"{destination.name} is {destination.type}"
+                        f"{destination.name} is {destination.type}",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
                     )
                 if source.domain != destination.domain:
-                    raise SemanticError("packet arbiter endpoints must share one clock domain")
+                    raise SemanticError(
+                        "packet arbiter endpoints must share one clock domain",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
+                    )
             arbiter = ir_arbitration.PacketArbiter(
                 tuple(source_ports),
                 destination,
@@ -379,13 +502,20 @@ class HardwareInterfacePreparer:
         request_response_symbols: dict[str, ir_module.RequestResponseInterface] = {}
         for declaration in module.request_responses:
             if declaration.name in symbols or declaration.name in request_response_symbols:
-                raise SemanticError(f"duplicate interface or port '{declaration.name}'")
+                raise SemanticError(
+                    f"duplicate interface or port '{declaration.name}'",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
+                )
             request_type = type_resolver.resolve(declaration.request_type)
             response_type = type_resolver.resolve(declaration.response_type)
             if declaration.max_outstanding <= 0:
                 raise SemanticError(
-                    f"request/response interface '{declaration.name}' requires "
-                    "max_outstanding > 0"
+                    f"request/response interface '{declaration.name}' requires max_outstanding > 0",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "hardware interface declaration", pure_context
+                    ),
                 )
             ordering = ir_interfaces.RequestResponseOrdering(declaration.ordering.value)
             match_by = declaration.match_by
@@ -393,36 +523,53 @@ class HardwareInterfacePreparer:
             if ordering is ir_interfaces.RequestResponseOrdering.IN_ORDER:
                 if match_by is not None:
                     raise SemanticError(
-                        f"in-order interface '{declaration.name}' must not use match_by"
+                        f"in-order interface '{declaration.name}' must not use match_by",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
                     )
             else:
                 if match_by is None:
                     raise SemanticError(
-                        f"out-of-order interface '{declaration.name}' requires match_by"
+                        f"out-of-order interface '{declaration.name}' requires match_by",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
                     )
                 if not isinstance(request_type, ir_types.StructType) or not isinstance(
                     response_type, ir_types.StructType
                 ):
                     raise SemanticError(
                         f"out-of-order interface '{declaration.name}' requires struct "
-                        "request and response payloads"
+                        "request and response payloads",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
                     )
                 request_id = request_type.field(match_by)
                 response_id = response_type.field(match_by)
                 if request_id is None or response_id is None:
                     raise SemanticError(
-                        f"match field '{match_by}' must exist in both request and "
-                        "response payloads"
+                        f"match field '{match_by}' must exist in both request and response payloads",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
                     )
                 if request_id.type != response_id.type:
                     raise SemanticError(
-                        f"match field '{match_by}' has different request and response types"
+                        f"match field '{match_by}' has different request and response types",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
                     )
                 if not isinstance(
                     request_id.type, (ir_types.BitType, ir_types.UIntType, ir_types.SIntType, ir_types.BitsType)
                 ):
                     raise SemanticError(
-                        f"match field '{match_by}' must be a scalar hardware type"
+                        f"match field '{match_by}' must be a scalar hardware type",
+                        primary=observations.declaration_origin(
+                            declaration.origin, "hardware interface declaration", pure_context
+                        ),
                     )
                 id_type = request_id.type
             interface = ir_module.RequestResponseInterface(

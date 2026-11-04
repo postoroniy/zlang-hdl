@@ -6,7 +6,8 @@ module FIRWitness<N=16> {
 
     coefficients : vec<N,u16> = generate(i in 0..N)
         truncate(extend<16>(i) * 3 + 1)
+    // Each u16 * u16 product is already an exact u32.
     products = generate(i in 0..N)
-        extend<32>(samples[i]) * extend<32>(coefficients[i])
+        samples[i] * coefficients[i]
     result = truncate(reduce(+, products))
 }

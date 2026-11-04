@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from zlang.common import stable_digest
+from zlang.formal_execution_tools import FormalToolBinding, binding_identity
 from zlang.cli import main as compiler_main
 from zlang.ir.formal import (
     Counterexample,
@@ -55,6 +56,7 @@ def _toolchain(monkeypatch, versions=_VERSIONS) -> None:
             solver=keywords["solver"],
             route=keywords["route"],
             versions=tuple(versions),
+            execution_identity=binding_identity(FormalToolBinding.discover(keywords["solver"])),
         ),
     )
 
@@ -208,6 +210,7 @@ def test_staged_proof_reuses_bounded_and_proven_results(
             solver=keywords["solver"],
             route=keywords["route"],
             versions=_VERSIONS,
+            execution_identity=binding_identity(FormalToolBinding.discover(keywords["solver"])),
         )
 
     monkeypatch.setattr(

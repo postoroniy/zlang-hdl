@@ -95,7 +95,8 @@ the previously accepted lock usable.
 
 | Scenario | What to do | Without it |
 | --- | --- | --- |
-| Standalone source or compiler-shipped `std.*` imports | Compile directly; no project lock is needed. | No consequence. |
+| Standalone source outside any project, including compiler-shipped `std.*` imports | Compile directly; no project lock is needed. | No consequence. |
+| Project with zero external dependencies | Create and retain `zlang.lock` for its manifest. | A source belonging to a project still requires that project's valid lock. |
 | Project with local path packages | Run `zlang lock update` after declaring dependencies and whenever their source or resolution fields change. Keep `zlang.lock` with the project. | Compilation rejects a missing or stale lock; it never silently uses changed dependency files. |
 | Project with pinned Git packages | Run `zlang lock update` while Git/network access is available; retain the exact revision and local cache for later offline builds. | Ordinary compilation does not fetch; missing cache or changed revision fails. |
 | CI or another machine | Supply the project manifest, its lock, exact path sources and cached Git revisions (or update the lock before the offline build). | A lock file alone does not provide Git source bytes; compilation fails closed. |

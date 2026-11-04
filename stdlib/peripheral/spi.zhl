@@ -1,0 +1,111 @@
+import std.peripheral.regbus
+
+// One CS, eight bits, full duplex, MSB first, mode 0 only. No runtime config.
+module SpiMasterMode0<HALF_PERIOD=2>
+where HALF_PERIOD >= 1 && HALF_PERIOD <= 65535 {
+    clock clk reset rst
+    in reset_active,miso_sampled : bit
+    in input : rv<bits<8>>
+    out output : rv<bits<8>>
+    out sck,mosi,cs_n,busy : bit
+    reg state : u2 = 0
+    reg selected : bit = 0
+    reg clock_level : bit = 0
+    reg data_level : bit = 0
+    reg timer : u16 = 0
+    reg remaining : u4 = 0
+    reg transmit : bits<8> = 0
+    reg receive : bits<8> = 0
+    reg saved : bits<8> = 0
+    reg pending : bit = 0
+    active = state != 0
+    finish = (state == 2) & (timer == 0) & clock_level & (remaining == 1)
+    input.ready = ~reset_active & ~active & (~pending | output.transfer)
+    output.valid = ~reset_active & pending
+    output.payload = saved
+    busy = active
+    cs_n = reset_active ? 1 : ~selected
+    sck = reset_active ? 0 : clock_level
+    mosi = reset_active ? 0 : data_level
+    pending <- finish ? 1 : (output.transfer ? 0 : pending)
+    when input.transfer {
+        state <- 1 selected <- 0 clock_level <- 0
+        transmit <- input.payload receive <- 0 remaining <- 8
+        data_level <- input.payload[7]
+    } else when state == 1 {
+        state <- 2 selected <- 1 timer <- extend<16>(HALF_PERIOD-1)
+    } else when state == 2 {
+        when timer != 0 { timer <- truncate<16>(timer-1) }
+        else {
+            timer <- extend<16>(HALF_PERIOD-1)
+            clock_level <- ~clock_level
+            when ~clock_level { receive <- (receive<<1) | extend<8>(bitcast<bits<1>>(miso_sampled)) }
+            else {
+                transmit <- transmit<<1
+                data_level <- (transmit<<1)[7]
+                when remaining == 1 { state <- 0 selected <- 0 }
+                else { remaining <- truncate<4>(remaining-1) }
+            }
+        }
+    }
+    when finish { saved <- receive }
+}
+
+// Register declarations own read data, reset storage and command events.
+module SpiMode0BasicRegisters<HALF_PERIOD=2> {
+    clock clk reset rst
+    in status,received:u32
+    in cfg_half_period:u32
+    out transmit,pop:bits<32>
+    csr registers @0 {
+        STATUS @0 { value u32 @31:0 ro <- status }
+        TX @4 { value u32 @31:0 ro=0
+            command bits<32> @31:0 on_write -> transmit }
+        RX @8 { value u32 @31:0 ro <- received }
+        POP @12 { value u32 @31:0 ro=0
+            command bits<32> @31:0 on_write -> pop }
+        HALF_PERIOD @16 { value u32 @31:0 ro <- cfg_half_period }
+    }
+}
+
+module SpiMode0RegBus32<HALF_PERIOD=2> {
+    clock clk reset rst
+    in reset_active : bit
+    interface regbus : RegBus<32,32>.responder
+    in miso_sampled:bit out sck,mosi,cs_n:bit
+
+    port : BasicPeripheralTarget32 {reset_active}
+    port.request.payload=regbus.request.payload
+    port.request.valid=regbus.request.valid
+    regbus.request.ready=port.request.ready
+    regbus.response.payload=port.response.payload
+    regbus.response.valid=port.response.valid
+    port.response.ready=regbus.response.ready
+    writing=regbus.request.payload.write
+    strobes=regbus.request.payload.wstrb
+    address=regbus.request.payload.addr
+    effective=strobes!=0
+    port.read_value=bank.rdata
+    port.error=invalid
+
+    // Named CSR read-hit views decode presence and access without write feedback.
+    // CSR ready includes its write enable; it is not a permission predicate.
+    read_only=bank.registers.events.STATUS.value.read_hit | bank.registers.events.RX.value.read_hit | bank.registers.events.HALF_PERIOD.value.read_hit
+    present=read_only | bank.registers.events.TX.value.read_hit | bank.registers.events.POP.value.read_hit
+    invalid=~present | (writing & read_only) | (writing & strobes[0] & (((bank.registers.events.TX.value.read_hit) & (core.busy | core.output.valid)) | ((bank.registers.events.POP.value.read_hit) & regbus.request.payload.wdata[0] & ~core.output.valid)))
+    old_word=zeros<32>
+    bank : SpiMode0BasicRegisters<HALF_PERIOD=HALF_PERIOD> {
+        addr=address read=1
+        write=port.accept & writing & ~invalid & (strobes[0])
+        wdata=bitcast<u32>(basic_peripheral_merge(old_word,
+            bitcast<bits<32>>(regbus.request.payload.wdata),strobes))
+    }
+    bank.cfg_half_period=extend<32>(HALF_PERIOD)
+    bank.status=bitcast<u32>(concat(zeros<29>,bitcast<bits<1>>(core.busy),bitcast<bits<1>>(core.output.valid),bitcast<bits<1>>(core.input.ready)))
+    bank.received=bitcast<u32>(extend<32>(core.output.payload))
+    core:SpiMasterMode0<HALF_PERIOD=HALF_PERIOD> {reset_active miso_sampled}
+    core.input.valid=bank.registers.events.TX.value.write_hit
+    core.input.payload=bank.transmit[7:0]
+    core.output.ready=bank.pop[0]
+    sck=core.sck mosi=core.mosi cs_n=core.cs_n
+}

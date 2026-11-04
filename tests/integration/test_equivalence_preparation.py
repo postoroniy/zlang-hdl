@@ -30,7 +30,7 @@ from zlang.pipeline_scheduling import erase_pipeline_timing
 
 @pytest.mark.parametrize("flatten", (False, True))
 def test_low_level_formal_flatten_is_explicit(flatten, tmp_path, monkeypatch):
-    context = SimpleNamespace(missing=(), versions=())
+    context = SimpleNamespace(missing=(), versions=(), execution_binding=None)
     monkeypatch.setattr("zlang.formal.resolve_formal_toolchain", lambda **_: context)
     monkeypatch.setattr("zlang.formal.run_bounded_process", lambda *_, **__: CompletedProcess("sby", 0, "", ""))
     monkeypatch.setattr("zlang.formal._read_sby_status", lambda *_: (

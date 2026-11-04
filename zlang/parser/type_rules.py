@@ -149,7 +149,9 @@ class TypeRules:
         return ast_nodes.Assignment(
             target,
             items[1],
-            name_origin=self._name_span_from_meta(meta, target.split(".", 1)[0]),
+            name_origin=self._name_span_from_meta(
+                meta, target.split(".", 1)[0].split("[", 1)[0]
+            ),
         )
 
     @v_args(meta=True)
@@ -159,7 +161,9 @@ class TypeRules:
             target,
             items[2],
             items[1],
-            name_origin=self._name_span_from_meta(meta, target.split(".", 1)[0]),
+            name_origin=self._name_span_from_meta(
+                meta, target.split(".", 1)[0].split("[", 1)[0]
+            ),
         )
 
     def assignment_target(self, items: list[object]) -> str:

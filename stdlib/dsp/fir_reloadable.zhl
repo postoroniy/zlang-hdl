@@ -40,9 +40,9 @@ where N >= 1 {
     out output : rv<fixed<SW+CW+ceil_log2(N),SF+CF>>
     bank : FirCoefficientBanks<CW=CW,CF=CF,N=N,initial_coefficients=initial_coefficients>
     core : FirRuntimeExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N>
-    connect input -> core.input
-    connect reload -> bank.reload
-    connect core.output -> output
+    input -> core.input
+    reload -> bank.reload
+    core.output -> output
     bank.commit = commit
     bank.idle = core.idle
     commit_ready = bank.commit_ready
@@ -60,8 +60,8 @@ where N >= 1 {
     out commit_ready : bit
     out output : rv<fixed<OW,OF>>
     core : RvFirReloadableExact<SW=SW,SF=SF,CW=CW,CF=CF,N=N,initial_coefficients=initial_coefficients>
-    connect input -> core.input
-    connect reload -> core.reload
+    input -> core.input
+    reload -> core.reload
     core.commit = commit
     commit_ready = core.commit_ready
     core.output.ready = output.ready

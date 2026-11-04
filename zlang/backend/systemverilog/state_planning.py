@@ -88,13 +88,22 @@ def requires_unified_state(module: ir_module.Module) -> bool:
         )
         or any(
             action.kind is not ir_state.StateActionKind.REGISTER_WRITE
-            or action.activation is not None
             for group in transition.action_groups
             for action in group.actions
         )
     ):
         return True
     groups = transition.action_groups
+    if any(action.activation is not None for group in groups for action in group.actions):
+        # One isolated, resettable register has no competing admission or
+        # partial multi-resource commit. Its exact branch predicates can be
+        # emitted directly inside the register's reset boundary.
+        return not (
+            len(groups) == 1
+            and len({action.resource_id for action in groups[0].actions}) == 1
+            and all(register.initial is not None for register in module.registers)
+            and not module.next_assignments
+        )
     return any(
         ir_state.groups_may_conflict(left, right)
         and (len(left.actions) != 1 or len(right.actions) != 1)

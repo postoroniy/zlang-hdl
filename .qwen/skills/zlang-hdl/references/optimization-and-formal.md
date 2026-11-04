@@ -102,6 +102,14 @@ Never relabel BMC, representation invariants, compiler structural validation,
 estimated Fmax, or synthesis success as stronger evidence. Verification does not
 legalize unsafe hardware or feed range inference.
 
+For a runtime-only checkout, activate its environment and run
+`python -m pip install -e '.[formal]'` to add the pinned Python Z3 bindings.
+The `dev` and `release` profiles already include the full test/formal toolset.
+Use this checkout's `pyproject.toml` and `release/status.json` for exact pins;
+the external solver and Yosys/SymbiYosys installation remain separate. Without
+Python Z3, supported jobs retain their existing raw-SMT route; neither route
+permits a weaker proof obligation. See [installation profiles](../../../../docs/installing-toolchain.md#reference-installing-toolchain-python-dependency-profiles).
+
 Read the hands-on [formal guide](../../../../docs/formal-verification.md),
 [implementation intent](../../../../docs/language-reference.md#reference-implementation-intent),
 and the relevant [verification witness](../../../../examples/verification/README.md)

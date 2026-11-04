@@ -18,7 +18,9 @@ from zlang.implementation_request import (
     parse_selected_profile,
 )
 from zlang.compilation_inputs import PhysicalCompilationInputs
-from zlang.compilation_products import CompilationResult, SemanticCheckResult
+from zlang.compilation_products import (
+    CompilationResult, DeclarationObservationProduct, SemanticCheckResult,
+)
 from zlang.compilation_session import (
     CompilationSession,
     SessionTopSelectionError,
@@ -278,6 +280,26 @@ def compile_file_snapshot(
             **options,
         )
     )
+
+
+def observe_file_declarations(
+    source: Path | str,
+    source_text: str,
+    *,
+    source_overlays: Mapping[Path | str, str] | None = None,
+) -> DeclarationObservationProduct:
+    """Return compiler-owned names in an exact editor/import snapshot.
+
+    This is not a successful semantic check of the source's physical top.
+    In particular unbound generic modules remain illegal compilation roots.
+    """
+
+    session = create_file_compilation_session_snapshot(
+        source, source_text, source_overlays=source_overlays,
+        analysis_needs=AnalysisNeeds.DEFINITIONS,
+        allow_external_enum_inputs=True, allow_unsaved_root=True,
+    )
+    return session.observe_declarations()
 
 
 def check_file_snapshot(

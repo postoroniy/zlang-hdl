@@ -9,10 +9,11 @@ from importlib.resources import files
 from threading import Lock
 
 import lark
-from lark import Lark, Transformer, UnexpectedInput
+from lark import Lark, Token, Transformer, UnexpectedInput
 from lark.exceptions import VisitError
 
-from zlang.ast.nodes import Module
+from zlang.ast.nodes import Module, SpecializationArgument, TypeName
+from zlang.diagnostics import attach_diagnostic_origin
 from zlang.source import SourceOrigin, SourceSpan
 from zlang.parser.aggregate_module_rules import AggregateCallableModuleRules
 from zlang.parser.errors import ParseError
@@ -20,6 +21,7 @@ from zlang.parser.expression_rules import ExpressionRules
 from zlang.parser.protocol_csr_rules import ProtocolAndCsrRules
 from zlang.parser.rules_support import SourceRuleMixin
 from zlang.parser.state_rules import StateRules
+from zlang.parser.simulation_rules import SimulationRules
 from zlang.parser.target_generic_rules import TargetAndGenericRules
 from zlang.parser.type_rules import TypeRules
 
@@ -29,6 +31,7 @@ class _AstBuilder(
     TargetAndGenericRules,
     AggregateCallableModuleRules,
     StateRules,
+    SimulationRules,
     ProtocolAndCsrRules,
     TypeRules,
     ExpressionRules,
@@ -44,13 +47,57 @@ class _AstBuilder(
     def _ordinary_binding_name_is_valid(name: str) -> bool:
         return _ordinary_binding_name_is_valid(name)
 
+    def _parse_concise_specializations(
+        self, type_name: TypeName,
+    ) -> tuple[SpecializationArgument, ...]:
+        """Reuse explicit argument grammar with the original source coordinates."""
+
+        origin = type_name.origin
+        if origin is None:
+            raise ParseError("concise callable arguments require a source range")
+        start = self._source_offset(origin.start_line, origin.start_column)
+        end = self._source_offset(origin.end_line, origin.end_column)
+        spelling = self._source_context.source[start:end]
+        opening = spelling.index("<")
+        arguments = spelling[opening:]
+        prefix = "module __ConciseProbe { inst __child:__Generic"
+        primary = SourceOrigin(origin, "concise specialization arguments")
+        try:
+            tree = _get_parser().parse(prefix + arguments + " }")
+        except UnexpectedInput as error:
+            raise ParseError(
+                "invalid callable reference in concise declaration", primary=primary,
+            ) from error
+        fragment = next((
+            node for node in tree.find_data("specialization_arguments")
+            if node.meta.start_pos == len(prefix)
+            and node.meta.end_pos == len(prefix) + len(arguments)
+        ), None)
+        if fragment is None:
+            raise ParseError("invalid concise specialization arguments", primary=primary)
+
+        # The probe is syntax-only. Rebase its selected argument subtree before
+        # invoking the same callbacks on this builder's original source context.
+        delta = start + opening - len(prefix)
+        for node in fragment.iter_subtrees():
+            positioned = [node.meta, *(child for child in node.children if isinstance(child, Token))]
+            for item in positioned:
+                item.start_pos += delta
+                item.end_pos += delta
+                item.line, item.column = self._source_context.position(item.start_pos)
+                item.end_line, item.end_column = self._source_context.position(item.end_pos)
+        result = self.transform(fragment)
+        if not isinstance(result, tuple) or not all(isinstance(x, SpecializationArgument) for x in result):
+            raise ParseError("invalid concise specialization arguments", primary=primary)
+        return result
+
 
 _GRAMMAR = files("zlang.parser").joinpath("grammar.lark").read_text()
 _PARSER: Lark | None = None
 _PARSER_LOCK = Lock()
 _PARSER_TABLE_LARK_VERSION = "1.3.1"
-_PARSER_TABLE_GRAMMAR_SHA256 = "3a56a40ea988a7f45cf64de2ea8051a581de71d058fab81dcc089f258315de48"
-_PARSER_TABLE_SHA256 = "370de8c5e30c768c91d08eefb27049d9c614bc1ed330e491a87c0c20d5e89ff4"
+_PARSER_TABLE_GRAMMAR_SHA256 = "4ad1c652f6bd08e747cb1459eedbcd8d262b68d966e7a7c1355208a3f51a3e22"
+_PARSER_TABLE_SHA256 = "4b5219412855fa3ad8e2afcbd47c21ee483d06e7951d435ad9ca88d6d733abb2"
 
 
 def _load_packaged_parser() -> Lark | None:
@@ -160,6 +207,14 @@ def parse(source: str) -> Module:
         result = _AstBuilder(source).transform(tree)
     except VisitError as error:
         if isinstance(error.orig_exc, ParseError):
+            # Callback validation has the same lexer-owned coordinates as syntax
+            # errors. Keep narrower locations explicitly supplied by the callback.
+            meta = error.obj.meta
+            if not meta.empty:
+                attach_diagnostic_origin(error.orig_exc, SourceOrigin(
+                    SourceSpan(meta.line, meta.column, meta.end_line, meta.end_column),
+                    str(error.rule),
+                ))
             raise error.orig_exc from error
         raise
     if not isinstance(result, Module):  # Defensive check at the parser boundary.

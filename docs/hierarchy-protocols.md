@@ -333,7 +333,12 @@ module AggregateStatusBank {
 ```
 
 Aggregate members used by one CSR bank must belong to that bank's clock
-domain. Command bindings remain scalar output ports.
+domain. Command bindings remain scalar output ports. The bank's `ready` indicates a
+selected declared address during a read/write request; it does not validate
+read/write permissions or provide a RegBus response handshake. An adapter must
+retain its own error/admission policy. The CSR port ABI has no byte strobes:
+source-authored bus adapters merge RW bytes or mask command/clear data before
+issuing a qualified access.
 
 Omitted bits are implicitly reserved. A storage-independent access event may
 observe the same bits as their single owning field:

@@ -14,6 +14,7 @@ Candidate: **0.1.0a24**. Direct SystemVerilog is the production RTL backend.
 - [Types, numerics, and packed representation](types-and-numerics.md)
 - [Expressions, functions, and generics](expressions-functions-generics.md)
 - [Compile-time integer modulo](compile-time-integers.md)
+- [Simulation-only source I/O](simulation-io.md)
 - [Sequential state, rules, pipelines, and storage](sequential-state-storage.md)
 - [Physical clocks and resets](physical-clock-reset-contract.md)
 - [Hierarchy, protocols, and explicit CDC](hierarchy-protocols.md)
@@ -330,6 +331,9 @@ Existing `reference-*` links remain as navigation aliases. The linked chapter ow
 
 <a id="reference-installing-toolchain-recommended-installation-with-uv"></a>
 - [Continue in the canonical chapter](installing-toolchain.md#reference-installing-toolchain-recommended-installation-with-uv)
+
+<a id="reference-installing-toolchain-python-dependency-profiles"></a>
+- [Continue in the canonical chapter](installing-toolchain.md#reference-installing-toolchain-python-dependency-profiles)
 
 <a id="reference-installing-toolchain-conventional-venv-and-pip-alternative"></a>
 - [Continue in the canonical chapter](installing-toolchain.md#reference-installing-toolchain-conventional-venv-and-pip-alternative)

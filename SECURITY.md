@@ -2,14 +2,15 @@
 
 ## Supported versions
 
-ZLang HDL is currently an experimental alpha. Security fixes are applied to the
-latest published alpha release and the current public `main` branch. Older
-alphas are not maintained unless a release note explicitly says otherwise.
+`0.1.0a24` is the final planned public alpha release; it remains a candidate
+until publication. No ongoing public maintenance, response time or future fix
+is committed. Maintainers may review security reports and consider a correction
+at their discretion. Existing releases and licence grants remain unchanged.
 
-| Version | Supported |
+| Version | Report and maintenance policy |
 | --- | --- |
-| Latest `0.1.x` alpha | Yes |
-| Older snapshots and alphas | No |
+| Public a24 candidate/final baseline | Reports may be reviewed; no ongoing support or fix commitment |
+| Older snapshots and alphas | Not maintained; include the affected version when reporting |
 
 ## Reporting a vulnerability
 
@@ -19,9 +20,9 @@ vulnerability reporting for the repository:
 <https://github.com/postoroniy/zlang-hdl/security/advisories/new>
 
 Include the affected version or commit, a minimal reproducer, expected impact,
-and any known mitigation. Maintainers will acknowledge the report when it has
-been reviewed, coordinate disclosure where practical, and credit reporters who
-request attribution.
+and any known mitigation. Maintainers may coordinate disclosure where practical and credit reporters who
+request attribution. This channel remains available without a guaranteed review
+or response deadline.
 
 ## Security boundary
 

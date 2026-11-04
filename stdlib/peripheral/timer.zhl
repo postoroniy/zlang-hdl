@@ -1,0 +1,66 @@
+import std.peripheral.regbus
+
+// Fixed 32-bit periodic counter. Disable pauses; reset restarts at zero.
+module PeriodicTimer32<PERIOD=1000>
+where PERIOD >= 1 && PERIOD <= 0xffffffff {
+    clock clk reset rst
+    in reset_active,enable : bit
+    out count : u32
+    out tick : bit
+    reg elapsed : u32 = 0
+    terminal = elapsed == PERIOD-1
+    tick = ~reset_active & enable & terminal
+    count = elapsed
+    when enable { elapsed <- terminal ? 0 : truncate<32>(elapsed+1) }
+}
+
+// Register declarations own read data, reset storage and command events.
+module Timer32BasicRegisters<PERIOD=1000> {
+    clock clk reset rst
+    in count:u32
+    in cfg_period:u32
+
+    csr registers @0 {
+        COUNT @0 { value u32 @31:0 ro <- count }
+        CONTROL @4 { value u32 @31:0 rw=0 }
+        PERIOD @8 { value u32 @31:0 ro <- cfg_period }
+    }
+}
+
+module PeriodicTimer32RegBus32<PERIOD=1000> {
+    clock clk reset rst
+    in reset_active : bit
+    interface regbus : RegBus<32,32>.responder
+    out tick:bit
+
+    port : BasicPeripheralTarget32 {reset_active}
+    port.request.payload=regbus.request.payload
+    port.request.valid=regbus.request.valid
+    regbus.request.ready=port.request.ready
+    regbus.response.payload=port.response.payload
+    regbus.response.valid=port.response.valid
+    port.response.ready=regbus.response.ready
+    writing=regbus.request.payload.write
+    strobes=regbus.request.payload.wstrb
+    address=regbus.request.payload.addr
+    effective=strobes!=0
+
+    bank : Timer32BasicRegisters<PERIOD=PERIOD> {
+        addr=address read=1
+        write=port.accept & writing & ~invalid & (effective)
+        wdata=bitcast<u32>(basic_peripheral_merge(old_word,
+            bitcast<bits<32>>(regbus.request.payload.wdata),strobes))
+    }
+    // Named CSR read-hit views decode presence and access without write feedback.
+    // CSR ready includes its write enable; it is not a permission predicate.
+    read_only=bank.registers.events.COUNT.value.read_hit | bank.registers.events.PERIOD.value.read_hit
+    present=read_only | bank.registers.events.CONTROL.value.read_hit
+    invalid=~present | (writing & read_only) | (0)
+    old_word=bank.registers.events.CONTROL.value.read_hit ? bitcast<bits<32>>(bank.registers.state.CONTROL.value) : (zeros<32>)
+    bank.cfg_period=extend<32>(PERIOD)
+    bank.count=core.count
+    core:PeriodicTimer32<PERIOD=PERIOD> {reset_active enable=bitcast<bits<32>>(bank.registers.state.CONTROL.value )[0]}
+    tick=core.tick
+    port.read_value=bank.rdata
+    port.error=invalid
+}

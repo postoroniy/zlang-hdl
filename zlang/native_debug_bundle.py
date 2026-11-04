@@ -114,9 +114,10 @@ class NativeDebugBundle:
     overlay_identity: str
     schema: str = DEBUG_BUNDLE_SCHEMA
     prepared_events: PreparedDebugEvents | None = field(default=None, repr=False, compare=False)
+    simulation_io: dict | None = field(default=None, repr=False, compare=False)
 
     def identity_data(self) -> dict[str, object]:
-        return {
+        result = {
             "clocks": [item.to_data() for item in self.clocks],
             "plan_identity": self.plan_identity,
             "schema": self.schema,
@@ -125,6 +126,9 @@ class NativeDebugBundle:
             "sites": [item.to_data() for item in self.sites],
             "sources": [item.identity_data() for item in self.sources],
         }
+        if self.simulation_io is not None:
+            result['simulation_io'] = self.simulation_io
+        return result
 
     def to_data(self) -> dict[str, object]:
         result = {
@@ -138,6 +142,13 @@ class NativeDebugBundle:
         }
         if self.prepared_events is not None:
             result["prepared_events"] = self.prepared_events.to_data()
+        if self.simulation_io is not None:
+            result['overlay_schema'] = 'zlang-debug-overlay-v4'
+            result['identity_payload'] = json.dumps(self.identity_data(), sort_keys=True,
+                                                    separators=(',', ':'), ensure_ascii=True)
+            overlay = {k:v for k,v in result.items() if k not in {'plan', 'prepared_events'}}
+            if len(json.dumps(overlay).encode()) > 16 * 1024 * 1024:
+                raise sim.SimulationRuntimeError('simulation I/O debug overlay exceeds 16 MiB')
         return result
 
 
@@ -278,6 +289,9 @@ def build_native_debug_bundle(
     profile: str | None = None,
     logic_state: bool = True,
     events: Path | str | None = None,
+    simulation: str | None = None,
+    io_inputs: Mapping[str, Path | str] | None = None,
+    io_outputs: Mapping[str, Path | str] | None = None,
 ) -> NativeDebugBundle:
     """Compile one saved source snapshot into an execution plan plus overlay."""
 
@@ -289,6 +303,12 @@ def build_native_debug_bundle(
         profile=profile,
         logic_state=logic_state,
     )
+    prepared_io = None
+    if simulation is not None:
+        from zlang.simulation_io_encoding import prepare_debug_io
+        program, prepared_io = prepare_debug_io(program, simulation, io_inputs or {}, io_outputs or {})
+    elif io_inputs or io_outputs:
+        raise sim.SimulationRuntimeError('channel bindings require a simulation block')
     plan = program.plan.payload
     fallback_unit = source_path.name
     instrumentation_events = {
@@ -326,6 +346,9 @@ def build_native_debug_bundle(
         "sites": [item.to_data() for item in sites],
         "sources": [item.identity_data() for item in sources],
     }
+    if prepared_io is not None:
+        identity_payload['simulation_io'] = prepared_io
+        overlay_identity = _digest({'overlay_identity':overlay_identity, 'simulation_io':prepared_io})
     from zlang.native_debug_events import prepare_debug_events
 
     prepared = prepare_debug_events(program, Path(events)) if events is not None else None
@@ -340,6 +363,7 @@ def build_native_debug_bundle(
         _digest(identity_payload),
         overlay_identity,
         prepared_events=prepared,
+        simulation_io=prepared_io,
     )
 
 

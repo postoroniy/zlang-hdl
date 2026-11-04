@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fix the minimatch glob-amplification vulnerability in both packaging and LSP
+  dependencies. Keep glob filtering compatible through a hash-verified client
+  patch; installation/builds reject unreviewed client source changes.
+
 - Add Auto/Digital/Analog waveform display with typed signed/fixed-point scaling,
   real channels, unknown-value gaps and saved per-row numeric overrides.
 

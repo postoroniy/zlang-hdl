@@ -29,6 +29,7 @@ from zlang.compilation_products import (
     CompilationResult,
     CompilationProductKey,
     CompilationSnapshot,
+    DeclarationObservationProduct,
     DocumentProduct as _DocumentProduct,
     FormalProduct as _FormalProduct,
     PlanningProduct as _PlanningProduct,
@@ -502,7 +503,8 @@ class CompilationSession:
             backend="direct_systemverilog",
         )
 
-    def _analyze(self) -> _AnalysisProduct:
+    def _analyze(self, *, syntax: AstModule | None = None) -> _AnalysisProduct:
+        syntax = self.syntax if syntax is None else syntax
         exploration_results: list[ExplorationResult] = []
         definition_resolutions: list[DefinitionResolution] | None = (
             [] if self._analysis_needs.wants(AnalysisNeeds.DEFINITIONS) else None
@@ -521,7 +523,7 @@ class CompilationSession:
             with track_resolved_stdlib_source_paths() as tracked_sources:
                 stdlib_sources = tracked_sources
                 module = analyze(
-                    self.syntax,
+                    syntax,
                     exploration_results=exploration_results,
                     intent_structural_cache=self._intent_structural_cache,
                     intent_exploration_limits=(
@@ -573,6 +575,36 @@ class CompilationSession:
             tuple(completion_scopes or ()),
             tuple(signature_help_calls or ()),
         )
+
+    def observe_declarations(self) -> DeclarationObservationProduct:
+        """Resolve library headers without elaborating an unbound module body.
+
+        The normal import/type/callable owners analyze a declaration-only
+        carrier containing the original modules as inactive declarations.
+        No generic values are invented. This result has no hardware IR and
+        cannot satisfy check(), selection, diagnostics or backend requests.
+        """
+
+        if self._analysis_needs != AnalysisNeeds.DEFINITIONS:
+            raise ValueError("declaration observation requires only DEFINITIONS")
+        syntax = self.syntax
+        carrier = AstModule(
+            name="__declaration_unit__", ports=(), assignments=(), ordered_items=(),
+            declaration_only=True,
+            submodules=(*syntax.submodules, syntax) if not syntax.declaration_only else (),
+            **{name: getattr(syntax, name) for name in (
+                "type_aliases", "enums", "structs", "tagged_unions", "functions",
+                "operators", "equivalences", "imports", "protocols", "module_interfaces",
+                "resource_definitions", "target_families", "target_instances",
+                "architecture_templates", "source_identity", "source_hash",
+            )},
+        )
+        product = self._analyze(syntax=carrier)
+        return DeclarationObservationProduct(
+            self.physical_inputs, product.definition_resolutions,
+            product.definition_declarations,
+        )
+
 
     @property
     def semantic_ir(self) -> IrModule:

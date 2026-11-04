@@ -795,6 +795,15 @@ class LspServer:
         project = request.get("project")
         profile = request.get("profile")
         events = request.get("events")
+        simulation = request.get('simulation')
+        io_inputs = request.get('simulationInputs', {})
+        io_outputs = request.get('simulationOutputs', {})
+        if simulation is not None and not isinstance(simulation, str):
+            raise LspProtocolError('debug simulation must be a string')
+        for value in (io_inputs, io_outputs):
+            if not isinstance(value, dict) or any(not isinstance(k, str) or not isinstance(v, str)
+                                                  for k, v in value.items()):
+                raise LspProtocolError('debug simulation channel bindings must map names to paths')
         for value, label in ((top, "top"), (project, "project"), (profile, "profile"), (events, "events")):
             if value is not None and not isinstance(value, str):
                 raise LspProtocolError(f"debug {label} must be a string")
@@ -808,6 +817,7 @@ class LspServer:
             profile=profile,
             logic_state=logic_state,
             events=events,
+            simulation=simulation, io_inputs=io_inputs, io_outputs=io_outputs,
         )
         return bundle.to_data()
 

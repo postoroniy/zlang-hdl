@@ -68,8 +68,37 @@ def validate_actions(data: dict, current: str, names: dict[str, set[str]]) -> No
                 raise DocumentationError("inter-book PDF links must use stable named destinations")
 
 
-def verify_pdf_links(paths: dict[str, Path], run) -> None:
+def validate_source_actions(data: dict, expected: set[str]) -> None:
+    """Reject stale refs, missing source links and altered targets in actual bytes."""
+    try:
+        from tools.documentation_sources import SOURCE_REPOSITORY
+    except ModuleNotFoundError:
+        from documentation_sources import SOURCE_REPOSITORY
+    prefix = SOURCE_REPOSITORY + "/blob/"
+    actual = set()
+    for node in _objects(data):
+        if node.get("/S") != "/URI":
+            continue
+        uri = node.get("/URI", "")
+        if isinstance(uri, str) and uri.startswith("u:" + prefix):
+            actual.add(uri[2:])
+    if actual != expected:
+        raise DocumentationError("manual PDF source links differ from the release-bound source inventory")
+
+
+def verify_pdf_links(paths: dict[str, Path], run, *, root: Path | None = None) -> None:
     """Inspect bytes, not recorded success flags; run enforces tool time bounds."""
+    expected = {}
+    if root is not None:
+        try:
+            from tools.documentation_manifest import load_manuals
+            from tools.documentation_sources import SOURCE_REPOSITORY, assemble
+        except ModuleNotFoundError:
+            from documentation_manifest import load_manuals
+            from documentation_sources import SOURCE_REPOSITORY, assemble
+        prefix = re.escape(SOURCE_REPOSITORY + "/blob/")
+        expected = {m.pdf.name: set(re.findall(prefix + r"[^\s)]+", assemble(root, m)))
+                    for m in load_manuals(root)}
     names = {
         name: set(re.findall(r'"([^"]+)"$', run(("pdfinfo", "-dests", str(path))), re.M))
         for name, path in paths.items()
@@ -80,3 +109,5 @@ def verify_pdf_links(paths: dict[str, Path], run) -> None:
         except ValueError as exc:
             raise DocumentationError("qpdf returned malformed PDF structure") from exc
         validate_actions(data, name, names)
+        if root is not None:
+            validate_source_actions(data, expected[name])

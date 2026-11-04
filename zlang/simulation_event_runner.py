@@ -24,6 +24,8 @@ from zlang.simulation_values import (
 if TYPE_CHECKING:
     from zlang.sim import Simulator
 
+MAX_EXPANDED_EVENTS = 1_000_000
+
 
 class SimulationEventRunner:
     """Encode, execute, and decode one bounded batch of public events.
@@ -42,7 +44,7 @@ class SimulationEventRunner:
     ) -> list[dict[str, object]]:
         simulator = self._simulator
         simulator._require_open()
-        if simulator.program.logic_state:
+        if simulator.program.logic_state or simulator._io is not None:
             return self._run_logic_events(events)
         protocol_ports = tuple(
             port
@@ -87,6 +89,8 @@ class SimulationEventRunner:
         simulator = self._simulator
         results: list[dict[str, object]] = []
         for event in events:
+            if simulator._io is not None and simulator._io.finished:
+                break
             unknown = set(event) - {"set", "set_logic", "reset", "edges"}
             if unknown:
                 raise SimulationRuntimeError(
@@ -128,6 +132,10 @@ class SimulationEventRunner:
                 except (ValueError, RuntimeError) as error:
                     simulator._raise_instrumentation_failure(error)
                     raise SimulationRuntimeError(str(error)) from error
+                if simulator._io is not None:
+                    simulator._io.empty_event()
+            if simulator._io is not None and simulator._io.finished:
+                break
             results.append(simulator._step_outputs())
         return results
 

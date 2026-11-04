@@ -23,13 +23,16 @@ REUSE_VERSION ?= 5.1.1
 TWINE_VERSION ?= 6.2.0
 WHEEL_VERSION ?= 0.46.3
 CYCLONEDX_BOM_VERSION ?= 7.0.0
+PYTHON_PROFILE ?= release
+DEV_PYTHON_TOOLS := "ruff==$(RUFF_VERSION)"
 RELEASE_PYTHON_TOOLS := \
 	"cyclonedx-bom==$(CYCLONEDX_BOM_VERSION)" \
 	"pip-audit==$(PIP_AUDIT_VERSION)" \
 	"reuse==$(REUSE_VERSION)" \
-	"ruff==$(RUFF_VERSION)" \
+	$(DEV_PYTHON_TOOLS) \
 	"twine==$(TWINE_VERSION)" \
 	"wheel==$(WHEEL_VERSION)"
+BOOTSTRAP_PYTHON_TOOLS = $(if $(filter release,$(PYTHON_PROFILE)),$(RELEASE_PYTHON_TOOLS),$(if $(filter dev,$(PYTHON_PROFILE)),$(DEV_PYTHON_TOOLS)))
 WORKERS ?= 16
 BUILD_ROOT ?= build/local-release
 DIST_DIR ?= $(BUILD_ROOT)/dist
@@ -40,7 +43,11 @@ RELEASE_MODE ?= candidate
 EDITOR_VSIX ?= build/editor-release/zlang-hdl-0.1.0.vsix
 EDITOR_NATIVE_VSIX ?= build/editor-release/zlang-hdl-0.1.0-linux-x64.vsix
 VSCODE ?= code
+ifeq ($(PYTHON_PROFILE),release)
 INSTALL_EDITOR ?= 1
+else
+INSTALL_EDITOR ?= 0
+endif
 WAVEFORM_INDEXER ?= $(CURDIR)/release/native-editor/linux-x64/zlang-waveform-indexer
 EDITOR_BROWSER_ROOT ?= $(CURDIR)/build/editor-browsers
 STRUCTURAL_PROFILE ?= small
@@ -63,7 +70,7 @@ FAST_TEST_PATHS := \
 	tests/parser tests/semantic tests/conformance tests/editor \
 	tests/packaging tests/release
 
-.PHONY: help venv env-check editor-install release-review-clean review-commits release-review release-sanity release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-editor-audit native-release-set native-release-install audit release-tools test-fast test test-structural \
+.PHONY: help install venv env-check editor-install release-review-clean review-commits release-review release-sanity release-dependency-floor release-regressions release-preflight public-check static jit-check jit-audit jit-advisory-audit native-editor-audit native-release-set native-release-install audit release-tools test-fast test test-structural \
 	structural-baseline \
 	community-pdf-check test-release-twice editor-static editor-test editor-advisory-audit editor-host-test editor-native-host-test editor-waveform-test package release-candidate \
 	ci-bootstrap ci-fast-core ci-full-regression ci-performance-regression ci-hosted-edge \
@@ -81,7 +88,11 @@ $(LOCAL_ENV_TARGETS): env-check
 
 help:
 	@printf '%s\n' \
+		'make install            install compiler/native/LSP and refresh VS Code when available' \
 		'make venv               install compiler/runtime and refresh VS Code when available locally' \
+		'make venv PYTHON_PROFILE=runtime install compiler/native/LSP without test or release tools' \
+		'make venv PYTHON_PROFILE=dev install test/formal dependencies and Ruff without release tools' \
+		'make venv PYTHON_PROFILE=release install the full maintainer setup (default)' \
 		'make editor-install     build, audit and install this checkout VSIX; reload VS Code afterward' \
 		'make release-review     validate a clean public review branch before merge' \
 		'make review-commits     require signed, DCO-complete public review commits' \
@@ -115,12 +126,18 @@ help:
 		'make package            build one sdist and two byte-identical wheels' \
 		'make release-candidate  run the local non-publishing release gate'
 
+# User setup reuses the runtime profile and the existing bootstrap.
+install: PYTHON_PROFILE = runtime
+install: INSTALL_EDITOR ?= 1
+install: venv
+
 venv:
 	ZLANG_VENV="$(VENV)" ZLANG_TMP_ROOT="$(TMP_ROOT)" \
+		ZLANG_PYTHON_PROFILE="$(PYTHON_PROFILE)" \
 		ZLANG_INSTALL_EDITOR="$(INSTALL_EDITOR)" ZLANG_VSCODE="$(VSCODE)" \
 		ZLANG_BOOTSTRAP_PIP_VERSION="$(PIP_VERSION)" \
 		ZLANG_BOOTSTRAP_SETUPTOOLS_VERSION="$(SETUPTOOLS_VERSION)" \
-		"$(SHELL)" tools/bootstrap_local_env.sh $(RELEASE_PYTHON_TOOLS)
+		"$(SHELL)" tools/bootstrap_local_env.sh $(BOOTSTRAP_PYTHON_TOOLS)
 
 env-check:
 	if [[ ! -x "$(PYTHON)" ]]; then

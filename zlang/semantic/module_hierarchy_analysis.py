@@ -23,6 +23,7 @@ from . import module_pipeline
 from . import expression_domains
 from . import expression_control
 from . import expression_support
+from . import observations
 from . import storage_validation as storage_validation
 from . import symbols as semantic_symbols
 
@@ -113,6 +114,11 @@ class ModuleHierarchyAnalyzer:
             tuple(locals_),
             memories=behavior.storage.memories,
             fifos=behavior.storage.fifos,
+            instance_origins={
+                item.name: observations.declaration_origin(
+                    item.name_origin or item.origin, f"instance {item.name}", module_context,
+                ) for item in module.instances
+            },
         )
 
         for connection in connections:

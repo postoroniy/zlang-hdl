@@ -132,9 +132,11 @@ With Vivado 2024.2 available:
 
 This is an out-of-context **core** experiment, not a placed board/pinout design.
 Each kernel uses the same launch/capture shell, constraints and physical flow.
-The shell adds two sampled-cycle delays to all traces: totals are 2/2/6, while
-the pipeline decision itself adds 0/0/4. Compare aligned samples, not outputs
-at the same wall-clock cycle. II remains one after fill.
+The shell adds two sampled-cycle delays to the selected kernel latency.
+Read the actual selected latency in the fresh compilation/measurement records
+and align samples accordingly; do not compare outputs at the same wall-clock
+cycle. The 2/2/6 totals (internal 0/0/4) belong to the historical run below,
+not a guarantee for a newly selected implementation. II remains one after fill.
 
 Keep `results.json`, source/RTL hashes, XDC, utilization, clock, setup/hold,
 route reports and routed checkpoints together. Only fully routed constrained

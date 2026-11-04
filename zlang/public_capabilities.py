@@ -504,6 +504,14 @@ CAPABILITY_REGISTRY = PublicCapabilityRegistry(
             ),
         ),
         PublicCapability(
+            "simulation-source-io", "explicitly activated top simulation block", "bounded",
+            "supported", "separate typed simulation metadata", "independent testbench; DUT unchanged",
+            "specialization-specific DUT non-interference; not a host-I/O proof",
+            CapabilityWitness("examples/simulation_io.zhl", "SimulationIoExample"),
+            ("one typed input channel, at most one active read per event; explicit EOF; "
+             "bounded files/events; packet-arbiter tops unsupported",),
+        ),
+        PublicCapability(
             "per-bit-native-logic-state",
             "opt-in native simulation",
             "bounded",

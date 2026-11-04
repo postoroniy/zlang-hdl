@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 import json
@@ -20,9 +21,7 @@ from zlang.diagnostics import DiagnosticError
 from zlang.source_identity import SourceExtensionError
 from zlang.workspace import WorkspaceError
 from zlang.waveform_vcd import identifier as _vcd_identifier
-
-
-MAX_EXPANDED_EVENTS = 1_000_000
+from zlang.simulation_event_runner import MAX_EXPANDED_EVENTS
 
 
 @dataclass(frozen=True)
@@ -135,6 +134,13 @@ def _logic_assignment(value: str) -> tuple[str, str]:
     return name, payload
 
 
+def _io_binding(value: str) -> tuple[str, str]:
+    name, separator, path = value.partition("=")
+    if not separator or not name or not path:
+        raise argparse.ArgumentTypeError("expected CHANNEL=PATH")
+    return name, path
+
+
 def _read_events(path: Path, *, text: str | None = None) -> EventSchedule:
     records: list[_EventRecord] = []
     event_count = 0
@@ -208,6 +214,24 @@ def _unique_assignments(
             )
         result[name] = value
     return result
+
+
+@contextmanager
+def _run_instance(program, arguments, initial_registers, io_inputs, io_outputs):
+    # Comparison already wrote the user's logs. Its optional waveform pass has
+    # independent channels, as it already has an independent native instance.
+    if arguments.compare_with and arguments.simulation:
+        with tempfile.TemporaryDirectory(prefix="zlang-") as scratch:
+            paths = {name: Path(scratch)/f"{index}.jsonl" for index, name in enumerate(io_outputs)}
+            with program.create(initial_registers=initial_registers,
+                                simulation=arguments.simulation,
+                                io_inputs=io_inputs, io_outputs=paths) as instance:
+                yield instance
+    else:
+        with program.create(initial_registers=initial_registers,
+                            simulation=arguments.simulation,
+                            io_inputs=io_inputs, io_outputs=io_outputs) as instance:
+            yield instance
 
 
 def _control_levels(
@@ -473,6 +497,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--profile", help="select an implementation profile from zlang.toml"
     )
     execution_options = parser.add_argument_group("simulation execution")
+    execution_options.add_argument("--simulation", help="activate one simulation-only source block")
+    execution_options.add_argument("--sim-input", action="append", type=_io_binding, default=[],
+                                   metavar="CHANNEL=PATH", help="bind a typed JSONL stimulus channel")
+    execution_options.add_argument("--sim-output", action="append", type=_io_binding, default=[],
+                                   metavar="CHANNEL=PATH", help="bind a JSONL log channel (PATH=- for console)")
     execution_options.add_argument(
         "--engine",
         type=_engine,
@@ -601,7 +630,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.trace_signal and arguments.trace is None:
         parser.error("--trace-signal requires --trace")
     if arguments.compare_with is not None and (
-        arguments.logic_state
+        (arguments.logic_state and not arguments.simulation)
         or arguments.strict_uninitialized
         or arguments.logic_assignments
         or arguments.initial_registers
@@ -612,6 +641,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.initial_registers,
             label="--initial-reg",
         )
+        io_inputs = _unique_assignments(arguments.sim_input, label="--sim-input")
+        io_outputs = _unique_assignments(arguments.sim_output, label="--sim-output")
+        if (io_inputs or io_outputs) and arguments.simulation is None:
+            raise sim.SimulationRuntimeError("channel bindings require --simulation")
+        if arguments.json and "-" in io_outputs.values():
+            raise sim.SimulationRuntimeError("console I/O logging cannot share stdout with --json")
         program = sim.compile(
             arguments.source,
             top=arguments.top,
@@ -632,17 +667,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             from zlang.simulation_compare import compare_program
 
             comparison_events = _comparison_events(arguments)
-            comparison = compare_program(
-                program,
-                comparison_events,
-                simulator=arguments.compare_with,
-                artifact_directory=arguments.compare_artifacts,
-                timeout=arguments.compare_timeout,
-            )
+            if arguments.simulation:
+                from zlang.simulation_io_compare import compare_io_program
+                comparison = compare_io_program(
+                    program, comparison_events, simulation=arguments.simulation,
+                    io_inputs=io_inputs, io_outputs=io_outputs,
+                    simulator=arguments.compare_with,
+                    artifact_directory=arguments.compare_artifacts,
+                    timeout=arguments.compare_timeout,
+                )
+            else:
+                comparison = compare_program(
+                    program,
+                    comparison_events,
+                    simulator=arguments.compare_with,
+                    artifact_directory=arguments.compare_artifacts,
+                    timeout=arguments.compare_timeout,
+                )
             if arguments.events is not None:
                 outputs = list(comparison.native_outputs)
             else:
-                outputs = comparison.native_outputs[-1]
+                outputs = (comparison.final_outputs if arguments.simulation
+                           else comparison.native_outputs[-1])
         else:
             outputs = None
 
@@ -650,8 +696,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # comparison uses a fresh native instance so the external proof and
         # optional VCD cannot share mutable state accidentally.
         if arguments.compare_with is None or arguments.trace is not None:
-            instance = program.create(initial_registers=initial_registers)
-            with instance:
+            with _run_instance(program, arguments, initial_registers, io_inputs, io_outputs) as instance:
                 for name, value in arguments.assignments:
                     instance.set(name, value)
                 for name, value in arguments.logic_assignments:

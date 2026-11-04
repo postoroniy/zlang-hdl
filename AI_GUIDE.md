@@ -19,7 +19,8 @@ Use this order when sources disagree:
 1. the user's request and the nearest applicable `AGENTS.md`;
 2. grammar, typed semantic analysis, backend-independent IR, validators, and
    passing tests in the current checkout;
-3. `zlang/public_capabilities.py` and the current language status;
+3. `zlang/public_capabilities.py` and the
+   [language support matrix](docs/syntax-support-matrix.md);
 4. the language quick reference and topic guides;
 5. compiling examples and source-authored `stdlib/**/*.zhl`;
 6. editor grammar only for lexical highlighting.
@@ -43,10 +44,21 @@ environment and scratch policy:
 
 ```sh
 git status --short
-make venv
+make install
 source .venv/bin/activate
 make env-check
 ```
+
+`make install` prepares ordinary compiler/native/LSP use and refreshes the
+editor when available; `INSTALL_EDITOR=0` leaves the installed extension alone.
+For compiler/test work use `make venv PYTHON_PROFILE=dev`; for the full
+maintainer/release environment use `make venv` (the default `release` profile).
+Profiles are additive and never remove existing packages. After activation,
+`python -m pip install -e '.[formal]'` adds the checkout's pinned Python Z3
+bindings without the test/release toolset. External formal tools are separate;
+installing dependencies does not qualify a proof. Follow
+[installation and dependency profiles](docs/installing-toolchain.md#reference-installing-toolchain-python-dependency-profiles)
+and the exact versions in this checkout's `release/status.json`.
 
 Run repository tools through `.venv/bin/...` or Make targets. Keep temporary
 work below `build/tmp`; `KEEP_TMP=1 make ...` retains failure evidence. Do not
@@ -111,6 +123,15 @@ intrinsics, enum boundaries, state and runnable commands. Read detailed linked
 sections for exact signatures and eligibility instead of guessing from a name.
 Read [formal verification](docs/formal-verification.md) before changing or
 claiming verification behavior.
+
+For UART, SPI, I²C, GPIO, timer, PWM and edge capture, start with the
+[peripheral guide](docs/stdlib-peripherals.md) and
+[compiler-generated API catalog](docs/stdlib-api.md). All seven families provide
+RegBus32 wrappers as well as reusable cores. Use the declarations and maps in
+this checkout: configuration and IRQ support vary by distribution. Preserve
+byte strobes, exactly-once accepted commands, response backpressure, explicit
+pin directions and clock/reset contracts. Do not infer CDC, vendor-driver
+compatibility or qualification from a module name.
 
 For buffered broadcast/join, framed CRC-32 and parallel fixed-point FIR, use
 the source-authored components in [the stream/DSP guide](docs/stdlib-stream-dsp.md).
@@ -202,3 +223,11 @@ State only evidence that actually ran:
 
 Do not commit, push, tag, publish, or update release artifacts unless the user
 explicitly requested that external action.
+
+## Simulation I/O
+
+Use [simulation-only source I/O](docs/simulation-io.md) for conditional typed JSONL reads,
+pre-edge structured logs and explicit EOF behavior. Activation requires a named
+`simulation` block and channel bindings; inactive blocks do not alter hardware.
+The runnable `examples/simulation_io.zhl` includes reset, stalls and drain;
+VS Code provides **Debug simulation I/O**. Use fresh file outputs or console `-`.

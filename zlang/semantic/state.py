@@ -175,7 +175,8 @@ def _validate_conflicts(
             ):
                 raise SemanticError(
                     f"rules '{first.rule_name}' and '{second.rule_name}' have "
-                    "conflicting state actions; add explicit priority"
+                    "conflicting state actions; add explicit priority",
+                    primary=second.source_origin,
                 )
     writes: dict[str, dict[str, ir_module.Rule]] = {}
     for rule in rules:
@@ -192,7 +193,8 @@ def _validate_conflicts(
                 ):
                     raise SemanticError(
                         f"rules '{first.name}' and '{second.name}' both write "
-                        f"target '{target_name}'; add explicit priority"
+                        f"target '{target_name}'; add explicit priority",
+                        primary=second.guard.origin,
                     )
 
 
@@ -273,7 +275,10 @@ class RuleAnalyzer:
         rule_names: set[str] = set()
         for declaration in preparation.module.rules:
             if declaration.name in rule_names:
-                raise SemanticError(f"duplicate rule '{declaration.name}'")
+                raise SemanticError(
+                    f"duplicate rule '{declaration.name}'",
+                    primary=expression_origins.semantic_origin(declaration.guard, module_context),
+                )
             rule_names.add(declaration.name)
             target_domains: set[str | None] = set()
             for leaf in semantic_actions.conditional_action_leaves(
@@ -308,7 +313,10 @@ class RuleAnalyzer:
                 declaration.guard, value_symbols, ir_types.BitType(), module_context
             )
             if guard.type != ir_types.BitType():
-                raise SemanticError(f"guard for rule '{declaration.name}' must be bit")
+                raise SemanticError(
+                    f"guard for rule '{declaration.name}' must be bit",
+                    primary=expression_origins.semantic_origin(declaration.guard, module_context),
+                )
             guard_domains = {
                 item
                 for item in expression_domains.expression_domains(
@@ -382,7 +390,7 @@ class RuleAnalyzer:
                         isinstance(action, ast.NextAssignment)
                         and isinstance(action.target, ast.IndexedAssignmentTarget)
                     )
-                    else action.expression.origin
+                    else action.target_origin or action.expression.origin
                     if isinstance(action, (ast.NextAssignment, ast.OutputDrive))
                     else None
                 )
@@ -545,7 +553,8 @@ class RuleAnalyzer:
             )
             if not leaves:
                 raise SemanticError(
-                    f"rule '{declaration.name}' has no state or output effects"
+                    f"rule '{declaration.name}' has no state or output effects",
+                    primary=expression_origins.semantic_origin(declaration.guard, module_context),
                 )
             for leaf in leaves:
                 action = leaf.action
@@ -554,7 +563,8 @@ class RuleAnalyzer:
                     resource = resource_symbols.get(action.resource)
                     if resource is None:
                         raise SemanticError(
-                            f"rule '{declaration.name}' references unknown state resource '{action.resource}'"
+                            f"rule '{declaration.name}' references unknown state resource '{action.resource}'",
+                            primary=effect_origin(action),
                         )
                     if resource.domain != rule_domain:
                         raise SemanticError(
@@ -577,29 +587,34 @@ class RuleAnalyzer:
                     if isinstance(resource, _FifoSymbol):
                         if resource.name not in storage.scheduled_fifo_names:
                             raise SemanticError(
-                                f"FIFO '{resource.name}' is not owned by scheduled rule actions"
+                                f"FIFO '{resource.name}' is not owned by scheduled rule actions",
+                                primary=effect_origin(action),
                             )
                         if action.operation == "push":
                             if len(action.operands) != 1:
-                                raise SemanticError("FIFO push requires exactly one payload")
+                                raise SemanticError(
+                                    "FIFO push requires exactly one payload", primary=effect_origin(action)
+                                )
                             operand = action_context.expressions.check_typed_boundary(
                                 action.operands[0], value_symbols, resource.element_type,
                                 action_context,
                             )
                             if operand.type != resource.element_type:
                                 raise SemanticError(
-                                    f"FIFO '{resource.name}' push has type {operand.type}, expected {resource.element_type}"
+                                    f"FIFO '{resource.name}' push has type {operand.type}, expected {resource.element_type}",
+                                    primary=effect_origin(action),
                                 )
                             kind = ir_state.StateActionKind.FIFO_PUSH
                             operands = (operand,)
                         elif action.operation == "pop":
                             if action.operands:
-                                raise SemanticError("FIFO pop does not accept operands")
+                                raise SemanticError("FIFO pop does not accept operands", primary=effect_origin(action))
                             kind = ir_state.StateActionKind.FIFO_POP
                             operands = ()
                         else:
                             raise SemanticError(
-                                f"FIFO '{resource.name}' has no rule action '{action.operation}'"
+                                f"FIFO '{resource.name}' has no rule action '{action.operation}'",
+                                primary=effect_origin(action),
                             )
                     elif isinstance(resource, MemorySymbol):
                         if (
@@ -607,13 +622,15 @@ class RuleAnalyzer:
                             not in storage_declarations.scheduled_memory_names
                         ):
                             raise SemanticError(
-                                f"memory '{resource.name}' is not owned by scheduled rule actions"
+                                f"memory '{resource.name}' is not owned by scheduled rule actions",
+                                primary=effect_origin(action),
                             )
                         address_type = ir_types.UIntType(resource.address_width)
                         if action.operation == "read":
                             if len(action.operands) != 1:
                                 raise SemanticError(
-                                    "memory read requires exactly one address operand"
+                                    "memory read requires exactly one address operand",
+                                    primary=effect_origin(action),
                                 )
                             address = action_context.expressions.check(
                                 action.operands[0], value_symbols, address_type,
@@ -621,7 +638,8 @@ class RuleAnalyzer:
                             )
                             if address.type != address_type:
                                 raise SemanticError(
-                                    f"memory '{resource.name}' read address has type {address.type}, expected {address_type}"
+                                    f"memory '{resource.name}' read address has type {address.type}, expected {address_type}",
+                                    primary=effect_origin(action),
                                 )
                             kind = ir_state.StateActionKind.MEMORY_READ_REQUEST
                             operands = (address,)
@@ -629,7 +647,8 @@ class RuleAnalyzer:
                             if len(action.operands) not in {2, 3}:
                                 raise SemanticError(
                                     "memory write requires exactly address and data operands, "
-                                    "with an optional byte mask"
+                                    "with an optional byte mask",
+                                    primary=effect_origin(action),
                                 )
                             address = action_context.expressions.check(
                                 action.operands[0], value_symbols, address_type,
@@ -641,11 +660,13 @@ class RuleAnalyzer:
                             )
                             if address.type != address_type:
                                 raise SemanticError(
-                                    f"memory '{resource.name}' write address has type {address.type}, expected {address_type}"
+                                    f"memory '{resource.name}' write address has type {address.type}, expected {address_type}",
+                                    primary=effect_origin(action),
                                 )
                             if data.type != resource.element_type:
                                 raise SemanticError(
-                                    f"memory '{resource.name}' write data has type {data.type}, expected {resource.element_type}"
+                                    f"memory '{resource.name}' write data has type {data.type}, expected {resource.element_type}",
+                                    primary=effect_origin(action),
                                 )
                             memory_masked = (
                                 resource.name
@@ -665,7 +686,8 @@ class RuleAnalyzer:
                                     if mask.type != mask_type:
                                         raise SemanticError(
                                             f"memory '{resource.name}' write mask has type "
-                                            f"{mask.type}, expected {mask_type}"
+                                            f"{mask.type}, expected {mask_type}",
+                                            primary=effect_origin(action),
                                         )
                                 else:
                                     mask = ir_expr.Constant((1 << mask_type.width) - 1, mask_type)
@@ -675,11 +697,13 @@ class RuleAnalyzer:
                             )
                         else:
                             raise SemanticError(
-                                f"memory '{resource.name}' has no rule action '{action.operation}'"
+                                f"memory '{resource.name}' has no rule action '{action.operation}'",
+                                primary=effect_origin(action),
                             )
                     else:
                         raise SemanticError(
-                            f"state resource '{resource.name}' does not support rule actions"
+                            f"state resource '{resource.name}' does not support rule actions",
+                            primary=effect_origin(action),
                         )
                     key = f"{resource.name}:{kind.value}"
                     claim_effect_target(
@@ -700,7 +724,8 @@ class RuleAnalyzer:
                     if target is None:
                         raise SemanticError(
                             f"rule '{declaration.name}' indexed target "
-                            f"'{indexed.register}' is not a register"
+                            f"'{indexed.register}' is not a register",
+                            primary=effect_origin(action),
                         )
                     semantic_observations.record_definition(
                         action_context,
@@ -725,12 +750,18 @@ class RuleAnalyzer:
                         raise SemanticError(
                             f"rule '{declaration.name}' indexed target "
                             f"'{indexed.register}' must be a one-dimensional vector "
-                            f"register, got {target.type}"
+                            f"register, got {target.type}",
+                            primary=effect_origin(action),
                         )
                     if target.name in assigned_registers:
                         raise SemanticError(
                             f"register '{target.name}' has both a rule action and "
-                            "next-state assignment"
+                            "next-state assignment",
+                            primary=semantic_observations.declaration_origin(
+                                indexed.name_origin,
+                                f"register {target.name}",
+                                action_context,
+                            ),
                         )
                     index = action_context.expressions.check(
                         indexed.index, value_symbols, None, action_context
@@ -744,7 +775,8 @@ class RuleAnalyzer:
                     if not isinstance(index.type, (ir_types.UIntType, ir_types.BitsType)):
                         raise SemanticError(
                             "vector-register update index must be an unsigned "
-                            f"integral expression; got {index.type}"
+                            f"integral expression; got {index.type}",
+                            primary=effect_origin(action),
                         )
                     value_range = expression_ranges.static_value_range(
                         index, action_context.scope.range_refinements
@@ -752,7 +784,8 @@ class RuleAnalyzer:
                     if value_range is None:
                         raise SemanticError(
                             "vector-register update index has no statically provable "
-                            f"unsigned range; required 0..{target.type.length - 1}"
+                            f"unsigned range; required 0..{target.type.length - 1}",
+                            primary=effect_origin(action),
                         )
                     if (
                         value_range.minimum < 0
@@ -762,7 +795,8 @@ class RuleAnalyzer:
                             f"vector-register update index range "
                             f"{value_range.minimum}..{value_range.maximum} is not "
                             f"provably within vector length {target.type.length} "
-                            f"(required 0..{target.type.length - 1}, type {index.type})"
+                            f"(required 0..{target.type.length - 1}, type {index.type})",
+                            primary=effect_origin(action),
                         )
                     value = action_context.expressions.check_typed_boundary(
                         action.expression,
@@ -774,7 +808,8 @@ class RuleAnalyzer:
                         raise SemanticError(
                             f"rule '{declaration.name}' writes {value.type} to "
                             f"element type {target.type.element_type} of register "
-                            f"'{target.name}'"
+                            f"'{target.name}'",
+                            primary=effect_origin(action),
                         )
                     update_origin = (
                         SourceOrigin(
@@ -862,7 +897,8 @@ class RuleAnalyzer:
                             )
                         raise SemanticError(
                             f"rule '{declaration.name}' target '{action.target}' "
-                            "is not a register or output wire"
+                            "is not a register or output wire",
+                            primary=effect_origin(action),
                         )
                 if target.domain != rule_domain:
                     raise SemanticError(
@@ -875,10 +911,17 @@ class RuleAnalyzer:
                 if isinstance(target, ir_module.Port) and not isinstance(
                     target.type, (ir_types.BitType, ir_types.UIntType, ir_types.SIntType, ir_types.BitsType)
                 ):
-                    raise SemanticError("rule output actions require a scalar wire")
+                    raise SemanticError(
+                        "rule output actions require a scalar wire", primary=effect_origin(action)
+                    )
                 if isinstance(target, ir_module.Register) and target.name in assigned_registers:
                     raise SemanticError(
-                        f"register '{target.name}' has both a rule action and next-state assignment"
+                        f"register '{target.name}' has both a rule action and next-state assignment",
+                        primary=semantic_observations.declaration_origin(
+                            action.target_origin,
+                            f"register {target.name}",
+                            action_context,
+                        ),
                     )
                 expression = action_context.expressions.check_typed_boundary(
                     action.expression, value_symbols, target.type, action_context
@@ -886,7 +929,8 @@ class RuleAnalyzer:
                 if expression.type != target.type:
                     raise SemanticError(
                         f"rule '{declaration.name}' writes {expression.type} to "
-                        f"{target.type} target '{target.name}'"
+                        f"{target.type} target '{target.name}'",
+                        primary=effect_origin(action),
                     )
                 target_kind = "output" if isinstance(target, ir_module.Port) else "register"
                 semantic_observations.record_definition(
@@ -976,17 +1020,19 @@ class StateTransitionAnalyzer:
         ports: tuple[ir_module.Port, ...],
         resource_actions: dict[str, list[ResourceAction]],
         transition_prefix: str, clock: str | None, reset: str | None,
+        source_unit: str | None = None, source_digest: str | None = None,
     ) -> TransitionAnalysisProduct:
         rule_names = {rule.name for rule in rules}
         domains = {rule.name: rule.domain for rule in rules}
         records: list[ir_module.RulePriority] = []
         edges: set[tuple[str, str]] = set()
         for declaration in priorities:
+            origin = (SourceOrigin(declaration.origin, "rule priority", source_unit, source_digest) if declaration.origin is not None else None)
             edge = (declaration.higher, declaration.lower)
             if not set(edge) <= rule_names:
-                raise SemanticError("rule priority references an unknown rule")
+                raise SemanticError("rule priority references an unknown rule", primary=origin)
             if declaration.higher == declaration.lower:
-                raise SemanticError("a rule cannot have priority over itself")
+                raise SemanticError("a rule cannot have priority over itself", primary=origin)
             if domains[declaration.higher] != domains[declaration.lower]:
                 raise SemanticError(
                     "rule priority cannot order different clock domains: "
@@ -994,14 +1040,23 @@ class StateTransitionAnalyzer:
                     f"and '{declaration.lower}' is in "
                     f"'{domains[declaration.lower]}'",
                     code="ZL-DOMAIN-CROSSING",
+                    primary=origin,
                 )
             if edge in edges:
-                raise SemanticError("duplicate rule priority")
+                raise SemanticError("duplicate rule priority", primary=origin)
             edges.add(edge)
             records.append(ir_module.RulePriority(*edge))
         graph = ReachabilityIndex(edges)
         if graph.has_cycle:
-            raise SemanticError("rule priority graph contains a cycle")
+            closing = next(item for item in priorities if graph.reaches(item.lower, item.higher))
+            raise SemanticError(
+                "rule priority graph contains a cycle",
+                primary=SourceOrigin(
+                    closing.origin, "cyclic rule priority", source_unit, source_digest
+                )
+                if closing.origin is not None
+                else None,
+            )
         outputs = frozenset(
             action.target.name for rule in rules for action in rule.actions
             if isinstance(action.target, ir_module.Port)

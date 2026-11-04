@@ -11,10 +11,10 @@ module CheckedCounter {
     out value : u8
 
     reg count : u8 = 0
-    step: when enable { count <- truncate<8>(count + 1) }
+    step: when enable & (count < 10) { count <- truncate<8>(count + 1) }
     value = count
 
-    assert never_wraps_early @ clk { (count < 255) | !enable }
+    assert count_is_bounded @ clk { count <= 10 }
     cover reaches_ten @ clk { count == 10 }
 }
 ```
@@ -55,6 +55,15 @@ the module's declared polarity, assertion mode, and release contract. Goals in
 independent supported domains run separately; this does not create a
 cross-domain temporal property. Use explicit assumptions only for real
 environment constraints, and never use an assumption to hide an invalid design.
+
+For a source checkout, `make venv PYTHON_PROFILE=dev` and the default release
+profile include the pinned Python Z3 package. A runtime-only checkout can add
+Python bindings with `python -m pip install -e '.[formal]'` after activating its
+local environment. This extra contains no test or release tools. It enables
+optional arithmetic proof preparation and does not install Yosys or SymbiYosys.
+Without these bindings the existing raw SMT route remains available; its result
+must still satisfy the requested proof policy. The Python package pin and the
+actual external solver identity are checked separately.
 
 Formal execution requires Yosys, SymbiYosys, `yosys-smtbmc`, and a supported
 solver such as Z3. The installation chapter shows how to check those tools.

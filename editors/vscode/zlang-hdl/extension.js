@@ -2,7 +2,7 @@
 // Thin Community client for the repository's standard zlang-lsp process.
 'use strict';
 const {addVariableToWaveform} = require('./debug_waveform');
-const {expandLaunchPath:expandDebugPath,selectDebugLaunch,DebugLaunchController}=require('./debug_launch');
+const {expandLaunchPath:expandDebugPath,expandSimulationChannels,selectDebugLaunch,DebugLaunchController}=require('./debug_launch');
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -185,7 +185,12 @@ async function prepareDebugConfiguration(context, config,folder) {
     profile: config.profile,
     logicState: config.logicState ?? true,
     events,
+    simulation:config.simulation,
+    simulationInputs:expandSimulationChannels(config.simulationInputs,program,folder?.uri.fsPath??workspaceRoot()),
+    simulationOutputs:expandSimulationChannels(config.simulationOutputs,program,folder?.uri.fsPath??workspaceRoot()),
   });
+  if(config.simulation!==undefined&&bundle.overlay_schema!=='zlang-debug-overlay-v4')
+    throw new Error('Simulation I/O requires an updated compiler and native debug adapter.');
   const directory = path.join(context.globalStorageUri.fsPath, 'debug', bundle.identity);
   fs.mkdirSync(directory, { recursive: true });
   const planPath = path.join(directory, 'plan.json');

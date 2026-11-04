@@ -9,6 +9,7 @@ import re
 from dataclasses import fields, is_dataclass, replace
 from typing import TYPE_CHECKING
 
+from . import observations
 from zlang.ast import nodes as ast
 from zlang.ir import types as ir_types
 from zlang.source import SourceOrigin
@@ -60,7 +61,10 @@ def select_compile_time_module_items(
             ):
                 raise SemanticError(
                     "compile-time module if cannot contain public ABI declarations "
-                    "(ports, clocks, resets, protocols, aliases, structs, or imports)"
+                    "(ports, clocks, resets, protocols, aliases, structs, or imports)",
+                    primary=observations.declaration_origin(
+                        getattr(item, "origin", None), "compile-time module item", context
+                    ),
                 )
             if isinstance(item, ast.CompileTimeIfDecl):
                 validate_branch(item.when_true)
@@ -149,23 +153,37 @@ def select_compile_time_module_items(
             elif isinstance(item, ast.GenerateBlock):
                 if item.index in visible_names or item.index in active_binders:
                     raise SemanticError(
-                        f"compile-time generation binder '{item.index}' shadows an existing visible symbol"
+                        f"compile-time generation binder '{item.index}' shadows an existing visible symbol",
+                        primary=observations.declaration_origin(
+                            getattr(item, "origin", None), "compile-time module item", context
+                        ),
                     )
                 start = compile_time_evaluation.resolve_range_bound(item.start, context, "generated instance")
                 stop = compile_time_evaluation.resolve_range_bound(item.stop, context, "generated instance")
                 if stop < start:
-                    raise SemanticError(f"generated range {start}..{stop} is reversed")
+                    raise SemanticError(
+                        f"generated range {start}..{stop} is reversed",
+                        primary=observations.declaration_origin(
+                            getattr(item, "origin", None), "compile-time module item", context
+                        ),
+                    )
                 length = stop - start
                 if length > functional_range_limit:
                     raise SemanticError(
                         f"generated range expands to {length} elements; "
-                        f"the compile-time generation limit is {functional_range_limit}"
+                        f"the compile-time generation limit is {functional_range_limit}",
+                        primary=observations.declaration_origin(
+                            getattr(item, "origin", None), "compile-time module item", context
+                        ),
                     )
                 if length:
                     compile_time_budget.generated_elements += length
                     if compile_time_budget.generated_elements > total_generated_limit:
                         raise SemanticError(
-                            f"compile-time generation exceeds {total_generated_limit} elements"
+                            f"compile-time generation exceeds {total_generated_limit} elements",
+                            primary=observations.declaration_origin(
+                                getattr(item, "origin", None), "compile-time module item", context
+                            ),
                         )
                 for value in range(start, stop):
                     select(
@@ -306,7 +324,7 @@ def normalize_qualified_imports(
 
         def replace_member(match: re.Match[str]) -> str:
             return resolve_member(
-                match.group("alias"), match.group("member"), "type"
+                match.group("alias"), match.group("member"), "type", value.origin
             )
 
         normalized = _QUALIFIED_IMPORT_MEMBER.sub(replace_member, original)
@@ -326,6 +344,9 @@ def normalize_qualified_imports(
             raise SemanticError(
                 f"type '{hidden}' requires its import alias",
                 code="ZL-IMPORT-ALIAS-REQUIRED",
+                primary=SourceOrigin(value.origin, "qualified type", source_unit, source_digest)
+                if value.origin is not None
+                else None,
             )
         # Preserve parser-owned source spans for definition tooling.
         normalized_origins = tuple(
@@ -380,6 +401,11 @@ def normalize_qualified_imports(
                 raise SemanticError(
                     f"struct constructor '{name}' requires its import alias",
                     code="ZL-IMPORT-ALIAS-REQUIRED",
+                    primary=SourceOrigin(
+                        value.origin, "qualified expression", source_unit, source_digest
+                    )
+                    if value.origin is not None
+                    else None,
                 )
             return replace(
                 value,
@@ -442,17 +468,34 @@ def _expand_fsms(
             expanded.append(item)
             continue
         if item.name in seen_names:
-            raise SemanticError(f"duplicate FSM '{item.name}'")
+            raise SemanticError(
+                f"duplicate FSM '{item.name}'",
+                primary=SourceOrigin(
+                    item.origin, "module item", module.source_identity, module.source_hash
+                )
+                if item.origin is not None
+                else None,
+            )
         seen_names.add(item.name)
         enum_type = type_resolver.resolve(item.type_name)
         if not isinstance(enum_type, ir_types.EnumType):
             raise SemanticError(
-                f"FSM '{item.name}' state type must be an enum, got {enum_type}"
+                f"FSM '{item.name}' state type must be an enum, got {enum_type}",
+                primary=SourceOrigin(
+                    item.origin, "module item", module.source_identity, module.source_hash
+                )
+                if item.origin is not None
+                else None,
             )
         if item.initial_member not in enum_type.members:
             raise SemanticError(
                 f"FSM '{item.name}' initial state '{item.initial_member}' is not "
-                f"a member of enum '{enum_type.name}'"
+                f"a member of enum '{enum_type.name}'",
+                primary=SourceOrigin(
+                    item.origin, "module item", module.source_identity, module.source_hash
+                )
+                if item.origin is not None
+                else None,
             )
         state_names = tuple(state.member for state in item.states)
         duplicate_state = next(
@@ -460,7 +503,12 @@ def _expand_fsms(
         )
         if duplicate_state is not None:
             raise SemanticError(
-                f"FSM '{item.name}' defines state '{duplicate_state}' more than once"
+                f"FSM '{item.name}' defines state '{duplicate_state}' more than once",
+                primary=SourceOrigin(
+                    item.origin, "module item", module.source_identity, module.source_hash
+                )
+                if item.origin is not None
+                else None,
             )
         unknown_state = next(
             (name for name in state_names if name not in enum_type.members), None
@@ -468,27 +516,46 @@ def _expand_fsms(
         if unknown_state is not None:
             raise SemanticError(
                 f"FSM '{item.name}' state '{unknown_state}' is not a member "
-                f"of enum '{enum_type.name}'"
+                f"of enum '{enum_type.name}'",
+                primary=SourceOrigin(
+                    item.origin, "module item", module.source_identity, module.source_hash
+                )
+                if item.origin is not None
+                else None,
             )
         missing_states = tuple(
             member for member in enum_type.members if member not in state_names
         )
         if missing_states:
             raise SemanticError(
-                f"FSM '{item.name}' is missing enum state(s): "
-                + ", ".join(missing_states)
+                f"FSM '{item.name}' is missing enum state(s): " + ", ".join(missing_states),
+                primary=SourceOrigin(
+                    item.origin, "module item", module.source_identity, module.source_hash
+                )
+                if item.origin is not None
+                else None,
             )
         if any(
             isinstance(other, ast.RegisterDecl) and other.name == item.name
             for other in selected
         ):
             raise SemanticError(
-                f"FSM '{item.name}' conflicts with an explicit register of the same name"
+                f"FSM '{item.name}' conflicts with an explicit register of the same name",
+                primary=SourceOrigin(
+                    item.origin, "module item", module.source_identity, module.source_hash
+                )
+                if item.origin is not None
+                else None,
             )
         for other in selected:
             if isinstance(other, ast.NextAssignment) and other.target == item.name:
                 raise SemanticError(
-                    f"FSM register '{item.name}' cannot be written outside its transitions"
+                    f"FSM register '{item.name}' cannot be written outside its transitions",
+                    primary=SourceOrigin(
+                        item.origin, "module item", module.source_identity, module.source_hash
+                    )
+                    if item.origin is not None
+                    else None,
                 )
             if any(
                 isinstance(action, ast.NextAssignment)
@@ -496,7 +563,12 @@ def _expand_fsms(
                 for action in _actions_in(other)
             ):
                 raise SemanticError(
-                    f"FSM register '{item.name}' cannot be written outside its transitions"
+                    f"FSM register '{item.name}' cannot be written outside its transitions",
+                    primary=SourceOrigin(
+                        item.origin, "module item", module.source_identity, module.source_hash
+                    )
+                    if item.origin is not None
+                    else None,
                 )
 
         initial = ast.FieldExpr(
@@ -521,31 +593,61 @@ def _expand_fsms(
             if state.hold:
                 if state.transitions or state.priority:
                     raise SemanticError(
-                        f"FSM '{item.name}' state '{state.member}' cannot combine hold and transitions"
+                        f"FSM '{item.name}' state '{state.member}' cannot combine hold and transitions",
+                        primary=SourceOrigin(
+                            state.origin, "module item", module.source_identity, module.source_hash
+                        )
+                        if state.origin is not None
+                        else None,
                     )
                 continue
             if not state.transitions:
                 raise SemanticError(
-                    f"FSM '{item.name}' state '{state.member}' requires hold or a transition"
+                    f"FSM '{item.name}' state '{state.member}' requires hold or a transition",
+                    primary=SourceOrigin(
+                        state.origin, "module item", module.source_identity, module.source_hash
+                    )
+                    if state.origin is not None
+                    else None,
                 )
             if state.priority and len(state.transitions) < 2:
                 raise SemanticError(
-                    f"FSM '{item.name}' priority state '{state.member}' requires at least two transitions"
+                    f"FSM '{item.name}' priority state '{state.member}' requires at least two transitions",
+                    primary=SourceOrigin(
+                        state.origin, "module item", module.source_identity, module.source_hash
+                    )
+                    if state.origin is not None
+                    else None,
                 )
             if not state.priority and len(state.transitions) != 1:
                 raise SemanticError(
-                    f"FSM '{item.name}' state '{state.member}' has multiple transitions; use priority"
+                    f"FSM '{item.name}' state '{state.member}' has multiple transitions; use priority",
+                    primary=SourceOrigin(
+                        state.origin, "module item", module.source_identity, module.source_hash
+                    )
+                    if state.origin is not None
+                    else None,
                 )
             previous_rule: str | None = None
             for transition_ordinal, transition in enumerate(state.transitions):
                 if transition.target not in enum_type.members:
                     raise SemanticError(
                         f"FSM '{item.name}' transition target '{transition.target}' "
-                        f"is not a member of enum '{enum_type.name}'"
+                        f"is not a member of enum '{enum_type.name}'",
+                        primary=SourceOrigin(
+                            state.origin, "module item", module.source_identity, module.source_hash
+                        )
+                        if state.origin is not None
+                        else None,
                     )
                 if state.priority and transition.guard is None:
                     raise SemanticError(
-                        f"FSM '{item.name}' priority transitions require explicit when guards"
+                        f"FSM '{item.name}' priority transitions require explicit when guards",
+                        primary=SourceOrigin(
+                            state.origin, "module item", module.source_identity, module.source_hash
+                        )
+                        if state.origin is not None
+                        else None,
                     )
                 if any(
                     isinstance(leaf.action, ast.NextAssignment)
@@ -555,7 +657,12 @@ def _expand_fsms(
                     )
                 ):
                     raise SemanticError(
-                        f"FSM register '{item.name}' cannot be written explicitly inside a transition"
+                        f"FSM register '{item.name}' cannot be written explicitly inside a transition",
+                        primary=SourceOrigin(
+                            state.origin, "module item", module.source_identity, module.source_hash
+                        )
+                        if state.origin is not None
+                        else None,
                     )
                 state_value = ast.FieldExpr(
                     ast.NameExpr(enum_type.name, origin=state.origin),
@@ -631,7 +738,12 @@ def _expand_priority_blocks(
             continue
         if len(item.arms) < 2:
             raise SemanticError(
-                "priority block requires at least two arms; use a single when rule instead"
+                "priority block requires at least two arms; use a single when rule instead",
+                primary=SourceOrigin(
+                    item.origin, "module item", module.source_identity, module.source_hash
+                )
+                if item.origin is not None
+                else None,
             )
         block_identity = (
             f"{module.source_identity or module.name}|{module.source_hash or ''}|"
@@ -641,13 +753,41 @@ def _expand_priority_blocks(
         labels: set[str] = set()
         for ordinal, arm in enumerate(item.arms):
             if isinstance(arm, ast.PriorityBlockDecl):
-                raise SemanticError("nested priority blocks are not supported")
+                raise SemanticError(
+                    "nested priority blocks are not supported",
+                    primary=SourceOrigin(
+                        arm.origin, "module item", module.source_identity, module.source_hash
+                    )
+                    if arm.origin is not None
+                    else None,
+                )
             if not isinstance(arm, ast.PriorityRuleArm):
-                raise SemanticError("invalid priority block arm")
+                raise SemanticError(
+                    "invalid priority block arm",
+                    primary=SourceOrigin(
+                        arm.origin, "module item", module.source_identity, module.source_hash
+                    )
+                    if arm.origin is not None
+                    else None,
+                )
             if arm.guard is None:
-                raise SemanticError("priority block arm requires a when guard")
+                raise SemanticError(
+                    "priority block arm requires a when guard",
+                    primary=SourceOrigin(
+                        arm.origin, "module item", module.source_identity, module.source_hash
+                    )
+                    if arm.origin is not None
+                    else None,
+                )
             if not semantic_actions.conditional_action_leaves(arm.actions):
-                raise SemanticError("priority block arm cannot be empty")
+                raise SemanticError(
+                    "priority block arm cannot be empty",
+                    primary=SourceOrigin(
+                        arm.origin, "module item", module.source_identity, module.source_hash
+                    )
+                    if arm.origin is not None
+                    else None,
+                )
             if arm.label is None:
                 payload = f"{block_identity}|arm:{ordinal}"
                 name = "__priority_rule_" + hashlib.sha256(
@@ -658,7 +798,12 @@ def _expand_priority_blocks(
                 name = arm.label
             if name in labels:
                 raise SemanticError(
-                    f"duplicate priority block rule label '{name}'"
+                    f"duplicate priority block rule label '{name}'",
+                    primary=SourceOrigin(
+                        arm.origin, "module item", module.source_identity, module.source_hash
+                    )
+                    if arm.origin is not None
+                    else None,
                 )
             labels.add(name)
             expanded.append(ast.RuleDecl(name, arm.guard, arm.actions, arm.origin))
@@ -677,7 +822,12 @@ def _expand_priority_blocks(
             )
         ):
             raise SemanticError(
-                "anonymous priority-block arms cannot be referenced by explicit priority declarations"
+                "anonymous priority-block arms cannot be referenced by explicit priority declarations",
+                primary=SourceOrigin(
+                    item.origin, "module item", module.source_identity, module.source_hash
+                )
+                if item.origin is not None
+                else None,
             )
     return tuple(expanded)
 
@@ -694,7 +844,7 @@ def _rebuild_category_views(
             "request_responses", "connections", "csr_blocks", "csr_groups",
             "rules", "rule_priorities", "fifos", "connection_chains", "memories",
             "roms", "arbiters", "contracts", "instances", "verification_goals",
-            "verification_scopes", "aggregate_interfaces", "generic_declarations",
+            "verification_scopes", "simulation_blocks", "aggregate_interfaces", "generic_declarations",
             "generate_blocks",
         )
     }
@@ -720,6 +870,7 @@ def _rebuild_category_views(
         (ast.ContractDecl, "contracts"),
         (ast.VerificationGoalDecl, "verification_goals"),
         (ast.VerificationScopeDecl, "verification_scopes"),
+        (ast.SimulationBlock, "simulation_blocks"),
     )
     for item in selected:
         category = next(

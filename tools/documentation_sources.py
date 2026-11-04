@@ -10,7 +10,7 @@ import json
 import posixpath
 from pathlib import Path
 import re
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 try:
     from tools.documentation_manifest import DocumentationError, Manual, load_manuals
@@ -111,9 +111,53 @@ def _resolve(source: Path, target: str) -> tuple[str, str] | None:
     return resolved, unquote(parsed.fragment)
 
 
+SOURCE_REPOSITORY = "https://github.com/postoroniy/zlang-hdl"
+RELEASE_STATUS = Path("release/status.json")
+
+
+def source_link_reference(root: Path) -> str:
+    """Use the prospective public tag, never an unrelated tree or moving branch."""
+    try:
+        release = json.loads((root / RELEASE_STATUS).read_text(encoding="utf-8"))["release"]
+        version = release["version"]
+        if release["repository"] != SOURCE_REPOSITORY or not isinstance(version, str):
+            raise ValueError("wrong public repository or version")
+        if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", version) is None:
+            raise ValueError("invalid release version")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise DocumentationError("invalid manual source-link release identity") from exc
+    return "v" + version
+
+
+def source_link_paths(root: Path, manual: Manual) -> tuple[Path, ...]:
+    """Exact file closure for relative links that do not resolve inside the books."""
+    destinations_ = destinations(root)
+    paths: set[Path] = set()
+    for source in manual.sources:
+        text = (root / source).read_text(encoding="utf-8")
+        # Code is displayed literally, so its example Markdown is not a link.
+        text = re.sub(r"(?m)^```[^\n]*\n.*?^```\s*$", "", text, flags=re.DOTALL)
+        for target in re.findall(r"\]\(([^)\s]+)\)", text):
+            resolved = _resolve(source, target)
+            if resolved is None or resolved in destinations_:
+                continue
+            path, _ = resolved
+            relative = Path(path)
+            absolute = root / relative
+            if not absolute.is_file() or not absolute.resolve().is_relative_to(root.resolve()):
+                raise DocumentationError(f"broken manual source-link file: {path}")
+            if any((root / Path(*relative.parts[:i])).is_symlink()
+                   for i in range(1, len(relative.parts) + 1)):
+                raise DocumentationError(f"symlink in manual source-link file: {path}")
+            paths.add(relative)
+    return tuple(sorted(paths))
+
+
 def assemble(root: Path, manual: Manual) -> str:
     targets = destinations(root)
     chapter_paths = {p.as_posix() for p in source_paths(root)}
+    reference = source_link_reference(root)
+    source_link_paths(root, manual)  # Validate the linked closure before rendering.
     chunks = [f'<a id="{manual.identity}"></a>\n',
               manual.description + ".\n"]
     for source in manual.sources:
@@ -140,12 +184,14 @@ def assemble(root: Path, manual: Manual) -> str:
                 raise DocumentationError(f"missing chapter anchor: {source}: {target}")
             if not (root / path).exists():
                 raise DocumentationError(f"broken manual link: {source}: {target}")
-            # Non-book source links use the reviewed public baseline, never a
-            # private integration commit or a moving main branch.
-            return "](https://github.com/postoroniy/zlang-hdl/blob/3b083ca/" + path + ("#"+fragment if fragment else "") + ")"
+            # The release tag names the same complete tree as the manuals.
+            return "](" + SOURCE_REPOSITORY + "/blob/" + reference + "/" + quote(path, safe="/") + ("#"+fragment if fragment else "") + ")"
 
         text = re.sub(r"\]\(([^)\s]+)\)", link, text)
         chunks.append(text.strip())
+    chunks.append(f"Source links target the public release tag `{reference}`. "
+                  "For a candidate, these web links become available when that tag is "
+                  "published. Links between the three manuals work offline.")
     return "\n\n".join(chunks) + "\n"
 
 

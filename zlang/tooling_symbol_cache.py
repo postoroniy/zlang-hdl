@@ -24,7 +24,7 @@ from zlang import tooling_workspace as tooling_workspace
 from zlang import workspace as workspace_api
 
 SYMBOL_CACHE_SCHEMA = 1
-_SYMBOL_CACHE_ANALYSIS_SCHEMA = 7
+_SYMBOL_CACHE_ANALYSIS_SCHEMA = 8
 _SYMBOL_MEMORY_MAX_ENTRIES = 64
 _SYMBOL_MEMORY_MAX_BYTES = 64 * 1024 * 1024
 _SYMBOL_DISK_MAX_ENTRIES = 512

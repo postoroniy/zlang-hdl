@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from . import observations
+from zlang.diagnostics import diagnostic_source
 from zlang.ir import csr as ir_csr
 from zlang.ir import module as ir_module
 from zlang.ir import external as ir_external
@@ -15,6 +17,7 @@ from . import module_pipeline
 from . import module_interfaces as semantic_module_interfaces
 from . import expression_timing
 from . import verification as semantic_verification
+from .simulation_io import analyze_simulation_blocks, validate_simulation_feedback
 from .public_timing import analyze_public_module_timing
 from .temporal_ready_valid import (
     TemporalReadyValidDependencyError,
@@ -142,19 +145,26 @@ class SemanticModuleFinalizer:
             source_digest=effective_source_digest,
         )
 
-        module_signature = semantic_module_interfaces.named_module_signature(
-            module,
-            resolver=preparation.type_resolver,
-            specialization_type_bindings=context.specialization.type_bindings,
-            actual_ports=hardware.source_scalar_ports,
-            actual_clock_domains=clock_domains,
-            actual_request_responses=tuple(request_responses),
-            actual_aggregate_endpoints=tuple(aggregate_protocol_endpoints),
-            actual_timing=timing_contract,
-            source_unit=effective_source_unit,
-            source_digest=effective_source_digest,
-            source_digests=preparation.source_digests,
-        )
+        with diagnostic_source(
+            observations.declaration_origin(
+                module.conforms_to.origin if module.conforms_to is not None else None,
+                "module interface conformance",
+                pure_context,
+            )
+        ):
+            module_signature = semantic_module_interfaces.named_module_signature(
+                module,
+                resolver=preparation.type_resolver,
+                specialization_type_bindings=context.specialization.type_bindings,
+                actual_ports=hardware.source_scalar_ports,
+                actual_clock_domains=clock_domains,
+                actual_request_responses=tuple(request_responses),
+                actual_aggregate_endpoints=tuple(aggregate_protocol_endpoints),
+                actual_timing=timing_contract,
+                source_unit=effective_source_unit,
+                source_digest=effective_source_digest,
+                source_digests=preparation.source_digests,
+            )
 
         external_contract = None
         if module.external_model is not None:
@@ -362,6 +372,14 @@ class SemanticModuleFinalizer:
             external_contract=external_contract,
             specialization_bindings=module_specialization_bindings,
             verification_scopes=verification_product.scopes,
+            simulation_blocks=analyze_simulation_blocks(
+                semantic_verification.VerificationAnalysisContext(
+                    module, hierarchy.contract_context, hierarchy.contract_symbols,
+                    state_storage.symbols, hardware.request_response_symbols,
+                    state_storage.register_symbols, tuple(locals_), clock_domains,
+                    effective_source_unit, effective_source_digest,
+                )
+            ) if module.simulation_blocks else (),
             semantic_expression_arena_statistics=(
                 pure_context.services.expression_arena.statistics
             ),
@@ -372,6 +390,7 @@ class SemanticModuleFinalizer:
         # Verification identity finalization remains demand-driven and has one
         # compiler-owned semantic owner.
         result = _VERIFICATION_IDENTITIES.finalize(result)
+        validate_simulation_feedback(result)
         try:
             ir_top_abi.build_top_physical_abi(result)
         except ir_top_abi.TopPhysicalABIError as error:

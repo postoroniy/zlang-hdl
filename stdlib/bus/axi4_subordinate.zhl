@@ -107,7 +107,7 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
             mux(retiring[i], 0, exclusive[i]))
     remaining <- generate(i in 0..D)
         mux(axi.ar.transfer & free[i],
-            truncate<9>(extend<9>(axi.ar.payload.len) + 1),
+            axi.ar.payload.len + 1,
             mux((fill_invalid & invalid_selected[i]) |
                 (fill_backend & backend_selected[i]),
                 truncate<9>(remaining[i] - 1), remaining[i]))
@@ -289,7 +289,7 @@ where AW >= 1 && AW <= 64 && WIW >= 1 && WIW <= 32 &&
         mux(axi.aw.transfer & free[i], axi.aw.payload, requests[i])
     remaining <- generate(i in 0..D)
         mux(axi.aw.transfer & free[i],
-            truncate<9>(extend<9>(axi.aw.payload.len) + 1),
+            axi.aw.payload.len + 1,
             mux(axi.w.transfer & pending[i],
                 truncate<9>(remaining[i] - 1), remaining[i]))
     beat_index <- generate(i in 0..D)

@@ -4469,6 +4469,424 @@ fn fp_sum<E,F,M,K,X=E+5>(a:bits<M>,b:bits<M>,ea:sint<E+5>,eb:sint<E+5>,
 
 [Exact declaration](../stdlib/math/fp_round.zhl#L45) · [Contract and restrictions](stdlib-overview.md)
 
+## `std.peripheral.capture`
+
+Import: `import std.peripheral.capture`.
+
+[Component contracts](stdlib-peripherals.md) · [Source](../stdlib/peripheral/capture.zhl)
+
+### `RisingCapture32` — module
+
+Rising edges only. One slot; a full slot drops the new edge. Reset clears loss.
+
+```text
+module RisingCapture32
+clock clk
+reset rst
+in reset_active,enable,level : bit
+in timestamp : u32
+out output : rv<u32>
+out overflow : bit
+```
+
+[Exact declaration](../stdlib/peripheral/capture.zhl#L4) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `Capture32BasicRegisters` — module
+
+Register declarations own read data, reset storage and command events.
+
+```text
+module Capture32BasicRegisters
+clock clk
+reset rst
+in status,captured:u32
+out pop:bits<32>
+```
+
+[Exact declaration](../stdlib/peripheral/capture.zhl#L29) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `RisingCapture32RegBus32` — module
+
+```text
+module RisingCapture32RegBus32
+clock clk
+reset rst
+in reset_active : bit
+in level:bit
+in timestamp:u32
+interface regbus : RegBus<32,32>.responder
+```
+
+[Exact declaration](../stdlib/peripheral/capture.zhl#L42) · [Contract and restrictions](stdlib-peripherals.md)
+
+## `std.peripheral.gpio`
+
+Import: `import std.peripheral.gpio`.
+
+[Component contracts](stdlib-peripherals.md) · [Source](../stdlib/peripheral/gpio.zhl)
+
+### `Gpio8` — module
+
+Eight combinational GPIO bits. Pad sampling and reset ownership are explicit.
+
+```text
+module Gpio8
+in reset_active : bit
+in pins_in,data,oe : bits<8>
+out sampled,pins_out,pins_oe : bits<8>
+```
+
+[Exact declaration](../stdlib/peripheral/gpio.zhl#L4) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `Gpio8BasicRegisters` — module
+
+Register declarations own read data, reset storage and command events.
+
+```text
+module Gpio8BasicRegisters
+clock clk
+reset rst
+in sampled:u32
+```
+
+[Exact declaration](../stdlib/peripheral/gpio.zhl#L14) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `Gpio8RegBus32` — module
+
+```text
+module Gpio8RegBus32
+clock clk
+reset rst
+in reset_active : bit
+in pins_in:bits<8>
+out pins_out,pins_oe:bits<8>
+interface regbus : RegBus<32,32>.responder
+```
+
+[Exact declaration](../stdlib/peripheral/gpio.zhl#L25) · [Contract and restrictions](stdlib-peripherals.md)
+
+## `std.peripheral.i2c`
+
+Import: `import std.peripheral.i2c`.
+
+[Component contracts](stdlib-peripherals.md) · [Source](../stdlib/peripheral/i2c.zhl)
+
+### `I2cWriteRequest` — struct
+
+```text
+struct I2cWriteRequest
+address:u7
+data:bits<8>
+```
+
+[Exact declaration](../stdlib/peripheral/i2c.zhl#L3) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `I2cWriteByte` — module
+
+Atomic START + 7-bit write address + one byte + STOP. No read/repeated START. Open-drain low-drive enables; pin sampling and pull-ups are caller-owned. Status: 0 success, 1 address NACK, 2 data NACK, 3 stretch timeout, 4 bus fault.
+
+```text
+module I2cWriteByte<HALF_PERIOD=4>
+where HALF_PERIOD >= 1 && HALF_PERIOD <= 65535
+clock clk
+reset rst
+in reset_active,scl_sampled,sda_sampled : bit
+in input : rv<I2cWriteRequest>
+out output : rv<u3>
+out scl_low,sda_low,busy : bit
+```
+
+[Exact declaration](../stdlib/peripheral/i2c.zhl#L8) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `I2cWriteBasicRegisters` — module
+
+Register declarations own read data, reset storage and command events.
+
+```text
+module I2cWriteBasicRegisters<HALF_PERIOD=4>
+clock clk
+reset rst
+in status,result:u32
+in cfg_half_period:u32
+out request_word,pop:bits<32>
+```
+
+[Exact declaration](../stdlib/peripheral/i2c.zhl#L81) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `I2cWriteByteRegBus32` — module
+
+```text
+module I2cWriteByteRegBus32<HALF_PERIOD=4>
+clock clk
+reset rst
+in reset_active : bit
+in scl_sampled,sda_sampled:bit
+out scl_low,sda_low:bit
+interface regbus : RegBus<32,32>.responder
+```
+
+[Exact declaration](../stdlib/peripheral/i2c.zhl#L98) · [Contract and restrictions](stdlib-peripherals.md)
+
+## `std.peripheral.pwm`
+
+Import: `import std.peripheral.pwm`.
+
+[Component contracts](stdlib-peripherals.md) · [Source](../stdlib/peripheral/pwm.zhl)
+
+### `Pwm16` — module
+
+One edge-aligned channel; period and duty are immutable specialization values.
+
+```text
+module Pwm16<PERIOD=256,DUTY=128>
+where PERIOD >= 1 && PERIOD <= 65535 && DUTY >= 0 && DUTY <= PERIOD
+clock clk
+reset rst
+in reset_active,enable : bit
+out pin : bit
+out phase : u16
+```
+
+[Exact declaration](../stdlib/peripheral/pwm.zhl#L4) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `Pwm16BasicRegisters` — module
+
+Register declarations own read data, reset storage and command events.
+
+```text
+module Pwm16BasicRegisters<PERIOD=256,DUTY=128>
+clock clk
+reset rst
+in phase:u32
+in cfg_duty:u32
+in cfg_period:u32
+```
+
+[Exact declaration](../stdlib/peripheral/pwm.zhl#L18) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `Pwm16RegBus32` — module
+
+```text
+module Pwm16RegBus32<PERIOD=256,DUTY=128>
+clock clk
+reset rst
+in reset_active : bit
+out pin:bit
+interface regbus : RegBus<32,32>.responder
+```
+
+[Exact declaration](../stdlib/peripheral/pwm.zhl#L32) · [Contract and restrictions](stdlib-peripherals.md)
+
+## `std.peripheral.regbus`
+
+Import: `import std.peripheral.regbus`.
+
+[Component contracts](stdlib-peripherals.md) · [Source](../stdlib/peripheral/regbus.zhl)
+
+### `BasicPeripheralTarget32` — module
+
+One request, one captured response. Effects occur only at request acceptance. A stalled response never repeats a command or changes its read snapshot.
+
+```text
+module BasicPeripheralTarget32
+clock clk
+reset rst
+in reset_active : bit
+in request : rv<RegRequest<32,32>>
+out response : rv<RegResponse<32>>
+in read_value : u32
+in error : bit
+out accept : bit
+```
+
+[Exact declaration](../stdlib/peripheral/regbus.zhl#L5) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `basic_peripheral_merge` — function
+
+The CSR access ABI has no WSTRB; merge bytes at this ordinary stdlib boundary.
+
+```text
+fn basic_peripheral_merge(old:bits<32>,data:bits<32>,strobes:bits<4>) -> bits<32>
+```
+
+[Exact declaration](../stdlib/peripheral/regbus.zhl#L28) · [Contract and restrictions](stdlib-peripherals.md)
+
+## `std.peripheral.spi`
+
+Import: `import std.peripheral.spi`.
+
+[Component contracts](stdlib-peripherals.md) · [Source](../stdlib/peripheral/spi.zhl)
+
+### `SpiMasterMode0` — module
+
+One CS, eight bits, full duplex, MSB first, mode 0 only. No runtime config.
+
+```text
+module SpiMasterMode0<HALF_PERIOD=2>
+where HALF_PERIOD >= 1 && HALF_PERIOD <= 65535
+clock clk
+reset rst
+in reset_active,miso_sampled : bit
+in input : rv<bits<8>>
+out output : rv<bits<8>>
+out sck,mosi,cs_n,busy : bit
+```
+
+[Exact declaration](../stdlib/peripheral/spi.zhl#L4) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `SpiMode0BasicRegisters` — module
+
+Register declarations own read data, reset storage and command events.
+
+```text
+module SpiMode0BasicRegisters<HALF_PERIOD=2>
+clock clk
+reset rst
+in status,received:u32
+in cfg_half_period:u32
+out transmit,pop:bits<32>
+```
+
+[Exact declaration](../stdlib/peripheral/spi.zhl#L55) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `SpiMode0RegBus32` — module
+
+```text
+module SpiMode0RegBus32<HALF_PERIOD=2>
+clock clk
+reset rst
+in reset_active : bit
+in miso_sampled:bit
+out sck,mosi,cs_n:bit
+interface regbus : RegBus<32,32>.responder
+```
+
+[Exact declaration](../stdlib/peripheral/spi.zhl#L71) · [Contract and restrictions](stdlib-peripherals.md)
+
+## `std.peripheral.timer`
+
+Import: `import std.peripheral.timer`.
+
+[Component contracts](stdlib-peripherals.md) · [Source](../stdlib/peripheral/timer.zhl)
+
+### `PeriodicTimer32` — module
+
+Fixed 32-bit periodic counter. Disable pauses; reset restarts at zero.
+
+```text
+module PeriodicTimer32<PERIOD=1000>
+where PERIOD >= 1 && PERIOD <= 0xffffffff
+clock clk
+reset rst
+in reset_active,enable : bit
+out count : u32
+out tick : bit
+```
+
+[Exact declaration](../stdlib/peripheral/timer.zhl#L4) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `Timer32BasicRegisters` — module
+
+Register declarations own read data, reset storage and command events.
+
+```text
+module Timer32BasicRegisters<PERIOD=1000>
+clock clk
+reset rst
+in count:u32
+in cfg_period:u32
+```
+
+[Exact declaration](../stdlib/peripheral/timer.zhl#L18) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `PeriodicTimer32RegBus32` — module
+
+```text
+module PeriodicTimer32RegBus32<PERIOD=1000>
+clock clk
+reset rst
+in reset_active : bit
+out tick:bit
+interface regbus : RegBus<32,32>.responder
+```
+
+[Exact declaration](../stdlib/peripheral/timer.zhl#L30) · [Contract and restrictions](stdlib-peripherals.md)
+
+## `std.peripheral.uart`
+
+Import: `import std.peripheral.uart`.
+
+[Component contracts](stdlib-peripherals.md) · [Source](../stdlib/peripheral/uart.zhl)
+
+### `UartRxBeat` — struct
+
+```text
+struct UartRxBeat
+data:bits<8>
+framing_error:bit
+```
+
+[Exact declaration](../stdlib/peripheral/uart.zhl#L3) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `UartTx8N1` — module
+
+One 8N1 transmitter, LSB first, with an immutable sample-clock divisor.
+
+```text
+module UartTx8N1<DIVISOR=16> where DIVISOR >= 4 && DIVISOR <= 65535
+clock clk
+reset rst
+in reset_active : bit
+in input : rv<bits<8>>
+out tx,busy : bit
+```
+
+[Exact declaration](../stdlib/peripheral/uart.zhl#L6) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `UartRx8N1` — module
+
+One receive slot. Framing errors are explicit; overflow is sticky until reset. rx_sampled must already belong to clk's sampling domain.
+
+```text
+module UartRx8N1<DIVISOR=16> where DIVISOR >= 4 && DIVISOR <= 65535
+clock clk
+reset rst
+in reset_active,rx_sampled : bit
+out output : rv<UartRxBeat>
+out busy,overrun : bit
+```
+
+[Exact declaration](../stdlib/peripheral/uart.zhl#L34) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `Uart8N1BasicRegisters` — module
+
+Register declarations own read data, reset storage and command events.
+
+```text
+module Uart8N1BasicRegisters<DIVISOR=16>
+clock clk
+reset rst
+in status,received:u32
+in cfg_divisor:u32
+out transmit,pop:bits<32>
+```
+
+[Exact declaration](../stdlib/peripheral/uart.zhl#L75) · [Contract and restrictions](stdlib-peripherals.md)
+
+### `Uart8N1RegBus32` — module
+
+```text
+module Uart8N1RegBus32<DIVISOR=16>
+clock clk
+reset rst
+in reset_active : bit
+in rx_sampled:bit
+out tx:bit
+interface regbus : RegBus<32,32>.responder
+```
+
+[Exact declaration](../stdlib/peripheral/uart.zhl#L91) · [Contract and restrictions](stdlib-peripherals.md)
+
 ## `std.storage.core`
 
 Import: `import std.storage.core`.
@@ -5641,4 +6059,4 @@ module Xc7z030TargetLibrary
 
 [Exact declaration](../stdlib/target/xilinx/xc7z030.zhl#L19) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
 
-Inventory: 72 source namespaces; 397 top-level declarations.
+Inventory: 80 source namespaces; 423 top-level declarations.

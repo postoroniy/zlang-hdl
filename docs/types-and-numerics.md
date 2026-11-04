@@ -107,7 +107,9 @@ Enum values remain nominal and cannot participate directly in arithmetic. An
 unsigned-backed enum deliberately exposes a numeric boundary through
 `enum_encode`, so `enum_encode(status) + 1` uses the normal widened unsigned
 arithmetic rules. A `bit`- or `bits<W>`-backed enum requires an explicit
-`bitcast<uW>` before arithmetic; there is no implicit raw-bits-to-integer cast.
+`bitcast<uW>` before arithmetic: operators do not promote raw bits into
+integers. The equal-width raw conversion at explicitly typed boundaries,
+described below, does not add implicit casts inside arithmetic expressions.
 
 Enums may appear in locals, outputs, registers/rules, structs, and vectors. A
 top-level enum input is rejected because an
@@ -158,8 +160,11 @@ each variant once, and binds exactly the declared fields. See
 | `ufixed_sat<W,F>` | Unsigned fixed point with saturating target narrowing. |
 
 Widths are positive compile-time integers. Fixed-point types additionally
-require `0 <= F < W`. The families are distinct: no implicit signed/unsigned,
-integer/raw-bit, or integer/fixed conversion is performed.
+require `0 <= F < W`. The families are distinct: direct signed/unsigned and
+integer/fixed conversions are not implicit. Explicitly typed assignment/storage
+boundaries permit the narrow equal-width raw bitcast described under
+[raw representation](#reference-types-and-numerics-slicing-concatenation-and-representation); this
+does not resize values or change arithmetic operand types.
 
 Aliases disappear during typing:
 
@@ -211,6 +216,12 @@ not reinterpret an unsigned signal as a signed one.
 Addition and multiplication preserve carry bits. A left shift discards bits
 beyond its fixed result width. Signed right shift is arithmetic; unsigned and
 raw-bit right shift is logical.
+
+Let `+` and `*` derive their exact result widths, then resize at the boundary
+that requires a particular width. For a `u10` register `total` and `u8` inputs
+`a` and `b`, `truncate<10>(total + a + b)` keeps the low ten bits of the exact
+`u12` sum. A wider destination, shift operand, or modular reduction element
+can still require an explicit `extend`.
 
 Use explicit resizing:
 

@@ -151,6 +151,8 @@ class Program:
     physical_inputs: PhysicalCompilationInputs | None = field(
         default=None, repr=False, compare=False,
     )
+    simulation_blocks: tuple = field(default=(), repr=False, compare=False)
+    simulation_locals: tuple = field(default=(), repr=False, compare=False)
 
     @property
     def identity(self) -> str:
@@ -160,7 +162,15 @@ class Program:
         self,
         *,
         initial_registers: Mapping[str, str | LogicVector] | None = None,
+        simulation: str | None = None,
+        io_inputs: Mapping[str, Path | str] | None = None,
+        io_outputs: Mapping[str, Path | str] | None = None,
     ) -> "Simulator":
+        if simulation is not None:
+            from zlang.simulation_io_runtime import create_io_instance
+            return create_io_instance(self, simulation, io_inputs or {}, io_outputs or {}, initial_registers)
+        if io_inputs or io_outputs:
+            raise SimulationRuntimeError("I/O channel bindings require an active simulation block")
         if initial_registers and not self.logic_state:
             raise SimulationRuntimeError(
                 "initial_registers requires logic_state=True so U/X provenance "
@@ -207,6 +217,7 @@ class Simulator:
         self.program = program
         self._native = native
         self._closed = False
+        self._io = None
         hidden_csr_ports = {
             name
             for block in program.module.csr_blocks
@@ -367,6 +378,8 @@ class Simulator:
         return tuple(self._cover_witnesses.values())
 
     def _set_scalar(self, name: str, type_: HardwareType, value: object) -> None:
+        if self._io is not None:
+            self._io.check_external(name)
         packed = _pack_value(type_, value)
         try:
             self._native.set_limbs(name, _int_to_limbs(packed, type_.width))
@@ -402,6 +415,8 @@ class Simulator:
 
     def set(self, name: str, value: object) -> None:
         self._require_open()
+        if self._io is not None:
+            self._io.check_external(name, value)
         interface = self._request_responses.get(name)
         if interface is not None:
             self._protocols.set_request_response(interface, value)
@@ -416,6 +431,8 @@ class Simulator:
         self.set_packed(name, _pack_value(port.type, value))
 
     def set_packed(self, name: str, value: int) -> None:
+        if self._io is not None:
+            self._io.check_external(name)
         self._require_open()
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise SimulationRuntimeError(
@@ -487,6 +504,8 @@ class Simulator:
         """Set one scalar input with an exact 0/1/U/X packed value."""
 
         self._require_open()
+        if self._io is not None:
+            self._io.check_external(name)
         if not self.program.logic_state:
             raise SimulationRuntimeError("set_logic requires logic_state=True")
         port = self._ports.get(name)
@@ -547,6 +566,11 @@ class Simulator:
 
     def edge(self, clock: str) -> dict[str, object]:
         self._require_open()
+        if self._io is not None:
+            return self._io.edge((clock,), lambda: self._edge_without_io(clock))
+        return self._edge_without_io(clock)
+
+    def _edge_without_io(self, clock: str) -> dict[str, object]:
         try:
             self._native.edge(clock)
         except (ValueError, RuntimeError) as error:
@@ -560,6 +584,11 @@ class Simulator:
         selected = tuple(clocks)
         if len(selected) != len(set(selected)):
             raise SimulationRuntimeError("one event cannot contain a clock twice")
+        if self._io is not None:
+            return self._io.edge(selected, lambda: self._edges_without_io(selected))
+        return self._edges_without_io(selected)
+
+    def _edges_without_io(self, selected) -> dict[str, object]:
         try:
             self._native.edge_many(list(selected))
         except (ValueError, RuntimeError) as error:
@@ -576,6 +605,8 @@ class Simulator:
             self._raise_instrumentation_failure(error)
             raise SimulationRuntimeError(str(error)) from error
         self._raise_instrumentation_failure()
+        if self._io is not None:
+            self._io.reset(name, asserted)
         return self._step_outputs()
 
     def tick(self, clock: str) -> dict[str, object]:
@@ -585,6 +616,15 @@ class Simulator:
         self._require_open()
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise SimulationRuntimeError("cycle count must be a non-negative integer")
+        if self._io is not None:
+            from zlang.simulation_io_runtime import MAX_IO_EVENTS
+            if count > MAX_IO_EVENTS:
+                raise SimulationRuntimeError("simulation I/O exceeds the expanded-event limit")
+            for _ in range(count):
+                if self._io.finished:
+                    break
+                self.edge(clock)
+            return self._step_outputs()
         try:
             self._native.run_cycles(clock, count)
         except (ValueError, RuntimeError) as error:
@@ -709,8 +749,22 @@ class Simulator:
 
     def close(self) -> None:
         if not self._closed:
-            self._native.close()
-            self._closed = True
+            try:
+                if self._io is not None:
+                    self._io.close()
+            finally:
+                try:
+                    self._native.close()
+                finally:
+                    self._closed = True
+
+    @property
+    def simulation_io(self) -> dict[str, object] | None:
+        """A detached status/schema record, never a mutable channel service."""
+        if self._io is None:
+            return None
+        import copy
+        return copy.deepcopy(self._io.manifest)
 
     def __enter__(self) -> "Simulator":
         self._require_open()
@@ -764,6 +818,8 @@ def compile(
         strict_uninitialized=strict_uninitialized,
         logic_state=logic_state,
         physical_inputs=session.physical_inputs,
+        simulation_blocks=session.semantic_ir.simulation_blocks,
+        simulation_locals=(session.semantic_ir.locals if session.semantic_ir.simulation_blocks else ()),
     )
 
 
@@ -778,6 +834,9 @@ def load(
     strict_uninitialized: bool = False,
     logic_state: bool = False,
     initial_registers: Mapping[str, str | LogicVector] | None = None,
+    simulation: str | None = None,
+    io_inputs: Mapping[str, Path | str] | None = None,
+    io_outputs: Mapping[str, Path | str] | None = None,
 ) -> Simulator:
     """Compile *source* and create one persistent simulation instance."""
 
@@ -790,7 +849,8 @@ def load(
         engine=engine,
         strict_uninitialized=strict_uninitialized,
         logic_state=logic_state,
-    ).create(initial_registers=initial_registers)
+    ).create(initial_registers=initial_registers, simulation=simulation,
+             io_inputs=io_inputs, io_outputs=io_outputs)
 
 
 __all__ = [

@@ -38,10 +38,12 @@ def _domain_levels(module):
 
 
 def render_testbench(module: Module,rtl_module: str,
-                     events: Sequence[Mapping[str,object]]) -> ComparisonTestbench:
+                     events: Sequence[Mapping[str,object]], *, simulation_io=None) -> ComparisonTestbench:
     leaves = module.top_physical_abi.leaves
     inputs = {leaf.external_name:leaf for leaf in leaves if leaf.direction is PortDirection.INPUT}
     outputs = tuple(leaf for leaf in leaves if leaf.direction is PortDirection.OUTPUT)
+    if simulation_io is not None:
+        outputs = tuple(leaf for leaf in outputs if leaf.external_name in simulation_io.output_names)
     clocks,resets = _domain_levels(module)
     used = {rtl_identifier(leaf.external_name) for leaf in leaves}
     def name(stem):
@@ -86,6 +88,8 @@ def render_testbench(module: Module,rtl_module: str,
     for leaf in leaves:
         packed = '' if leaf.width == 1 else f' [{leaf.width-1}:0]'
         lines.append(f'  logic{packed} {rtl_identifier(leaf.external_name)};')
+    if simulation_io is not None:
+        lines.extend(simulation_io.declarations())
     lines.extend((f'  logic [{width-1}:0] {data} [0:{max(1,len(events))-1}];',
                   f'  integer {index};',f'  {rtl_module} dut ('))
     for i,leaf in enumerate(leaves):
@@ -98,12 +102,16 @@ def render_testbench(module: Module,rtl_module: str,
         lines.append(f"    {rtl_identifier(key)} = 1'b{inactive};")
     for key,(_,inactive) in sorted(resets.items()):
         lines.append(f"    {rtl_identifier(key)} = 1'b{inactive};")
+    if simulation_io is not None:
+        lines.extend(simulation_io.initialize())
     lines.extend(('    #1;',f'    for ({index}=0; {index}<{len(events)}; {index}={index}+1) begin'))
     for key,leaf in inputs.items():
         start = offsets[key]
         lines.append(f'      if ({data}[{index}][{start}]) {rtl_identifier(key)} = '
                      f'{data}[{index}][{start+1} +: {leaf.width}];')
     lines.append('      #1;')
+    if simulation_io is not None:
+        lines.extend(simulation_io.before_edge(data,index,edge_offsets,resets))
     if edge_offsets:
         mask = ' || '.join(f'{data}[{index}][{bit}]' for bit in edge_offsets.values())
         lines.append(f'      if ({mask}) begin')
@@ -113,6 +121,8 @@ def render_testbench(module: Module,rtl_module: str,
         for key,bit in edge_offsets.items():
             lines.append(f"        if ({data}[{index}][{bit}]) {rtl_identifier(key)} = 1'b{clocks[key]};")
         lines.extend(('        #1;','      end'))
+    if simulation_io is not None:
+        lines.extend(simulation_io.after_edge(index))
     for leaf in outputs:
         key = rtl_identifier(leaf.external_name)
         lines.extend((f"      if ((^{key}) === 1'bx)",

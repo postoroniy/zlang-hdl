@@ -56,12 +56,14 @@
     "static": "node test/javascript-static.cjs",
     "test": "npm run static && node test/javascript-static.test.cjs && node test/dependencies.test.cjs && node test/host-log.test.cjs && node test/project-metadata.test.cjs && node test/navigation.test.cjs && node test/debug-launch.test.cjs && node test/tokenize.test.cjs && node test/wcp.test.cjs && node test/waveform-model.test.cjs && node test/waveform-analog.test.cjs && node test/waveform-client.test.cjs && node test/waveform-clipboard.test.cjs && node test/debug-waveform.test.cjs && node test/waveform-live-ui.test.cjs && node test/bundle.test.cjs",
     "test:waveform": "node test/waveform-browser.cjs",
-    "prepackage": "npm run static",
+    "prepackage": "node test/patch-languageclient.cjs && npm run static",
     "package": "node test/package.cjs",
-    "prepackage:linux-x64": "npm run static",
+    "prepackage:linux-x64": "node test/patch-languageclient.cjs && npm run static",
     "package:linux-x64": "node test/package.cjs --target linux-x64",
     "test:host": "node test/run-host-smoke.cjs",
-    "check:latest-vscode": "node test/check-latest-vscode.cjs"
+    "check:latest-vscode": "node test/check-latest-vscode.cjs",
+    "postinstall": "node test/patch-languageclient.cjs",
+    "pretest": "node test/patch-languageclient.cjs"
   },
   "devDependencies": {
     "@vscode/test-electron": "3.1.0",
@@ -231,6 +233,22 @@
                 },
                 "default": []
               },
+              "simulation": {
+                "type": "string",
+                "description": "Explicit simulation-only source block to execute."
+              },
+              "simulationInputs": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "default": {},
+                "description": "Named typed JSONL input channels. Inputs are frozen when launching."
+              },
+              "simulationOutputs": {
+                "type": "object",
+                "additionalProperties": { "type": "string" },
+                "default": {},
+                "description": "Named structured log paths; use - for the Debug Console. Existing files are never replaced."
+              },
               "stopOnEntry": {
                 "type": "boolean",
                 "default": true
@@ -323,6 +341,7 @@
     "vscode-languageclient": "11.0.0"
   },
   "overrides": {
+    "minimatch": "11.0.1",
     "@azure/identity": {
       "@azure/msal-node": "7.1.2"
     }

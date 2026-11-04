@@ -22,6 +22,7 @@ from tools.release_preflight import (
 )
 from tools.release_status import _example_counts
 from tools.documentation_manifest import load_manuals
+from tools.documentation_sources import source_link_paths
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -107,7 +108,8 @@ def release_repository(tmp_path_factory: pytest.TempPathFactory) -> Path:
         record = status["documentation"]["manuals"][manual.identity]
         record["sources"] = {
             path.as_posix(): hashlib.sha256((root / path).read_bytes()).hexdigest()
-            for path in (manual.entrypoint, *manual.sources)
+            for path in (manual.entrypoint, *manual.sources,
+                         *(p for p in source_link_paths(root, manual) if p != Path("release/status.json")))
         }
     status["validation"]["example_corpus"] = _example_counts(root)
     status_path.write_text(
@@ -219,7 +221,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         {
             "file": "zlang_native_sim-0.1.0a24-cp312-abi3-manylinux_2_28_x86_64.whl",
             "platform": "linux_x86_64",
-            "sha256": "6e17c01f69fe39e2081fb7c4dcd73cc13c63e7dcd23d2803107b019a2df5c571",
+            "sha256": "762713d95930b6cc392ce200b51c2395310a4faf33c23fb2ea106d90c795605d",
             "version": "0.1.0a24",
         }
     ]

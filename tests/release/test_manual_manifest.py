@@ -13,8 +13,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def inventory(tmp_path: Path) -> Path:
+    from tools.documentation_sources import source_link_paths
     books = load_manuals(ROOT)
-    for relative in (MANIFEST, *(p for m in books for p in (m.entrypoint, *m.sources))):
+    for relative in {MANIFEST, Path("release/status.json"),
+                     *(p for m in books for p in (m.entrypoint, *m.sources)),
+                     *(p for m in books for p in source_link_paths(ROOT, m))}:
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes((ROOT / relative).read_bytes())
@@ -90,7 +93,8 @@ def test_old_reference_anchors_route_to_canonical_owners() -> None:
     entrypoint = (ROOT / "docs/language-reference.md").read_text()
     aliases = re.findall(r'<a id="(reference-[^"]+)"></a>', entrypoint)
     routes = destinations(ROOT)
-    assert len(aliases) == 186  # Legacy roots plus the public vendor-debug alias.
+    assert len(aliases) == 187  # Legacy roots, vendor-debug and dependency-profile aliases.
+    assert "reference-installing-toolchain-python-dependency-profiles" in aliases
     assert "reference-vendor-fpga-debug-taps" in aliases
     assert len(aliases) == len(set(aliases))
     for alias in aliases:
@@ -101,6 +105,7 @@ def test_legacy_navigation_and_authoring_entry_links_still_resolve() -> None:
     paths = [ROOT / path for path in ("README.md", "AI_GUIDE.md", "docs/README.md", "docs/language-guide.md")]
     paths.extend((ROOT / "docs/reference").glob("*.md"))
     paths.append(ROOT / ".qwen/skills/zlang-hdl/SKILL.md")
+    paths.extend(sorted((ROOT / ".qwen/skills/zlang-hdl/references").glob("*.md")))
     for source in paths:
         text = re.sub(r"(?m)^```[^\n]*\n.*?^```\s*$", "", source.read_text(), flags=re.DOTALL)
         for target in re.findall(r"\]\(([^)\s]+)\)", text):
@@ -152,3 +157,54 @@ def test_public_guides_keep_contracts_not_internal_review_procedures() -> None:
         assert internal not in optimization
     for contract in ("Widths", "signedness", "rounding", "required_proven", "bounded_pass"):
         assert contract in optimization
+
+
+def linked_fixture(tmp_path: Path) -> Path:
+    root = inventory(tmp_path)
+    for book in load_manuals(root):
+        for source in book.sources:
+            (root / source).write_text("# Chapter\n")
+    linked = root / "examples/linked.zhl"
+    linked.parent.mkdir(exist_ok=True)
+    linked.write_text("module Linked { in a:u8 out y:u8 y=a }\n")
+    (root / "docs/tutorial.md").write_text("# Tutorial\n\n[Source](../examples/linked.zhl)\n")
+    return root
+
+
+def test_source_links_follow_release_tag_and_record_complete_file_closure(tmp_path) -> None:
+    from tools.documentation_sources import source_link_paths
+    root = linked_fixture(tmp_path)
+    manual = load_manuals(root)[2]
+    text = assemble(root, manual)
+    assert "https://github.com/postoroniy/zlang-hdl/blob/v0.1.0a24/examples/linked.zhl" in text
+    assert "3b083ca" not in text and "/blob/main/" not in text
+    assert "become available when that tag is published" in text
+    assert source_link_paths(root, manual) == (Path("examples/linked.zhl"),)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "directory", "symlink"])
+def test_linked_source_missing_directory_or_symlink_fails_closed(tmp_path, mutation) -> None:
+    root = linked_fixture(tmp_path)
+    linked = root / "examples/linked.zhl"
+    linked.unlink()
+    if mutation == "directory":
+        linked.mkdir()
+    elif mutation == "symlink":
+        linked.symlink_to(ROOT / "examples/counter.zhl")
+    with pytest.raises(DocumentationError, match="source-link file"):
+        assemble(root, load_manuals(root)[2])
+
+
+@pytest.mark.parametrize("field,value", [
+    ("version", "main"), ("version", "0.1.0a24/escape"),
+    ("version", 24), ("repository", "https://example.org/other"),
+])
+def test_source_links_reject_invalid_release_identity(tmp_path, field, value) -> None:
+    import json
+    root = linked_fixture(tmp_path)
+    path = root / "release/status.json"
+    data = json.loads(path.read_text())
+    data["release"][field] = value
+    path.write_text(json.dumps(data))
+    with pytest.raises(DocumentationError, match="source-link release identity"):
+        assemble(root, load_manuals(root)[2])

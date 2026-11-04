@@ -90,7 +90,21 @@ callable_parameter_types: type_name ("," type_name)*
             | ADD_OP NUMBER -> signed_parameter_number
             | NAME -> parameter_name
 
-?module_item: port_decl | interface_decl | connect_decl | connection_chain_decl | bare_connect_decl | arbiter_decl | contract_decl | verification_goal_decl | verification_scope_decl | csr_group_decl | csr_decl | rule_decl | anonymous_rule_decl | rule_priority | priority_block | fsm_decl | fifo_decl | memory_decl | rom_decl | module_timing_decl | struct_destructure_decl | tuple_destructure_decl | assignment | instance_decl | generic_decl | generate_instances | compile_time_if_decl | clock_decl | reset_decl | async_reset_decl | register_decl | next_assignment
+?module_item: port_decl | interface_decl | connect_decl | connection_chain_decl | bare_connect_decl | arbiter_decl | contract_decl | verification_goal_decl | verification_scope_decl | simulation_block | csr_group_decl | csr_decl | rule_decl | anonymous_rule_decl | rule_priority | priority_block | fsm_decl | fifo_decl | memory_decl | rom_decl | module_timing_decl | struct_destructure_decl | tuple_destructure_decl | assignment | instance_decl | generic_decl | generate_instances | compile_time_if_decl | clock_decl | reset_decl | async_reset_decl | register_decl | next_assignment
+simulation_block: _SIMULATION NAME _AT NAME "{" simulation_command* "}"
+?simulation_command: simulation_when | simulation_read | simulation_write | simulation_drive | simulation_finish
+simulation_when: _WHEN source_expr "{" simulation_command* "}"
+simulation_read: _SIM_READ NAME simulation_bindings _ELSE simulation_eof
+simulation_bindings: "{" simulation_read_binding+ "}"
+simulation_read_binding: NAME _ARROW source_expr
+simulation_eof: "{" simulation_command* "}"
+simulation_write: _SIM_WRITE NAME "{" simulation_write_binding+ "}"
+simulation_write_binding: NAME "=" source_expr
+simulation_drive: _DRIVE source_expr "=" source_expr
+simulation_finish: NAME
+_SIMULATION.4: /simulation(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*[ \t\r\n]*@)/
+_SIM_READ.4: /read(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*[ \t\r\n]*\{)/
+_SIM_WRITE.4: /write(?=[ \t\r\n]+[A-Za-z_][A-Za-z0-9_]*[ \t\r\n]*\{)/
 module_timing_decl: _TIMING "{" module_timing_item* "}"
 ?module_timing_item: _LATENCY NUMBER -> module_timing_latency
                    | _II NUMBER -> module_timing_ii
@@ -480,7 +494,7 @@ REDUCE_OP.4: "+" | "*" | "&" | "|" | "^"
 BUILTIN_TYPE.2: /(?:(?:uint|u|sint|bits)<(?:[1-9][0-9]*|[A-Z][A-Za-z0-9_]*(?:[+\-*\/](?:[A-Z][A-Za-z0-9_]*|[0-9]+))*)>|bit|char|[us][1-9][0-9]*)/
 FIXED_SHORT_TYPE.4: /(?:SF_Sat|UF_Sat|SF|UF)[1-9][0-9]*\.[0-9]+/
 FIXED_GENERIC_TYPE_VALUE.5: /(?:fixed|ufixed|fixed_sat|ufixed_sat)<[A-Za-z0-9_()+*%\/\-\s]+,[A-Za-z0-9_()+*%\/\-\s]+>/
-GENERIC_TYPE_VALUE.5: /[A-Z][A-Za-z0-9_]*<[^<>]*(?:<[^<>]*>[^<>]*)*>/
+GENERIC_TYPE_VALUE.5: /[A-Z][A-Za-z0-9_]*<(?![=])[^<>]*(?:<[^<>]*>[^<>]*)*>/
 VEC_GENERIC_TYPE_VALUE.5: /vec<[0-9]+,[^<>]+>/
 STRUCT_NAME.2: /[A-Z][A-Za-z0-9_]*/
 // Consume only the opening parenthesis after proving this item is a tuple

@@ -104,6 +104,11 @@ guess flattened signal names.
 
 ## Compile and validate
 
+From this checkout run `make install`, then `source .venv/bin/activate` for
+ordinary compiler/native/LSP use. `INSTALL_EDITOR=0` leaves existing editor
+installations unchanged. For tests or release work choose the corresponding
+[dependency profile](../../../../docs/installing-toolchain.md#reference-installing-toolchain-python-dependency-profiles).
+
 ```sh
 .venv/bin/zlang source.zhl --top Top --check --diagnostic-format json
 .venv/bin/zlang source.zhl --top Top \
@@ -150,3 +155,10 @@ and these sections of the [language reference](../../../../docs/language-referen
 - [Hierarchy and protocols](../../../../docs/language-reference.md#reference-hierarchy-protocols)
 - [Projects and locks](../../../../docs/language-reference.md#reference-projects-dependencies)
 - [RTL generation](../../../../docs/language-reference.md#reference-generate-systemverilog)
+
+## Simulation-only source channels
+
+Use [the canonical I/O chapter](../../../../docs/simulation-io.md) for
+`simulation NAME @ CLOCK`, guarded `read`/`write`, `drive` and explicit EOF.
+These are bounded testbench effects, inactive unless selected with named channels.
+Do not translate them into hardware file I/O or change reset/clock contracts.

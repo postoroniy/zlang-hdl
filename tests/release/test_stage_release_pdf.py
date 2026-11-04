@@ -21,8 +21,11 @@ def fixture(tmp_path: Path) -> tuple[Path, Path]:
              Path("docs/stdlib-formal-coverage.md"), Path("docs/reference/04-simulation-verification.md"),
              *(Path(p) for p in docs["build_sources"])}
     for m in load_manuals(ROOT):
-        paths.update((m.pdf, m.entrypoint, *m.sources))
+        paths.update((m.pdf, m.entrypoint, *m.sources,
+                      *(Path(p) for p in docs["manuals"][m.identity]["sources"])))
     for path in paths:
+        if path.parts[0] in {"stdlib", "examples"}:
+            continue  # These complete source trees are copied once below.
         if path == Path("tools/build_community_pdf.py") and not (ROOT / path).is_file():
             continue  # Reviewed prebuilt manuals ship without the host-only renderer.
         destination = root / path
@@ -111,3 +114,15 @@ def test_staging_rejects_extra_pdf_assets(tmp_path, name) -> None:
     with pytest.raises(ReleasePdfError, match="unexpected PDF"):
         stage_release_pdfs(root=root, status_path=status, tag="v0.1.0a24", output=output)
     assert tuple(path.name for path in output.iterdir()) == (name,)
+
+
+@pytest.mark.parametrize("book", ["language-reference", "standard-library", "user-guide"])
+def test_staging_rejects_changed_linked_source_bytes(tmp_path, book) -> None:
+    from tools.documentation_sources import source_link_paths
+    root, status = fixture(tmp_path)
+    manual = next(m for m in load_manuals(root) if m.identity == book)
+    linked = next(p for p in source_link_paths(root, manual) if p.suffix == ".zhl")
+    (root / linked).write_text((root / linked).read_text() + "\n// changed linked source\n")
+    with pytest.raises(ReleasePdfError, match="source digest is stale"):
+        stage_release_pdfs(root=root, status_path=status, tag="v0.1.0a24", output=tmp_path / "dist")
+    assert not (tmp_path / "dist").exists()

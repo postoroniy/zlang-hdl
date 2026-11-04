@@ -7,6 +7,7 @@
     {"include": "#comments"},
     {"include": "#equiv-blocks"},
     {"include": "#verification-declarations"},
+    {"include": "#simulation-blocks"},
     {"include": "#bit-slices"},
     {"include": "#numbers"},
     {"include": "#enum-declarations"},
@@ -33,6 +34,67 @@
     {"include": "#identifiers"}
   ],
   "repository": {
+    "simulation-blocks": {
+      "patterns": [
+        {
+          "begin": "\\b(simulation)\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(@)\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*(\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.simulation.zlang"
+            },
+            "2": {
+              "name": "entity.name.function.simulation.zlang"
+            },
+            "4": {
+              "name": "variable.other.clock.zlang"
+            }
+          },
+          "end": "\\}",
+          "patterns": [
+            {
+              "include": "#simulation-body"
+            }
+          ]
+        }
+      ]
+    },
+    "simulation-body": {
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "match": "\\b(read|write)\\s+([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\{)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.simulation.zlang"
+            },
+            "2": {
+              "name": "variable.other.simulation-channel.zlang"
+            }
+          }
+        },
+        {
+          "match": "\\bfinish\\b",
+          "name": "keyword.control.simulation.zlang"
+        },
+        {
+          "begin": "\\{",
+          "end": "\\}",
+          "patterns": [
+            {
+              "include": "#simulation-body"
+            }
+          ]
+        },
+        {
+          "include": "$self"
+        }
+      ]
+    },
     "strings": {
       "patterns": [
         {

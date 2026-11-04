@@ -95,11 +95,9 @@ module IeeeDataFramer24 {
             ? (wide_psdu << 8)
             : (wide_psdu << 16))
     pending_value : u24 = pending_word
-    combined : u48 = extend<48>(pending_value) | shifted_psdu
-    combined_bytes : u4 = extend<3>(occupied_bytes)
-        + extend<3>(psdu.payload.meta)
-    combined_psdu_bytes : u4 = extend<3>(pending_psdu_bytes)
-        + extend<3>(psdu.payload.meta)
+    combined : u48 = pending_value | shifted_psdu
+    combined_bytes : u4 = extend(occupied_bytes + psdu.payload.meta)
+    combined_psdu_bytes : u4 = extend(pending_psdu_bytes + psdu.payload.meta)
     emits_word = combined_bytes >= 3
     next_occupied : u2 = emits_word
         ? truncate(combined_bytes - 3)
@@ -109,7 +107,7 @@ module IeeeDataFramer24 {
         : combined[23:0]
     emitted_valid_bytes : u2 = output_first == 1 ? 1 : 3
     next_pending_psdu_bytes : u2 = emits_word
-        ? truncate(combined_psdu_bytes - extend<4>(emitted_valid_bytes))
+        ? truncate(combined_psdu_bytes - emitted_valid_bytes)
         : truncate(combined_psdu_bytes)
 
     symbol_last = wifi_symbol_slot_last(packet_rate, symbol_slot)
@@ -212,9 +210,7 @@ module IeeeDataFramer24 {
                         output_first <- 0
                         symbol_slot <- next_symbol_slot
                     }
-                    remaining_bytes <- truncate(
-                        remaining_bytes - extend<12>(psdu.payload.meta)
-                    )
+                    remaining_bytes <- remaining_bytes - psdu.payload.meta
                     input_complete <- psdu.payload.last
                     input_first <- 0
                     pending_word <- next_pending_word

@@ -175,15 +175,38 @@ class ClockDomainAnalyzer:
         source_unit: str | None = None,
         source_digest: str | None = None,
     ) -> ClockDomainAnalysisProduct:
+        clock_origins = {
+            item.name: SourceOrigin(item.origin, f"clock {item.name}", source_unit, source_digest)
+            for item in module.clock_physical if item.origin is not None
+        }
+        reset_origins = {
+            item.name: SourceOrigin(item.origin, f"reset {item.name}", source_unit, source_digest)
+            for item in module.reset_physical if item.origin is not None
+        }
         if len(set(module.clocks)) != len(module.clocks):
-            raise SemanticError("duplicate clock declaration")
+            raise SemanticError(
+                "duplicate clock declaration",
+                primary=clock_origins.get(
+                    next(name for i, name in enumerate(module.clocks) if name in module.clocks[:i])
+                ),
+            )
         resets = module.reset_domains or tuple(
             (name, None) for name in module.resets
         )
         if len({name for name, _ in resets}) != len(resets):
-            raise SemanticError("duplicate reset declaration")
+            raise SemanticError(
+                "duplicate reset declaration",
+                primary=reset_origins.get(
+                    next(name for i, name in enumerate(module.resets) if name in module.resets[:i])
+                ),
+            )
         if bool(module.clocks) != bool(resets):
-            raise SemanticError("clock and reset must be declared together")
+            raise SemanticError(
+                "clock and reset must be declared together",
+                primary=next(
+                    iter(clock_origins.values()), next(iter(reset_origins.values()), None)
+                ),
+            )
         clocks = module.clock_physical or tuple(
             ast.ClockPhysicalDecl(name) for name in module.clocks
         )
@@ -192,11 +215,13 @@ class ClockDomainAnalyzer:
         )
         if tuple(item.name for item in clocks) != module.clocks:
             raise SemanticError(
-                "physical clock declarations must match clock declarations"
+                "physical clock declarations must match clock declarations",
+                primary=next(iter(clock_origins.values()), None),
             )
         if tuple(item.name for item in reset_specs) != module.resets:
             raise SemanticError(
-                "physical reset declarations must match reset declarations"
+                "physical reset declarations must match reset declarations",
+                primary=next(iter(reset_origins.values()), None),
             )
         clocks_by_name = {item.name: item for item in clocks}
         resets_by_name = {item.name: item for item in reset_specs}
@@ -215,14 +240,18 @@ class ClockDomainAnalyzer:
         elif len(module.clocks) == 1:
             if len(resets) != 1:
                 raise SemanticError(
-                    "a single-clock module requires exactly one reset"
+                    "a single-clock module requires exactly one reset",
+                    primary=reset_origins.get(resets[-1][0])
+                    if resets
+                    else clock_origins.get(module.clocks[0]),
                 )
             default_clock = module.clocks[0]
             default_reset, reset_domain = resets[0]
             if reset_domain is not None and reset_domain != default_clock:
                 raise SemanticError(
                     f"reset '{default_reset}' references unknown clock domain "
-                    f"'{reset_domain}'"
+                    f"'{reset_domain}'",
+                    primary=reset_origins.get(default_reset),
                 )
             domains = (clock_domain_from_source(
                 clocks_by_name[default_clock],
@@ -236,22 +265,26 @@ class ClockDomainAnalyzer:
             for reset_name, reset_domain in resets:
                 if reset_domain is None:
                     raise SemanticError(
-                        f"reset '{reset_name}' requires an explicit clock domain"
+                        f"reset '{reset_name}' requires an explicit clock domain",
+                        primary=reset_origins.get(reset_name),
                     )
                 if reset_domain not in module.clocks:
                     raise SemanticError(
                         f"reset '{reset_name}' references unknown clock domain "
-                        f"'{reset_domain}'"
+                        f"'{reset_domain}'",
+                        primary=reset_origins.get(reset_name),
                     )
                 if reset_domain in by_clock:
                     raise SemanticError(
-                        f"clock domain '{reset_domain}' has more than one reset"
+                        f"clock domain '{reset_domain}' has more than one reset",
+                        primary=reset_origins.get(reset_name),
                     )
                 by_clock[reset_domain] = reset_name
             missing = set(module.clocks) - by_clock.keys()
             if missing:
                 raise SemanticError(
-                    f"clock domain '{sorted(missing)[0]}' has no reset"
+                    f"clock domain '{sorted(missing)[0]}' has no reset",
+                    primary=clock_origins.get(sorted(missing)[0]),
                 )
             domains = tuple(
                 clock_domain_from_source(
@@ -264,7 +297,12 @@ class ClockDomainAnalyzer:
             )
         validate_async_reset_domain_scope(domains)
         if any(domain.clock == domain.reset for domain in domains):
-            raise SemanticError("clock and reset must have different names")
+            raise SemanticError(
+                "clock and reset must have different names",
+                primary=reset_origins.get(
+                    next(domain.reset for domain in domains if domain.clock == domain.reset)
+                ),
+            )
         return ClockDomainAnalysisProduct(
             domains,
             default_clock,
@@ -464,6 +502,7 @@ class HierarchyDependencyValidator:
         locals_: tuple[ir_module.LocalValue, ...],
         memories: tuple[ir_storage.Memory, ...] = (),
         fifos: tuple[ir_storage.Fifo, ...] = (),
+        instance_origins: dict[str, SourceOrigin | None] | None = None,
     ) -> None:
         """Reject current-cycle cycles across scalar child instance boundaries.
 
@@ -797,6 +836,9 @@ class HierarchyDependencyValidator:
             (item.instance, item.port): item.expression for item in bindings
         }
         graph: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        dependency_origins: dict[
+            tuple[tuple[str, str], tuple[str, str]], SourceOrigin | None
+        ] = {}
         for instance, child in child_irs.items():
             # The declaration-name alias and each physical name point at the same
             # child IR.  Only physical instances that own bindings participate.
@@ -818,10 +860,16 @@ class HierarchyDependencyValidator:
                         fifo_resources=parent_fifos,
                     )
                     dependencies.update(referenced_outputs)
+                    for referenced in referenced_outputs:
+                        dependency_origins[((instance, output.name), referenced)] = bound.origin
                 graph[(instance, output.name)] = dependencies
 
         reject_dependency_cycles(
             graph,
             render_node=lambda node: f"{node[0]}.{node[1]}",
             description="child",
+            origin=lambda source, target: (
+                dependency_origins.get((source, target))
+                or (instance_origins or {}).get(source[0])
+            ),
         )

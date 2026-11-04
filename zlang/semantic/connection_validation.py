@@ -271,6 +271,7 @@ class ProtocolDependencyValidator:
             ),
             description=describe_interface_cycle,
             stable_sort=False,
+            origin=lambda source, target: driven[source].expression.origin,
         )
 
     def _dependencies(

@@ -65,6 +65,25 @@ function expectScope(line, text, scope, occurrence = 0) {
   return token;
 }
 
+test('simulation commands are contextual and nested EOF blocks keep their scopes',()=>{
+  const parsed=tokenize(`module T {
+    in read, write, finish : bit
+    simulation vectors @ clk {
+      when ready { read stimulus { value -> input } else { finish } }
+      write results { value = output }
+    }
+    out y:bit y=finish
+  }`);
+  expectScope(parsed.lines[2],'simulation','keyword.control.simulation.zlang');
+  expectScope(parsed.lines[2],'vectors','entity.name.function.simulation.zlang');
+  expectScope(parsed.lines[3],'read','keyword.control.simulation.zlang',1);
+  expectScope(parsed.lines[3],'finish','keyword.control.simulation.zlang');
+  expectScope(parsed.lines[4],'write','keyword.control.simulation.zlang');
+  for(const name of ['read','write','finish'])
+    assert.ok(!tokenFor(parsed.lines[1],name).scopes.includes('keyword.control.simulation.zlang'));
+  assert.ok(!tokenFor(parsed.lines[6],'finish').scopes.includes('keyword.control.simulation.zlang'));
+});
+
 test('multi-character operators are complete, single scoped tokens', () => {
   const operators = {
     '>=': 'comparison', '<=': 'comparison', '==': 'comparison', '!=': 'comparison',

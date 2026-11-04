@@ -192,6 +192,8 @@ def _specialization_parts(value: object) -> tuple[str, tuple[tuple[str, object],
         if isinstance(value, Module):
             excluded.update(_SPECIALIZATION_APPLICATION_FIELDS)
             excluded.update(_SPECIALIZATION_VISIBLE_CATALOG_FIELDS)
+            # Simulation directives own a separate plan-bound I/O identity.
+            excluded.add("simulation_blocks")
         if type(value).__module__ == "zlang.ir.storage" and type(value).__name__ == "Rom":
             excluded.add("semantic_id")
         return (

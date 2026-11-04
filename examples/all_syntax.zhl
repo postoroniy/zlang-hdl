@@ -567,7 +567,7 @@ module AllSyntax {
     inferred_tag : bits<6> = exact_literal_tag(packed_a[7:6])
     round_trip : u8 = unpack<u8>(packed_a)
     vector_a : vec<2,u8> = generate(i in 0..2) extend<8>(i)
-    vector_b : vec<2,u8> = generate(i in 0..2) truncate<8>(extend<8>(i) + 2)
+    vector_b : vec<2,u8> = generate(i in 0..2) extend<8>(i + 2)
     literal_vector : vec<2,u8> = [a, b]
     repeated_vector : vec<2,u8> = repeat(a)
     explicit_repeat : vec<2,u8> = repeat<2>(b)

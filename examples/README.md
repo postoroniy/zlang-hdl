@@ -259,8 +259,7 @@ See [complete commands and sample/bit-order contracts](../docs/stdlib-multirate-
 - [`fft/`](fft/) contains independent numerical and auto-pipeline FFT roots;
   see its [README](fft/README.md).
 - [`structural/`](structural/) contains one bounded structural stress shape per
-  file; see its [README](structural/README.md).  `structural/test.zhl` is an
-  internal large-emission witness and is not part of the public example set.
+  file; see its [README](structural/README.md).
 - [`verification/`](verification/) contains one formal behavior per root; see
   its [README](verification/README.md).
 - [`projects/80211a_transmitter/`](projects/80211a_transmitter/) is the
@@ -275,3 +274,25 @@ not part of the normal public example corpus.
 [`generated/`](generated/) stores reviewed output examples and reports for
 selected roots. They are evidence, not input source units; its
 [catalog](generated/README.md) identifies each artifact family and owner.
+
+## Peripheral cores
+
+[`peripherals_basic.zhl`](peripherals_basic.zhl) connects the seven basic UART,
+SPI, I²C, GPIO, timer, PWM and capture cores through explicit pins and streams.
+[`peripherals_regbus.zhl`](peripherals_regbus.zhl) demonstrates their RegBus32 wrappers. See
+[peripheral contracts](../docs/stdlib-peripherals.md) for register maps and timing.
+
+## Native and RTL comparison
+
+Run [counter.zhl](counter.zhl) with [counter.events.jsonl](counter.events.jsonl)
+through native simulation and the Icarus/Verilator comparison routes using the
+[complete CLI example](../docs/native-jit-simulation.md#compare-native-and-rtl-from-one-command).
+The shared reset/input schedule produces 21 event snapshots and ends at `y=20`.
+
+## Typed simulation I/O
+
+Use [simulation-only source I/O](../docs/simulation-io.md) for conditional typed JSONL reads,
+pre-edge structured logs and explicit EOF behavior. Activation requires a named
+`simulation` block and channel bindings; inactive blocks do not alter hardware.
+The runnable [simulation_io.zhl](simulation_io.zhl) includes reset, stalls and drain;
+VS Code provides **Debug simulation I/O**. Use fresh file outputs or console `-`.

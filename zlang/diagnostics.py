@@ -8,7 +8,9 @@ the attached :class:`Diagnostic` or request deterministic JSON from ``zlang``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from contextlib import contextmanager
+from collections.abc import Iterator
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -185,6 +187,26 @@ class DiagnosticError(ValueError):
         return self.diagnostic.fixes
 
 
+def attach_diagnostic_origin(
+    error: DiagnosticError, origin: SourceOrigin | None,
+) -> None:
+    """Fill a missing location without replacing a more specific inner failure."""
+
+    if error.primary is None and origin is not None:
+        error.diagnostic = replace(error.diagnostic, primary=origin)
+
+
+@contextmanager
+def diagnostic_source(origin: SourceOrigin | None) -> Iterator[None]:
+    """Bind failures to the compiler-owned construct currently being checked."""
+
+    try:
+        yield
+    except DiagnosticError as error:
+        attach_diagnostic_origin(error, origin)
+        raise
+
+
 def bind_diagnostic_source(
     error: DiagnosticError,
     *,
@@ -238,6 +260,8 @@ __all__ = [
     "DiagnosticEdit",
     "DiagnosticError",
     "DiagnosticFix",
+    "attach_diagnostic_origin",
+    "diagnostic_source",
     "bind_diagnostic_source",
     "diagnostic_from_exception",
 ]

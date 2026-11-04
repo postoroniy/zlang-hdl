@@ -19,6 +19,8 @@ async function checkDebugExampleSwitches(){
   };
   for(const configuration of configurations){
     for(const field of ['program','events'])copy(path.relative(workspace,local(configuration[field])));
+    for(const input of Object.values(configuration.simulationInputs||{}))
+      copy(path.relative(workspace,local(input)));
     if(configuration.project){
       const relative=path.relative(workspace,local(configuration.project));
       copy(relative);copy(path.join(path.dirname(relative),'zlang.lock'));

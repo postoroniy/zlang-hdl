@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import TYPE_CHECKING
 
+from zlang.diagnostics import diagnostic_source
 from zlang.ast import nodes as ast
 from zlang import exploration as exploration
 from zlang.implementation_request import MAXIMIZABLE_METRICS, MINIMIZABLE_METRICS
@@ -69,111 +70,112 @@ class ImplementationIntentAnalyzer:
         candidate_site_owner: str,
         exploration_results: list[object] | None,
     ) -> ImplementationAnalysisProduct:
-        if self._contains_nested_site(syntax.expression):
-            raise SemanticError("nested implementation selection is not supported")
+        with diagnostic_source(expression_origins.semantic_origin(syntax, context)):
+            if self._contains_nested_site(syntax.expression):
+                raise SemanticError("nested implementation selection is not supported")
 
-        operand = context.expressions.check(
-            syntax.expression,
-            inputs,
-            target_type,
-            context,
-        )
-        # Immutable locals are aliases, not candidate boundaries.  Preserve
-        # their source origins while presenting one closed typed expression to
-        # compiler-owned candidate discovery.
-        operand = _inline_semantic_locals(operand, locals_)
-        operand = callables._expand_analysis_calls(
-            operand,
-            context,
-            purpose="exploration operand",
-            functions=functions,
-        )
-
-        implementation_domains = {
-            item
-            for item in expression_domains.expression_domains(
+            operand = context.expressions.check(
+                syntax.expression,
+                inputs,
+                target_type,
+                context,
+            )
+            # Immutable locals are aliases, not candidate boundaries.  Preserve
+            # their source origins while presenting one closed typed expression to
+            # compiler-owned candidate discovery.
+            operand = _inline_semantic_locals(operand, locals_)
+            operand = callables._expand_analysis_calls(
                 operand,
-                {**symbols, **resource_symbols},
-                register_symbols,
-            )
-            if item is not None
-        }
-        implementation_domain = target.domain
-        if implementation_domain is None and len(implementation_domains) == 1:
-            implementation_domain = next(iter(implementation_domains))
-        if implementation_domain is None:
-            implementation_domain = context.environment.default_clock_domain
-        if implementation_domains - {implementation_domain}:
-            foreign = sorted(implementation_domains - {implementation_domain})[0]
-            raise SemanticError(
-                f"implementation region in '{implementation_domain}' reads "
-                f"dynamic value from '{foreign}'; implementation planning "
-                "cannot cross clock domains",
-                code="ZL-DOMAIN-CROSSING",
-                primary=expression_origins.semantic_origin(syntax, context),
-                fixes=("insert an explicit supported clock-domain crossing first",),
+                context,
+                purpose="exploration operand",
+                functions=functions,
             )
 
-        self._validate_objective(syntax.objective)
-        objective_metric = self._objective_metric(syntax.objective)
-        allowed = self._default_transforms(syntax, context)
-        constraints = exploration.constraints_from_syntax(syntax.constraints)
-        try:
-            result = exploration.explore(
-                exploration.ExplorationRequest(
+            implementation_domains = {
+                item
+                for item in expression_domains.expression_domains(
                     operand,
-                    allowed,
-                    (),
-                    constraints,
-                    objective_metric,
-                    bounds=(
-                        context.services.intent_exploration_limits
-                        or exploration.ExplorationBounds()
-                    ),
-                    structural_cache=context.services.intent_structural_cache,
-                    source_origin=syntax.origin,
-                    equivalences=equivalences,
-                    formal_config=formal_config,
-                    formal_verifier=formal_verifier,
-                ),
-                exploration.ExplorationContext(
-                    target.name,
-                    target_type,
-                    context.allocate_delay,
-                    candidate_site_owner,
-                    "implement",
-                    implementation_domain,
-                ),
-            )
-        except exploration.ExplorationSelectionError as error:
-            raise SemanticError(
-                str(error),
-                code="ZL-IMPLEMENT-CONSTRAINTS",
-                primary=expression_origins.semantic_origin(syntax, context),
-                notes=(
-                    "candidate summaries are structural and omit typed "
-                    "expression trees",
-                    "hard implementation constraints were not relaxed",
-                ),
-            ) from error
-        except ValueError as error:
-            raise SemanticError(str(error)) from error
+                    {**symbols, **resource_symbols},
+                    register_symbols,
+                )
+                if item is not None
+            }
+            implementation_domain = target.domain
+            if implementation_domain is None and len(implementation_domains) == 1:
+                implementation_domain = next(iter(implementation_domains))
+            if implementation_domain is None:
+                implementation_domain = context.environment.default_clock_domain
+            if implementation_domains - {implementation_domain}:
+                foreign = sorted(implementation_domains - {implementation_domain})[0]
+                raise SemanticError(
+                    f"implementation region in '{implementation_domain}' reads "
+                    f"dynamic value from '{foreign}'; implementation planning "
+                    "cannot cross clock domains",
+                    code="ZL-DOMAIN-CROSSING",
+                    primary=expression_origins.semantic_origin(syntax, context),
+                    fixes=("insert an explicit supported clock-domain crossing first",),
+                )
 
-        if exploration_results is not None:
-            exploration_results.append(result)
-        pipeline = self._pipeline_product(
-            syntax,
-            target,
-            target_type,
-            operand,
-            result,
-            context,
-        )
-        expression = result.selected.expression
-        origin = expression_origins.semantic_origin(syntax, context)
-        if origin is not None:
-            expression = replace(expression, origin=origin)
-        return ImplementationAnalysisProduct(expression, pipeline)
+            self._validate_objective(syntax.objective)
+            objective_metric = self._objective_metric(syntax.objective)
+            allowed = self._default_transforms(syntax, context)
+            constraints = exploration.constraints_from_syntax(syntax.constraints)
+            try:
+                result = exploration.explore(
+                    exploration.ExplorationRequest(
+                        operand,
+                        allowed,
+                        (),
+                        constraints,
+                        objective_metric,
+                        bounds=(
+                            context.services.intent_exploration_limits
+                            or exploration.ExplorationBounds()
+                        ),
+                        structural_cache=context.services.intent_structural_cache,
+                        source_origin=syntax.origin,
+                        equivalences=equivalences,
+                        formal_config=formal_config,
+                        formal_verifier=formal_verifier,
+                    ),
+                    exploration.ExplorationContext(
+                        target.name,
+                        target_type,
+                        context.allocate_delay,
+                        candidate_site_owner,
+                        "implement",
+                        implementation_domain,
+                    ),
+                )
+            except exploration.ExplorationSelectionError as error:
+                raise SemanticError(
+                    str(error),
+                    code="ZL-IMPLEMENT-CONSTRAINTS",
+                    primary=expression_origins.semantic_origin(syntax, context),
+                    notes=(
+                        "candidate summaries are structural and omit typed "
+                        "expression trees",
+                        "hard implementation constraints were not relaxed",
+                    ),
+                ) from error
+            except ValueError as error:
+                raise SemanticError(str(error)) from error
+
+            if exploration_results is not None:
+                exploration_results.append(result)
+            pipeline = self._pipeline_product(
+                syntax,
+                target,
+                target_type,
+                operand,
+                result,
+                context,
+            )
+            expression = result.selected.expression
+            origin = expression_origins.semantic_origin(syntax, context)
+            if origin is not None:
+                expression = replace(expression, origin=origin)
+            return ImplementationAnalysisProduct(expression, pipeline)
 
     def analyze_choice(
         self,

@@ -78,8 +78,11 @@ def test_editor_tests_require_javascript_static_and_negative_fixture_gates() -> 
         "npm run static && node test/javascript-static.test.cjs &&"
     )
     assert "node test/waveform-live-ui.test.cjs" in package["scripts"]["test"]
-    assert package["scripts"]["prepackage"] == "npm run static"
-    assert package["scripts"]["prepackage:linux-x64"] == "npm run static"
+    patch = "node test/patch-languageclient.cjs"
+    assert package["scripts"]["postinstall"] == patch
+    assert package["scripts"]["pretest"] == patch
+    assert package["scripts"]["prepackage"] == f"{patch} && npm run static"
+    assert package["scripts"]["prepackage:linux-x64"] == f"{patch} && npm run static"
 
 
 def test_project_metadata_lifecycle_has_watcher_independent_host_coverage_and_failure_logs() -> None:

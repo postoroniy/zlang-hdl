@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 import hashlib
 from typing import TYPE_CHECKING
+from zlang.diagnostics import diagnostic_source
 from zlang.ast import nodes as ast
 from zlang.ir import expressions as ir_expr
 from zlang.ir import module as ir_module
@@ -77,15 +78,18 @@ class StorageDeclarationAnalyzer:
             ):
                 raise SemanticError(
                     f"duplicate storage, interface, CSR, or port name "
-                    f"'{declaration.name}'"
+                    f"'{declaration.name}'",
+                    primary=origin,
                 )
             if declaration.name in timing_names:
                 raise SemanticError(
-                    f"FIFO name '{declaration.name}' conflicts with clock or reset"
+                    f"FIFO name '{declaration.name}' conflicts with clock or reset",
+                    primary=origin,
                 )
-            depth = type_resolver._eval_storage_depth(
-                declaration.depth, kind="FIFO", name=declaration.name
-            )
+            with diagnostic_source(origin):
+                depth = type_resolver._eval_storage_depth(
+                    declaration.depth, kind="FIFO", name=declaration.name
+                )
             symbol = FifoSymbol(
                 declaration.name,
                 type_resolver.resolve(declaration.element_type),
@@ -102,7 +106,8 @@ class StorageDeclarationAnalyzer:
             if declaration.async_memory and declaration.domain is not None:
                 raise SemanticError(
                     f"async memory '{declaration.name}' declares domains on its ports, "
-                    "not on the memory"
+                    "not on the memory",
+                    primary=origin,
                 )
             if declaration.name in (
                 symbols.keys()
@@ -112,46 +117,55 @@ class StorageDeclarationAnalyzer:
             ):
                 raise SemanticError(
                     f"duplicate storage, interface, CSR, or port name "
-                    f"'{declaration.name}'"
+                    f"'{declaration.name}'",
+                    primary=origin,
                 )
             if declaration.name in timing_names:
                 raise SemanticError(
-                    f"memory name '{declaration.name}' conflicts with clock or reset"
+                    f"memory name '{declaration.name}' conflicts with clock or reset",
+                    primary=origin,
                 )
-            depth = type_resolver._eval_storage_depth(
-                declaration.depth, kind="memory", name=declaration.name
-            )
+            with diagnostic_source(origin):
+                depth = type_resolver._eval_storage_depth(
+                    declaration.depth, kind="memory", name=declaration.name
+                )
             if depth < 2 or depth & (depth - 1):
                 raise SemanticError(
                     f"memory '{declaration.name}' depth must be a power of two "
-                    "and at least 2"
+                    "and at least 2",
+                    primary=origin,
                 )
             if not 0 <= declaration.read_latency <= 16:
                 raise SemanticError(
-                    f"memory '{declaration.name}' read_latency must be in 0..16"
+                    f"memory '{declaration.name}' read_latency must be in 0..16",
+                    primary=origin,
                 )
             element_type = type_resolver.resolve(declaration.element_type)
             if not ir_packing.is_bit_packable(element_type):
                 raise SemanticError(
                     f"memory '{declaration.name}' requires a recursively "
-                    "bit-packable non-enum element type"
+                    "bit-packable non-enum element type",
+                    primary=origin,
                 )
             port_symbols: tuple[MemoryPortSymbol, ...] = ()
             if declaration.ports:
                 if len(declaration.ports) > 8:
                     raise SemanticError(
-                        f"memory '{declaration.name}' supports at most 8 logical ports"
+                        f"memory '{declaration.name}' supports at most 8 logical ports",
+                        primary=origin,
                     )
                 port_names = tuple(port.name for port in declaration.ports)
                 if len(port_names) != len(set(port_names)):
                     raise SemanticError(
-                        f"memory '{declaration.name}' has duplicate port names"
+                        f"memory '{declaration.name}' has duplicate port names",
+                        primary=origin,
                     )
                 if declaration.async_memory:
                     if declaration.read_latency < 1:
                         raise SemanticError(
                             f"async memory '{declaration.name}' requires read_latency >= 1; "
-                            "latency-zero asynchronous BRAM reads are not supported"
+                            "latency-zero asynchronous BRAM reads are not supported",
+                            primary=origin,
                         )
                     kinds = tuple(port.kind for port in declaration.ports)
                     if (
@@ -161,14 +175,16 @@ class StorageDeclarationAnalyzer:
                     ):
                         raise SemanticError(
                             f"async memory '{declaration.name}' requires exactly one "
-                            "write_port and one read_port"
+                            "write_port and one read_port",
+                            primary=origin,
                         )
                     resolved_ports = []
                     for port in declaration.ports:
                         if port.domain is None:
                             raise SemanticError(
                                 f"async memory port '{declaration.name}.{port.name}' "
-                                "requires an explicit clock domain"
+                                "requires an explicit clock domain",
+                                primary=origin,
                             )
                         resolved_ports.append(MemoryPortSymbol(
                             port.name,
@@ -187,7 +203,8 @@ class StorageDeclarationAnalyzer:
                     if len({port.domain for port in resolved_ports}) != 2:
                         raise SemanticError(
                             f"async memory '{declaration.name}' ports must use "
-                            "different clock domains"
+                            "different clock domains",
+                            primary=origin,
                         )
                     port_symbols = tuple(resolved_ports)
                     storage_domain = next(
@@ -224,7 +241,8 @@ class StorageDeclarationAnalyzer:
                     if any(port.domain != storage_domain for port in port_symbols):
                         raise SemanticError(
                             f"ordinary memory '{declaration.name}' ports must share "
-                            f"domain '{storage_domain}'"
+                            f"domain '{storage_domain}'",
+                            primary=origin,
                         )
                 writable_names = tuple(
                     port.name for port in port_symbols
@@ -239,16 +257,19 @@ class StorageDeclarationAnalyzer:
                 ):
                     raise SemanticError(
                         f"multi-writer memory '{declaration.name}' requires a complete "
-                        "write_priority containing every writable port exactly once"
+                        "write_priority containing every writable port exactly once",
+                        primary=origin,
                     )
                 if len(declaration.write_priority) != len(set(declaration.write_priority)):
                     raise SemanticError(
-                        f"memory '{declaration.name}' write_priority contains duplicates"
+                        f"memory '{declaration.name}' write_priority contains duplicates",
+                        primary=origin,
                     )
             else:
                 if declaration.async_memory:
                     raise SemanticError(
-                        f"async memory '{declaration.name}' requires named ports"
+                        f"async memory '{declaration.name}' requires named ports",
+                        primary=origin,
                     )
                 storage_domain = state_domains.resolve(
                     "memory", declaration.name, declaration.domain, origin=origin,
@@ -279,18 +300,22 @@ class StorageDeclarationAnalyzer:
             ):
                 raise SemanticError(
                     f"duplicate storage, interface, CSR, or port name "
-                    f"'{declaration.name}'"
+                    f"'{declaration.name}'",
+                    primary=origin,
                 )
             if declaration.name in timing_names:
                 raise SemanticError(
-                    f"ROM name '{declaration.name}' conflicts with clock or reset"
+                    f"ROM name '{declaration.name}' conflicts with clock or reset",
+                    primary=origin,
                 )
-            depth = type_resolver._eval_storage_depth(
-                declaration.depth, kind="ROM", name=declaration.name
-            )
+            with diagnostic_source(origin):
+                depth = type_resolver._eval_storage_depth(
+                    declaration.depth, kind="ROM", name=declaration.name
+                )
             if declaration.read_latency != 1:
                 raise SemanticError(
-                    f"ROM '{declaration.name}' requires exactly read_latency 1"
+                    f"ROM '{declaration.name}' requires exactly read_latency 1",
+                    primary=origin,
                 )
             element_type = type_resolver.resolve(declaration.element_type)
             try:
@@ -298,7 +323,8 @@ class StorageDeclarationAnalyzer:
             except ir_packing.PackingError as error:
                 raise SemanticError(
                     f"ROM '{declaration.name}' element type {element_type} is not "
-                    f"recursively bit-packable and non-enum: {error}"
+                    f"recursively bit-packable and non-enum: {error}",
+                    primary=origin,
                 ) from error
             symbol = RomSymbol(
                 declaration.name, element_type, depth, storage_domain
@@ -314,7 +340,12 @@ class StorageDeclarationAnalyzer:
         ):
             raise SemanticError(
                 "storage resources cannot yet be mixed with CSR, credit, "
-                "request/response, or connection backends"
+                "request/response, or connection backends",
+                primary=observations.declaration_origin(
+                    (*module.fifos, *module.memories, *module.roms)[0].origin,
+                    "storage declaration",
+                    preparation.expression_context,
+                ),
             )
         scheduled_memory_names = {
             leaf.action.resource
@@ -333,7 +364,13 @@ class StorageDeclarationAnalyzer:
             and len(leaf.action.operands) == 3
         }
         if len(scheduled_memory_names) > 1:
-            raise SemanticError("a module currently supports at most one rule-owned memory")
+            declaration = memory_declarations[sorted(scheduled_memory_names)[1]]
+            raise SemanticError(
+                "a module currently supports at most one rule-owned memory",
+                primary=observations.declaration_origin(
+                    declaration.origin, "storage declaration", preparation.expression_context
+                ),
+            )
         scheduled_zero_latency = tuple(
             name
             for name in sorted(scheduled_memory_names)
@@ -341,19 +378,31 @@ class StorageDeclarationAnalyzer:
         )
         if scheduled_zero_latency:
             name = scheduled_zero_latency[0]
+            declaration = memory_declarations[name]
             raise SemanticError(
                 f"rule-owned memory '{name}' requires read_latency 1; "
-                "read_latency 0 is supported only for globally controlled memories"
+                "read_latency 0 is supported only for globally controlled memories",
+                primary=observations.declaration_origin(
+                    declaration.origin, "storage declaration", preparation.expression_context
+                ),
             )
         if scheduled_memory_names and len(memory_declarations) != 1:
+            declaration = next(item for name, item in memory_declarations.items() if name not in scheduled_memory_names)
             raise SemanticError(
-                "global and rule-owned memory resources cannot be mixed in one module"
+                "global and rule-owned memory resources cannot be mixed in one module",
+                primary=observations.declaration_origin(
+                    declaration.origin, "storage declaration", preparation.expression_context
+                ),
             )
         if memory_declarations and not scheduled_memory_names and (
             module.registers or module.next_assignments or module.rules
         ):
+            declaration = next(iter(memory_declarations.values()))
             raise SemanticError(
-                "memory resources cannot yet be mixed with user registers or rules"
+                "memory resources cannot yet be mixed with user registers or rules",
+                primary=observations.declaration_origin(
+                    declaration.origin, "storage declaration", preparation.expression_context
+                ),
             )
 
         return StorageDeclarationProduct(
@@ -417,16 +466,25 @@ class StorageAnalyzer:
             scheduled = name in scheduled_fifo_names
             if controls and scheduled:
                 raise SemanticError(
-                    f"FIFO '{name}' cannot mix global controls with rule-local actions"
+                    f"FIFO '{name}' cannot mix global controls with rule-local actions",
+                    primary=observations.declaration_origin(
+                        declaration.origin, f"storage {name}", module_context
+                    ),
                 )
             missing = required - controls.keys()
             if controls and missing:
                 raise SemanticError(
-                    f"FIFO '{name}' has no '{sorted(missing)[0]}' control assignment"
+                    f"FIFO '{name}' has no '{sorted(missing)[0]}' control assignment",
+                    primary=observations.declaration_origin(
+                        declaration.origin, f"storage {name}", module_context
+                    ),
                 )
             if not controls and not scheduled:
                 raise SemanticError(
-                    f"FIFO '{name}' requires global controls or rule-local push/pop actions"
+                    f"FIFO '{name}' requires global controls or rule-local push/pop actions",
+                    primary=observations.declaration_origin(
+                        declaration.origin, f"storage {name}", module_context
+                    ),
                 )
             data = (
                 module_context.expressions.check_typed_boundary(
@@ -444,11 +502,20 @@ class StorageAnalyzer:
             )
             if data is not None and data.type != symbol.element_type:
                 raise SemanticError(
-                    f"FIFO '{name}.data' has type {data.type}, expected "
-                    f"{symbol.element_type}"
+                    f"FIFO '{name}.data' has type {data.type}, expected {symbol.element_type}",
+                    primary=observations.declaration_origin(
+                        controls["data"].origin, f"storage {name}", module_context
+                    ),
                 )
             if push is not None and (push.type != ir_types.BitType() or pop is None or pop.type != ir_types.BitType()):
-                raise SemanticError(f"FIFO '{name}' push and pop controls must be bit")
+                raise SemanticError(
+                    f"FIFO '{name}' push and pop controls must be bit",
+                    primary=observations.declaration_origin(
+                        controls["push" if push.type != ir_types.BitType() else "pop"].origin,
+                        f"storage {name}",
+                        module_context,
+                    ),
+                )
             fifos.append(
                 ir_storage.Fifo(
                     name, symbol.element_type, symbol.depth, data, push, pop,
@@ -486,12 +553,18 @@ class StorageAnalyzer:
                 except ConstantExpressionError as error:
                     raise SemanticError(
                         f"memory '{name}' init value must be a compile-time "
-                        f"constant of exact type {symbol.element_type}: {error}"
+                        f"constant of exact type {symbol.element_type}: {error}",
+                        primary=observations.declaration_origin(
+                            declaration.initializer.origin, f"storage {name}", module_context
+                        ),
                     ) from error
             if symbol.ports:
                 if name in scheduled_memory_names:
                     raise SemanticError(
-                        f"ported memory '{name}' does not accept rule-local memory actions"
+                        f"ported memory '{name}' does not accept rule-local memory actions",
+                        primary=observations.declaration_origin(
+                            declaration.origin, f"storage {name}", module_context
+                        ),
                     )
                 address_type = ir_types.UIntType(symbol.address_width)
                 write_mask_width = (
@@ -527,7 +600,10 @@ class StorageAnalyzer:
                     if missing:
                         raise SemanticError(
                             f"memory port '{name}.{port_symbol.name}' has no "
-                            f"'{sorted(missing)[0]}' control assignment"
+                            f"'{sorted(missing)[0]}' control assignment",
+                            primary=observations.declaration_origin(
+                                declaration.origin, f"storage {name}", module_context
+                            ),
                         )
                     address = module_context.expressions.check(
                         port_controls["address"], value_symbols,
@@ -590,9 +666,13 @@ class StorageAnalyzer:
                         )
                     for label, actual, expected in expected_fields:
                         if actual != expected:
+                            source_name = ({"write_enable": enable_name, "write_data": data_name}.get(label, label) if writable else label)
                             raise SemanticError(
                                 f"memory port '{name}.{port_symbol.name}.{label}' "
-                                f"has type {actual}, expected {expected}"
+                                f"has type {actual}, expected {expected}",
+                                primary=observations.declaration_origin(
+                                    port_controls[source_name].origin, f"storage {name}", module_context
+                                ),
                             )
                     port_decl = declaration_ports[port_symbol.name]
                     port_origin = (
@@ -654,16 +734,25 @@ class StorageAnalyzer:
             scheduled = name in scheduled_memory_names
             if controls and scheduled:
                 raise SemanticError(
-                    f"memory '{name}' cannot mix global controls with rule-local actions"
+                    f"memory '{name}' cannot mix global controls with rule-local actions",
+                    primary=observations.declaration_origin(
+                        declaration.origin, f"storage {name}", module_context
+                    ),
                 )
             missing = required - controls.keys()
             if controls and missing:
                 raise SemanticError(
-                    f"memory '{name}' has no '{sorted(missing)[0]}' control assignment"
+                    f"memory '{name}' has no '{sorted(missing)[0]}' control assignment",
+                    primary=observations.declaration_origin(
+                        declaration.origin, f"storage {name}", module_context
+                    ),
                 )
             if not controls and not scheduled:
                 raise SemanticError(
-                    f"memory '{name}' requires global controls or rule-local read/write actions"
+                    f"memory '{name}' requires global controls or rule-local read/write actions",
+                    primary=observations.declaration_origin(
+                        declaration.origin, f"storage {name}", module_context
+                    ),
                 )
             address_type = ir_types.UIntType(symbol.address_width)
             masked = (
@@ -708,8 +797,10 @@ class StorageAnalyzer:
                 for field, actual, expected_type in expected_types:
                     if actual != expected_type:
                         raise SemanticError(
-                            f"memory '{name}.{field}' has type {actual}, expected "
-                            f"{expected_type}"
+                            f"memory '{name}.{field}' has type {actual}, expected {expected_type}",
+                            primary=observations.declaration_origin(
+                                controls[field].origin, f"storage {name}", module_context
+                            ),
                         )
             origin = (
                 SourceOrigin(
@@ -754,7 +845,12 @@ class StorageAnalyzer:
             controls = resource_controls[name]
             missing = {"read_address"} - controls.keys()
             if missing:
-                raise SemanticError(f"ROM '{name}' has no 'read_address' assignment")
+                raise SemanticError(
+                    f"ROM '{name}' has no 'read_address' assignment",
+                    primary=observations.declaration_origin(
+                        declaration.origin, f"storage {name}", module_context
+                    ),
+                )
             address_type = ir_types.UIntType(symbol.address_width)
             read_address = module_context.expressions.check(
                 controls["read_address"], value_symbols, address_type, module_context
@@ -762,7 +858,10 @@ class StorageAnalyzer:
             if read_address.type != address_type:
                 raise SemanticError(
                     f"ROM '{name}.read_address' has type {read_address.type}, "
-                    f"expected exact {address_type}"
+                    f"expected exact {address_type}",
+                    primary=observations.declaration_origin(
+                        controls["read_address"].origin, f"storage {name}", module_context
+                    ),
                 )
             address_range = expression_ranges.static_value_range(
                 expression_support._expand_immutable_locals(
@@ -777,7 +876,10 @@ class StorageAnalyzer:
                 )
                 raise SemanticError(
                     f"ROM '{name}.read_address' static range {described} is not "
-                    f"within 0..{symbol.depth - 1}"
+                    f"within 0..{symbol.depth - 1}",
+                    primary=observations.declaration_origin(
+                        controls["read_address"].origin, f"storage {name}", module_context
+                    ),
                 )
 
             initializer_type = ir_types.VecType(symbol.depth, symbol.element_type)
@@ -787,7 +889,10 @@ class StorageAnalyzer:
             if initializer.type != initializer_type:
                 raise SemanticError(
                     f"ROM '{name}' initializer has type {initializer.type}, expected "
-                    f"exact {initializer_type}"
+                    f"exact {initializer_type}",
+                    primary=observations.declaration_origin(
+                        declaration.initializer.origin, f"storage {name}", module_context
+                    ),
                 )
             initializer_analysis = semantic_callables._expand_analysis_calls(
                 initializer,
@@ -799,15 +904,19 @@ class StorageAnalyzer:
                 (ir_expr.Generate, ir_expr.Map, ir_expr.FunctionalRegion),
             ):
                 raise SemanticError(
-                    f"ROM '{name}' initializer must specialize to a concrete "
-                    f"{initializer_type} vector"
+                    f"ROM '{name}' initializer must specialize to a concrete {initializer_type} vector",
+                    primary=observations.declaration_origin(
+                        declaration.initializer.origin, f"storage {name}", module_context
+                    ),
                 )
             try:
                 runtime_contents = constant_runtime_value(initializer_analysis)
             except ConstantExpressionError as error:
                 raise SemanticError(
-                    f"ROM '{name}' initializer must contain compile-time constants "
-                    f"only: {error}"
+                    f"ROM '{name}' initializer must contain compile-time constants only: {error}",
+                    primary=observations.declaration_origin(
+                        declaration.initializer.origin, f"storage {name}", module_context
+                    ),
                 ) from error
             assert isinstance(runtime_contents, tuple)
             contents = (
@@ -1038,6 +1147,7 @@ class MemoryDependencyValidator:
             return referenced & combinational.keys()
 
         graph: dict[str, set[str]] = {}
+        dependency_origins = {}
         for name, memory in combinational.items():
             controls = [memory.read_address]
             if memory.collision is ir_storage.MemoryCollision.WRITE_FIRST:
@@ -1047,14 +1157,17 @@ class MemoryDependencyValidator:
                     memory.write_data,
                     memory.write_mask,
                 ))
-            graph[name] = set().union(*(
-                referenced_memories(control)
-                for control in controls
-                if control is not None
-            ))
+            graph[name] = set()
+            for control in controls:
+                if control is None:
+                    continue
+                for dependency in referenced_memories(control):
+                    graph[name].add(dependency)
+                    dependency_origins[(name, dependency)] = control.origin or memory.origin
 
         reject_dependency_cycles(
             graph,
             render_node=lambda name: f"{name}.read_data",
             description="memory",
+            origin=lambda source, target: dependency_origins.get((source, target)),
         )

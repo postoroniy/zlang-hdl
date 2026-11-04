@@ -28,6 +28,10 @@ def _append_rule_state(
     if module.registers and not module.clock_domains:
         raise SystemVerilogEmissionError("direct rule emission requires clock/reset")
     ordered_rules = _ordered_rules(module)
+    conditional_actions = any(
+        action.activation is not None
+        for rule in ordered_rules for action in rule.actions
+    )
     declarations.extend(
         sv_rendering._logic_declaration(
             identifiers.rtl_register_state_identifier(register.name), register.type
@@ -68,26 +72,38 @@ def _append_rule_state(
             logic.append(
                 f"  always_ff @({sv_sequential.clock_event(module, sv_rendering._identifier, register.domain)}) begin"
             )
+            release = (
+                f"else if ({sv_sequential.reset_deasserted(module, sv_rendering._identifier, register.domain)})"
+                if conditional_actions else "else"
+            )
             if compact_reset:
                 logic.extend((
                     f"    if ({sv_sequential.reset_asserted(module, sv_rendering._identifier, register.domain)}) "
                     f"{sv_rendering._identifier(register.name)} <= {render(register.initial)};",
-                    "    else begin",
+                    f"    {release} begin",
                 ))
             else:
                 logic.extend((
                     f"    if ({sv_sequential.reset_asserted(module, sv_rendering._identifier, register.domain)}) begin",
                     f"      {sv_rendering._identifier(register.name)} <= {render(register.initial)};",
-                    "    end else begin",
+                    f"    end {release} begin",
                 ))
             body_indent = "      "
         for index, (rule, action) in enumerate(writers):
             keyword = "if" if index == 0 else "else if"
+            condition = render(rule.guard)
+            if action.activation is not None:
+                activation = render(action.activation)
+                condition = (
+                    activation
+                    if isinstance(rule.guard, expr.Constant) and rule.guard.value == 1
+                    else f"({condition} && {activation})"
+                )
             update = sv_rendering._register_update_statement(
                 register.name, action.expression, render
             )
             logic.append(
-                f"{body_indent}{keyword} ({render(rule.guard)}) "
+                f"{body_indent}{keyword} ({condition}) "
                 f"{update}"
             )
         if default is not None:
@@ -95,7 +111,7 @@ def _append_rule_state(
             logic.append(
                 f"{prefix}{sv_rendering._identifier(register.name)} <= {render(default)};"
             )
-        elif writers:
+        elif writers and not conditional_actions:
             logic.append(
                 f"{body_indent}else {sv_rendering._identifier(register.name)} <= "
                 f"{sv_rendering._identifier(register.name)};"

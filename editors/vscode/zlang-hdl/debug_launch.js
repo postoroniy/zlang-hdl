@@ -10,6 +10,17 @@ function expandLaunchPath(value,file,folder){
   return !expanded||path.isAbsolute(expanded)?expanded:path.resolve(folder||'.',expanded);
 }
 
+function expandSimulationChannels(value,file,folder){
+  if(value===undefined)return {};
+  if(value===null||typeof value!=='object'||Array.isArray(value))
+    throw new Error('Simulation channels must map names to paths.');
+  return Object.fromEntries(Object.entries(value).map(([name,target])=>{
+    if(typeof target!=='string'||!target.length)
+      throw new Error('Simulation channel paths must be nonempty strings.');
+    return [name,target==='-'?target:expandLaunchPath(target,file,folder)];
+  }));
+}
+
 function debugLaunches(vscode){
   return (vscode.workspace.workspaceFolders||[]).flatMap(folder=>
     vscode.workspace.getConfiguration('launch',folder.uri).get('configurations',[])
@@ -67,4 +78,4 @@ class DebugLaunchController{
   }
 }
 
-module.exports={expandLaunchPath,debugLaunches,selectDebugLaunch,DebugLaunchController};
+module.exports={expandLaunchPath,expandSimulationChannels,debugLaunches,selectDebugLaunch,DebugLaunchController};

@@ -1,0 +1,4 @@
+{"reset":{"rst":true},"set":{"output":{"ready":1}},"edges":["clk"],"repeat":2}
+{"reset":{"rst":false},"edges":["clk"],"repeat":3}
+{"set":{"output":{"ready":0}},"edges":["clk"],"repeat":3}
+{"set":{"output":{"ready":1}},"edges":["clk"],"repeat":4}

@@ -46,11 +46,13 @@ class CsrBindingResolver:
         if port is None:
             raise SemanticError(
                 f"CSR field '{field_decl.name}' references unknown hardware "
-                f"signal '{signal_name}'"
+                f"signal '{signal_name}'",
+                primary=field_origin,
             )
         if port.protocol is not InterfaceProtocol.WIRE:
             raise SemanticError(
-                f"CSR hardware signal '{port.name}' must be a wire port"
+                f"CSR hardware signal '{port.name}' must be a wire port",
+                primary=field_origin,
             )
         source: ir_expr.Expression = ir_expr.InputRef(
             port.name, port.type, origin=field_origin
@@ -60,13 +62,15 @@ class CsrBindingResolver:
             if not isinstance(source_type, StructType):
                 raise SemanticError(
                     f"CSR hardware signal '{signal_name}' selects member "
-                    f"'{member_name}' from non-struct type {source_type}"
+                    f"'{member_name}' from non-struct type {source_type}",
+                    primary=field_origin,
                 )
             member = source_type.field(member_name)
             if member is None:
                 raise SemanticError(
                     f"CSR hardware signal '{signal_name}' references unknown member "
-                    f"'{member_name}' of struct '{source_type.name}'"
+                    f"'{member_name}' of struct '{source_type.name}'",
+                    primary=field_origin,
                 )
             source = ir_expr.FieldAccess(
                 source, member_name, member.type, origin=field_origin
@@ -75,47 +79,55 @@ class CsrBindingResolver:
         if source_type != field_type:
             raise SemanticError(
                 f"CSR field '{field_decl.name}' has type {field_type}, but hardware "
-                f"signal '{signal_name}' has type {source_type}"
+                f"signal '{signal_name}' has type {source_type}",
+                primary=field_origin,
             )
         kind = ir_csr.CsrBindingKind(field_decl.binding.kind.value)
         if kind is ir_csr.CsrBindingKind.STATUS:
             if access is not ir_csr.CsrAccess.READ_ONLY:
-                raise SemanticError("direct CSR status bindings require ro access")
+                raise SemanticError("direct CSR status bindings require ro access", primary=field_origin)
             if port.direction is not ir_module.PortDirection.INPUT:
                 raise SemanticError(
-                    f"CSR status signal '{port.name}' must be an input"
+                    f"CSR status signal '{port.name}' must be an input",
+                    primary=field_origin,
                 )
             if field_decl.reset is not None:
                 raise SemanticError(
                     f"hardware-driven status field '{field_decl.name}' must not "
-                    "declare a reset"
+                    "declare a reset",
+                    primary=field_origin,
                 )
         elif kind is ir_csr.CsrBindingKind.STICKY:
             if access is not ir_csr.CsrAccess.WRITE_ONE_TO_CLEAR:
-                raise SemanticError("sticky CSR bindings require w1c access")
+                raise SemanticError("sticky CSR bindings require w1c access", primary=field_origin)
             if port.direction is not ir_module.PortDirection.INPUT:
                 raise SemanticError(
-                    f"CSR sticky event '{port.name}' must be an input"
+                    f"CSR sticky event '{port.name}' must be an input",
+                    primary=field_origin,
                 )
         else:
             if member_path:
                 raise SemanticError(
-                    "CSR command bindings currently require a scalar output port"
+                    "CSR command bindings currently require a scalar output port",
+                    primary=field_origin,
                 )
             if access not in {
                 ir_csr.CsrAccess.PULSE,
                 ir_csr.CsrAccess.WRITE_ONLY,
             }:
                 raise SemanticError(
-                    "CSR command bindings require pulse or wo access"
+                    "CSR command bindings require pulse or wo access",
+                    primary=field_origin,
                 )
             if port.direction is not ir_module.PortDirection.OUTPUT:
                 raise SemanticError(
-                    f"CSR command signal '{port.name}' must be an output"
+                    f"CSR command signal '{port.name}' must be an output",
+                    primary=field_origin,
                 )
             if port.name in bound_command_outputs:
                 raise SemanticError(
-                    f"CSR command output '{port.name}' is bound more than once"
+                    f"CSR command output '{port.name}' is bound more than once",
+                    primary=field_origin,
                 )
             bound_command_outputs.add(port.name)
         priority = (
@@ -128,6 +140,7 @@ class CsrBindingResolver:
                 f"CSR hardware signal '{signal_name}' belongs to clock domain "
                 f"'{port.domain}', expected '{selected_clock}'",
                 code="ZL-DOMAIN-CROSSING",
+                primary=field_origin,
             )
         return ir_csr.CsrHardwareBinding(
             kind,

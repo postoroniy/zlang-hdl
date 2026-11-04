@@ -81,11 +81,19 @@ class HierarchicalConnectionAnalyzer:
             )
         for chain in module.connection_chains:
             if len(chain.endpoints) < 3:
-                raise SemanticError("connection chain requires at least one intermediate instance")
+                raise SemanticError(
+                    "connection chain requires at least one intermediate instance",
+                    primary=semantic_observations.declaration_origin(
+                        chain.origin, "connection chain", module_context
+                    ),
+                )
             if any("[" in item for item in chain.endpoints):
                 raise SemanticError(
                     "instance arrays require explicit indexed connections; "
-                    "connection-chain array endpoints are not supported"
+                    "connection-chain array endpoints are not supported",
+                    primary=semantic_observations.declaration_origin(
+                        chain.origin, "connection chain", module_context
+                    ),
                 )
             current_source = chain.endpoints[0]
             current_origins = (
@@ -95,21 +103,33 @@ class HierarchicalConnectionAnalyzer:
             for chain_index, instance_name in enumerate(chain.endpoints[1:-1], 1):
                 if "." in instance_name or "[" in instance_name:
                     raise SemanticError(
-                        "connection-chain intermediates must be bare physical instance names"
+                        "connection-chain intermediates must be bare physical instance names",
+                        primary=semantic_observations.declaration_origin(
+                            chain.origin, "connection chain", module_context
+                        ),
                     )
                 declaration = instance_declarations.get(instance_name)
                 child = child_irs.get(instance_name)
                 if declaration is None or child is None:
                     raise SemanticError(
-                        f"connection-chain intermediate '{instance_name}' is not an instance"
+                        f"connection-chain intermediate '{instance_name}' is not an instance",
+                        primary=semantic_observations.declaration_origin(
+                            chain.origin, "connection chain", module_context
+                        ),
                     )
                 if declaration.array_length is not None:
                     raise SemanticError(
-                        f"connection-chain intermediate '{instance_name}' cannot be an instance array"
+                        f"connection-chain intermediate '{instance_name}' cannot be an instance array",
+                        primary=semantic_observations.declaration_origin(
+                            chain.origin, "connection chain", module_context
+                        ),
                     )
                 if child.module_signature is None:
                     raise SemanticError(
-                        f"connection-chain instance '{instance_name}' must conform to one named module interface"
+                        f"connection-chain instance '{instance_name}' must conform to one named module interface",
+                        primary=semantic_observations.declaration_origin(
+                            chain.origin, "connection chain", module_context
+                        ),
                     )
                 protocol_inputs = tuple(
                     port for port in child.ports
@@ -124,7 +144,10 @@ class HierarchicalConnectionAnalyzer:
                 if len(protocol_inputs) != 1 or len(protocol_outputs) != 1:
                     raise SemanticError(
                         f"connection-chain instance '{instance_name}' requires exactly "
-                        "one protocol input and one protocol output in its named interface"
+                        "one protocol input and one protocol output in its named interface",
+                        primary=semantic_observations.declaration_origin(
+                            chain.origin, "connection chain", module_context
+                        ),
                     )
                 hierarchical_connection_declarations.append(ast.ConnectionDecl(
                     current_source,
@@ -134,6 +157,7 @@ class HierarchicalConnectionAnalyzer:
                         chain.endpoint_name_origins[chain_index]
                         if chain.endpoint_name_origins else ()
                     ),
+                                                                origin=chain.origin,
                 ))
                 current_source = f"{instance_name}.{protocol_outputs[0].name}"
                 current_origins = (
@@ -148,6 +172,7 @@ class HierarchicalConnectionAnalyzer:
                     chain.endpoint_name_origins[-1]
                     if chain.endpoint_name_origins else ()
                 ),
+                                                            origin=chain.origin,
             ))
 
         hierarchical_connection_declarations = [
@@ -267,32 +292,49 @@ class HierarchicalConnectionAnalyzer:
                     continue
                 if source_top is None or destination_top is None:
                     raise SemanticError(
-                        "aggregate protocol pass-through requires two aggregate endpoints"
+                        "aggregate protocol pass-through requires two aggregate endpoints",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 if source_top.protocol != destination_top.protocol:
                     raise SemanticError(
-                        "aggregate protocol pass-through requires the same protocol"
+                        "aggregate protocol pass-through requires the same protocol",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 if (
                     source_top.specialization_identity
                     != destination_top.specialization_identity
                 ):
                     raise SemanticError(
-                        "aggregate protocol pass-through specialization arguments "
-                        "do not match"
+                        "aggregate protocol pass-through specialization arguments do not match",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 if source_top.role == destination_top.role:
                     raise SemanticError(
-                        "aggregate protocol pass-through requires complementary roles"
+                        "aggregate protocol pass-through requires complementary roles",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 if declaration.buffer_depth or declaration.request_buffer_depth \
                         or declaration.response_buffer_depth:
                     raise SemanticError(
-                        "aggregate protocol pass-through does not accept buffering"
+                        "aggregate protocol pass-through does not accept buffering",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 if declaration.adapter is not None:
                     raise SemanticError(
-                        "aggregate protocol pass-through does not accept adapters"
+                        "aggregate protocol pass-through does not accept adapters",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 source_members = {item.name: item for item in source_top.members}
                 destination_members = {
@@ -300,7 +342,10 @@ class HierarchicalConnectionAnalyzer:
                 }
                 if set(source_members) != set(destination_members):
                     raise SemanticError(
-                        "aggregate protocol pass-through member sets do not match"
+                        "aggregate protocol pass-through member sets do not match",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 aggregate_crossing = (
                     ir_cdc.Crossing(
@@ -323,17 +368,25 @@ class HierarchicalConnectionAnalyzer:
                 if aggregate_crossing is not None:
                     if aggregate_crossing.kind is not ir_cdc.CrossingKind.ASYNC_FIFO:
                         raise SemanticError(
-                            "aggregate protocol crossings currently support only async_fifo"
+                            "aggregate protocol crossings currently support only async_fifo",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                     depth = aggregate_crossing.depth
                     if depth is None or depth < 4 or depth & (depth - 1):
                         raise SemanticError(
-                            "aggregate async_fifo depth must be a power of two and at least 4"
+                            "aggregate async_fifo depth must be a power of two and at least 4",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                     if len(source_members) != 1:
                         raise SemanticError(
-                            "aggregate async_fifo crossing requires exactly one "
-                            "ready/valid member"
+                            "aggregate async_fifo crossing requires exactly one ready/valid member",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                 for member_name, member in source_members.items():
                     other = destination_members[member_name]
@@ -344,7 +397,10 @@ class HierarchicalConnectionAnalyzer:
                         or member.sink_role != other.sink_role
                     ):
                         raise SemanticError(
-                            f"aggregate protocol member '{member_name}' does not match"
+                            f"aggregate protocol member '{member_name}' does not match",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                     if member.protocol not in {
                         ir_interfaces.InterfaceProtocol.WIRE,
@@ -352,16 +408,20 @@ class HierarchicalConnectionAnalyzer:
                         ir_interfaces.InterfaceProtocol.CREDIT,
                     }:
                         raise SemanticError(
-                            f"aggregate protocol member '{member_name}' cannot yet "
-                            "use top-level pass-through"
+                            f"aggregate protocol member '{member_name}' cannot yet use top-level pass-through",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                     if (
                         aggregate_crossing is not None
                         and member.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID
                     ):
                         raise SemanticError(
-                            "aggregate async_fifo crossing requires exactly one "
-                            "ready/valid member"
+                            "aggregate async_fifo crossing requires exactly one ready/valid member",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                     source_port = symbols[f"{source_top.name}__{member_name}"]
                     destination_port = symbols[
@@ -370,28 +430,39 @@ class HierarchicalConnectionAnalyzer:
                     if source_port.direction is not ir_module.PortDirection.INPUT:
                         raise SemanticError(
                             f"aggregate pass-through source '{source_top.name}' has "
-                            f"the wrong role for member '{member_name}'"
+                            f"the wrong role for member '{member_name}'",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                     if destination_port.direction is not ir_module.PortDirection.OUTPUT:
                         raise SemanticError(
                             f"aggregate pass-through destination "
                             f"'{destination_top.name}' has the wrong role for member "
-                            f"'{member_name}'"
+                            f"'{member_name}'",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                     if (
                         aggregate_crossing is None
                         and source_port.domain != destination_port.domain
                     ):
                         raise SemanticError(
-                            "aggregate protocol pass-through endpoints must share "
-                            "a clock domain"
+                            "aggregate protocol pass-through endpoints must share a clock domain",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                     if (
                         aggregate_crossing is not None
                         and source_port.domain == destination_port.domain
                     ):
                         raise SemanticError(
-                            "aggregate async_fifo crossing requires different domains"
+                            "aggregate async_fifo crossing requires different domains",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                     connections.append(
                         ir_module.Connection(
@@ -448,27 +519,59 @@ class HierarchicalConnectionAnalyzer:
                 destination_aggregate = source_aggregate
             if top_aggregate is not None and destination_aggregate is not None:
                 if top_aggregate.protocol != destination_aggregate.protocol:
-                    raise SemanticError("top aggregate delegation requires the same protocol")
+                    raise SemanticError(
+                        "top aggregate delegation requires the same protocol",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 if top_aggregate.specialization_identity != destination_aggregate.specialization_identity:
-                    raise SemanticError("top aggregate delegation specialization arguments do not match")
+                    raise SemanticError(
+                        "top aggregate delegation specialization arguments do not match",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 if top_aggregate.role != destination_aggregate.role:
-                    raise SemanticError("top aggregate delegation requires the same role")
+                    raise SemanticError(
+                        "top aggregate delegation requires the same role",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 if declaration.buffer_depth or declaration.adapter is not None or declaration.crossing is not None:
-                    raise SemanticError("top aggregate delegation does not accept buffering, adapters, or crossings")
+                    raise SemanticError(
+                        "top aggregate delegation does not accept buffering, adapters, or crossings",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 source_members = {member.name: member for member in top_aggregate.members}
                 destination_members = {member.name: member for member in destination_aggregate.members}
                 if set(source_members) != set(destination_members):
-                    raise SemanticError("top aggregate delegation member sets do not match")
+                    raise SemanticError(
+                        "top aggregate delegation member sets do not match",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 for name, member in source_members.items():
                     other = destination_members[name]
                     if (member.protocol, member.payload_type, member.source_role, member.sink_role) != (
                         other.protocol, other.payload_type, other.source_role, other.sink_role
                     ):
-                        raise SemanticError(f"top aggregate delegation member '{name}' does not match")
+                        raise SemanticError(
+                            f"top aggregate delegation member '{name}' does not match",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
+                        )
                     if member.domain != other.domain:
                         raise SemanticError(
-                            f"top aggregate delegation member '{name}' must share "
-                            "a clock domain"
+                            f"top aggregate delegation member '{name}' must share a clock domain",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                 normalized_top = (
                     declaration.destination if reverse_delegation
@@ -489,21 +592,51 @@ class HierarchicalConnectionAnalyzer:
                 continue
             if source_aggregate is not None or destination_aggregate is not None:
                 if source_aggregate is None or destination_aggregate is None:
-                    raise SemanticError("aggregate protocol connections require two aggregate endpoints")
+                    raise SemanticError(
+                        "aggregate protocol connections require two aggregate endpoints",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 if source_aggregate.protocol != destination_aggregate.protocol:
-                    raise SemanticError("aggregate protocol connections require the same protocol")
+                    raise SemanticError(
+                        "aggregate protocol connections require the same protocol",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 if source_aggregate.specialization_identity != destination_aggregate.specialization_identity:
-                    raise SemanticError("aggregate protocol specialization arguments do not match")
+                    raise SemanticError(
+                        "aggregate protocol specialization arguments do not match",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 if declaration.buffer_depth or declaration.adapter is not None or declaration.crossing is not None:
-                    raise SemanticError("aggregate protocol connections do not accept buffering, adapters, or crossings")
+                    raise SemanticError(
+                        "aggregate protocol connections do not accept buffering, adapters, or crossings",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 source_members = {member.name: member for member in source_aggregate.members}
                 destination_members = {member.name: member for member in destination_aggregate.members}
                 if set(source_members) != set(destination_members):
-                    raise SemanticError("aggregate protocol member sets do not match")
+                    raise SemanticError(
+                        "aggregate protocol member sets do not match",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 for member_name, member in source_members.items():
                     other = destination_members[member_name]
                     if member.protocol is not other.protocol or member.payload_type != other.payload_type:
-                        raise SemanticError(f"aggregate protocol member '{member_name}' does not match")
+                        raise SemanticError(
+                            f"aggregate protocol member '{member_name}' does not match",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
+                        )
                     if member.source_role == source_aggregate.role and member.sink_role == destination_aggregate.role:
                         source_path = f"{source_parts[0]}.{source_parts[1]}__{member_name}"
                         destination_path = f"{destination_parts[0]}.{destination_parts[1]}__{member_name}"
@@ -511,13 +644,28 @@ class HierarchicalConnectionAnalyzer:
                         source_path = f"{destination_parts[0]}.{destination_parts[1]}__{member_name}"
                         destination_path = f"{source_parts[0]}.{source_parts[1]}__{member_name}"
                     else:
-                        raise SemanticError(f"aggregate protocol member '{member_name}' has incompatible roles")
+                        raise SemanticError(
+                            f"aggregate protocol member '{member_name}' has incompatible roles",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
+                        )
                     source_endpoint = endpoint(source_path, source=True)
                     destination_endpoint = endpoint(destination_path, source=False)
                     if source_endpoint.protocol is not destination_endpoint.protocol or source_endpoint.payload_type != destination_endpoint.payload_type:
-                        raise SemanticError(f"aggregate protocol member '{member_name}' endpoint mismatch")
+                        raise SemanticError(
+                            f"aggregate protocol member '{member_name}' endpoint mismatch",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
+                        )
                     if source_endpoint.domain != destination_endpoint.domain:
-                        raise SemanticError("aggregate protocol endpoints must share a clock domain")
+                        raise SemanticError(
+                            "aggregate protocol endpoints must share a clock domain",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
+                        )
                     hierarchical_connections.append(ir_module.HierarchicalConnection(source_endpoint, destination_endpoint))
                 aggregate_protocol_connections.append(
                     ir_module.AggregateProtocolConnection(
@@ -537,26 +685,54 @@ class HierarchicalConnectionAnalyzer:
             if source_rr is not None or destination_rr is not None:
                 if source_rr is None or destination_rr is None:
                     raise SemanticError(
-                        "request/response hierarchy connections require two "
-                        "request/response endpoints"
+                        "request/response hierarchy connections require two request/response endpoints",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 if source_rr.request_type != destination_rr.request_type:
-                    raise SemanticError("request/response request payload types do not match")
+                    raise SemanticError(
+                        "request/response request payload types do not match",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 if source_rr.response_type != destination_rr.response_type:
-                    raise SemanticError("request/response response payload types do not match")
+                    raise SemanticError(
+                        "request/response response payload types do not match",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 if source_rr.max_outstanding != destination_rr.max_outstanding:
-                    raise SemanticError("request/response max_outstanding values do not match")
+                    raise SemanticError(
+                        "request/response max_outstanding values do not match",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 if source_rr.ordering is not destination_rr.ordering:
-                    raise SemanticError("request/response ordering contracts do not match")
+                    raise SemanticError(
+                        "request/response ordering contracts do not match",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
+                    )
                 if source_rr.max_outstanding <= 0 or source_rr.ordering is not ir_interfaces.RequestResponseOrdering.IN_ORDER:
                     raise SemanticError(
                         "hierarchical request/response currently supports only "
-                        "positive max_outstanding with ordering in_order"
+                        "positive max_outstanding with ordering in_order",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 if declaration.buffer_depth:
                     raise SemanticError(
                         "generic 'buffer' is ambiguous on request/response connections; "
-                        "use request_buffer and/or response_buffer"
+                        "use request_buffer and/or response_buffer",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 rr_edges: dict[ir_interfaces.RequestResponseChannel, ir_module.HierarchicalConnection] = {}
                 for channel in (ir_interfaces.RequestResponseChannel.REQUEST, ir_interfaces.RequestResponseChannel.RESPONSE):
@@ -573,7 +749,12 @@ class HierarchicalConnectionAnalyzer:
                         destination_path, source=False, channel=channel
                     )
                     if source_endpoint.domain != destination_endpoint.domain:
-                        raise SemanticError("hierarchical request/response endpoints must share a clock domain")
+                        raise SemanticError(
+                            "hierarchical request/response endpoints must share a clock domain",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
+                        )
                     if any(
                         edge.source.owner == source_endpoint.owner
                         and edge.source.name == source_endpoint.name
@@ -582,7 +763,10 @@ class HierarchicalConnectionAnalyzer:
                     ):
                         raise SemanticError(
                             f"request/response endpoint '{source_endpoint.owner}.{source_endpoint.name}' "
-                            f"is connected more than once on {channel.value}"
+                            f"is connected more than once on {channel.value}",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.origin, "connection", module_context
+                            ),
                         )
                     edge = ir_module.HierarchicalConnection(
                             source_endpoint,
@@ -637,11 +821,26 @@ class HierarchicalConnectionAnalyzer:
                 name_origins=declaration.destination_name_origins,
             )
             if source.protocol is not destination.protocol:
-                raise SemanticError("hierarchical protocol connections require identical protocols")
+                raise SemanticError(
+                    "hierarchical protocol connections require identical protocols",
+                    primary=semantic_observations.declaration_origin(
+                        declaration.origin, "connection", module_context
+                    ),
+                )
             if source.payload_type != destination.payload_type:
-                raise SemanticError("hierarchical protocol payload types do not match")
+                raise SemanticError(
+                    "hierarchical protocol payload types do not match",
+                    primary=semantic_observations.declaration_origin(
+                        declaration.origin, "connection", module_context
+                    ),
+                )
             if source.domain != destination.domain:
-                raise SemanticError("hierarchical protocol endpoints must share a clock domain")
+                raise SemanticError(
+                    "hierarchical protocol endpoints must share a clock domain",
+                    primary=semantic_observations.declaration_origin(
+                        declaration.origin, "connection", module_context
+                    ),
+                )
             array_edge = array_physical_owner(source.owner) or array_physical_owner(
                 destination.owner
             )
@@ -654,22 +853,35 @@ class HierarchicalConnectionAnalyzer:
             ):
                 raise SemanticError(
                     "ready/valid instance-array connections must be direct and "
-                    "cannot use buffering, adapters, or crossings"
+                    "cannot use buffering, adapters, or crossings",
+                    primary=semantic_observations.declaration_origin(
+                        declaration.origin, "connection", module_context
+                    ),
                 )
             if declaration.adapter is not None:
-                raise SemanticError("hierarchical protocol connections do not accept adapters")
+                raise SemanticError(
+                    "hierarchical protocol connections do not accept adapters",
+                    primary=semantic_observations.declaration_origin(
+                        declaration.origin, "connection", module_context
+                    ),
+                )
             if array_edge:
                 source_key = (source.owner, source.name)
                 destination_key = (destination.owner, destination.name)
                 if source_key in array_rv_sources:
                     raise SemanticError(
-                        f"ready/valid array endpoint '{source.owner}.{source.name}' "
-                        "has multiple consumers"
+                        f"ready/valid array endpoint '{source.owner}.{source.name}' has multiple consumers",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 if destination_key in array_rv_destinations:
                     raise SemanticError(
                         f"ready/valid array endpoint "
-                        f"'{destination.owner}.{destination.name}' has multiple drivers"
+                        f"'{destination.owner}.{destination.name}' has multiple drivers",
+                        primary=semantic_observations.declaration_origin(
+                            declaration.origin, "connection", module_context
+                        ),
                     )
                 array_rv_sources.add(source_key)
                 array_rv_destinations.add(destination_key)

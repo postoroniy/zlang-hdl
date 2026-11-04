@@ -5,7 +5,7 @@
 The generic composition slice expands a parameterized protocol endpoint during
 semantic elaboration. For example:
 
-```zl
+```zlang
 protocol TinyBus<AW=8> {
     role initiator
     role target

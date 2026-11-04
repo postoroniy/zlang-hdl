@@ -130,8 +130,8 @@ ready/valid members, ownership, and domains; transaction state machines belong
 to library modules. `RegBus<32,32>` is the typed CSR boundary.
 
 The AXI4-Lite and APB profiles use one clock/reset and one outstanding
-operation. `Axi4LiteToRegBus` buffers AW and W independently and joins them
-after both transfers; AR returns one held R response. `ApbToRegBus` implements
+operation. `AXI4LiteToRegBus` buffers AW and W independently and joins them
+after both transfers; AR returns one held R response. `APBToRegBus` implements
 setup/access phases and holds controls stable while waiting for PREADY.
 Top-level aggregate endpoints expose typed public leaves (for example,
 `axi_aw_valid` and `apb_psel`); `connect axi -> frontend.axi` delegates a

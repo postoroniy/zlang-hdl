@@ -1,14 +1,18 @@
 # Contributing to ZLang HDL
 
-Thank you for helping improve ZLang HDL. The project welcomes focused bug reports,
-documentation corrections, tests, and bounded compiler changes.
+`0.1.0a24` is the final planned public alpha release; it remains a candidate
+until publication. Public contributions are limited to focused bug/security
+reports, documentation corrections and independently testable maintenance fixes.
+Acceptance and future fixes are at the maintainer's discretion. New features,
+experimental compiler capabilities and further public feature releases are not
+planned. Existing licences and contribution provenance requirements remain unchanged.
 
 ## Before opening a change
 
 - Search existing issues and the [language support matrix](docs/language-reference.md#reference-syntax-support-matrix).
 - Keep one pull request focused on one independently testable change.
-- Discuss broad language, IR, backend, or formal-semantics changes in an issue
-  before implementation.
+- Do not start a public language, IR, backend or formal-semantics feature change;
+  it is outside this maintenance scope.
 - Do not weaken fail-closed diagnostics, formal expectations, or existing tests
   to make a new feature pass.
 - State the origin and license of any third-party code, fixtures, algorithms, or
@@ -22,14 +26,18 @@ requiring a version-suffixed Python command from the host:
 
 ```bash
 uv python install 3.12
-uv venv --python 3.12
-uv pip install -e '.[test]'
+make venv PYTHON_PROFILE=dev
+source .venv/bin/activate
 .venv/bin/python -m pytest -q
 ```
 
 Each checkout and Git worktree owns its own `.venv`; never borrow an
 interpreter from a sibling checkout.  The supported bootstrap command is
-`make venv`, followed by `source .venv/bin/activate` for interactive work.
+`make venv PYTHON_PROFILE=dev`, followed by `source .venv/bin/activate` for interactive work.
+The default `make venv` retains the full release setup; runtime-only use is
+`make install`. Profiles add dependencies and never remove
+existing packages. Before release/audit gates, install the complete profile with
+`make venv PYTHON_PROFILE=release INSTALL_EDITOR=0`.
 Make targets always select the local environment themselves and fail closed if
 an unrelated `VIRTUAL_ENV` is active.
 
@@ -63,14 +71,15 @@ Before calling a source change complete:
 4. Run applicable formal tests without inventing new claims.
 5. Run the regression gate and `git diff --check` required by the change.
 
-## Language-reference PDF
+## Manual PDFs
 
-This is a documentation-maintainer workflow, not a prerequisite for installing
-or using ZLang. The official PDF is built by release maintainers with a
-host-owned builder and reviewed cover asset that are deliberately outside the
-public source distribution. Documentation pull requests should update the
-Markdown sources and exercise their examples; the release process rebuilds the
-PDF twice, validates its bound metadata, and requires an all-page visual review.
+The Language Reference, Standard Library Guide and User Guide share the chapter
+sources and book mapping in `docs/manuals.toml`. Release maintainers build the
+three PDFs with the host-owned renderer and reviewed cover asset. Documentation
+contributions update those Markdown sources and exercise their examples. The
+release process builds the complete set twice, validates each book's metadata
+and requires an all-page visual review. The builder is separate from ordinary
+installation and use.
 
 ## Pull requests
 

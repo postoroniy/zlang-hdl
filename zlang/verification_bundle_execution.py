@@ -13,6 +13,7 @@ from typing import Iterable, Mapping
 
 from zlang.backend.source_map import GeneratedSourceMap
 from zlang.common import stable_digest
+from zlang.formal_execution_tools import FormalToolBinding, binding_identity
 from zlang.common.content_cache import load_json_object, publish_json_atomically
 from zlang.formal import (
     FormalToolchainContext,
@@ -278,6 +279,7 @@ def _verification_result_cache_identity(
     *,
     config: bundle_report.VerificationRunConfig,
     tool_versions: Iterable[tuple[str, str]],
+    tool_binding_identity: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     job_data = job.to_data()
     route = {
@@ -309,6 +311,8 @@ def _verification_result_cache_identity(
         "run_report_schema_version": bundle_codec.VERIFICATION_RUN_REPORT_SCHEMA_VERSION,
         "schema": bundle_codec.VERIFICATION_RESULT_CACHE_SCHEMA,
         "schema_version": bundle_codec.VERIFICATION_RESULT_CACHE_SCHEMA_VERSION,
+        "formal_execution_tools": (binding_identity(FormalToolBinding.discover(config.solver))
+                                   if tool_binding_identity is None else dict(tool_binding_identity)),
         "tool_versions": [
             list(item)
             for item in _relevant_verification_tool_versions(config, tool_versions)
@@ -402,11 +406,13 @@ def _load_verification_result_cache(
     *,
     config: bundle_report.VerificationRunConfig,
     tool_versions: tuple[tuple[str, str], ...],
+    tool_binding_identity: Mapping[str, object] | None = None,
 ) -> tuple[bundle_report.VerificationJobResult | None, str | None, dict[str, object] | None]:
     if cache_directory is None:
         return None, None, None
     identity = _verification_result_cache_identity(
-        loaded, job, config=config, tool_versions=tool_versions
+        loaded, job, config=config, tool_versions=tool_versions,
+        tool_binding_identity=tool_binding_identity,
     )
     key = stable_digest(identity)
     canonical = cache_directory / "safety verification" / "results" / f"{key}.json"
@@ -669,6 +675,8 @@ def _run_verification_bundle_unlocked(
             job,
             config=config,
             tool_versions=versions,
+            tool_binding_identity=(None if cache_root is None or execution.toolchain is None
+                                   else execution.toolchain.execution_identity),
         )
         if cached is not None:
             return _VerificationExecution(

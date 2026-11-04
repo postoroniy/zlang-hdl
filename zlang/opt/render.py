@@ -182,6 +182,7 @@ _ORIGIN_FIELDS = frozenset(
         # Verification declarations intentionally have a separate identity;
         # source assertions must not invalidate selected-hardware/semantic-reference equivalence keys.
         "verification_scopes",
+        "simulation_blocks",
         "verification_expressions",
         # Compilation-local DAG accounting/provenance is diagnostic host
         # evidence, never canonical language semantics.

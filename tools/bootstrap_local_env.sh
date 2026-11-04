@@ -9,11 +9,19 @@ tmp_root="${ZLANG_TMP_ROOT:-$root/build/tmp}"
 install_editor="${ZLANG_INSTALL_EDITOR:-1}"
 vscode="${ZLANG_VSCODE:-code}"
 make_command="${MAKE:-make}"
+profile="${ZLANG_PYTHON_PROFILE-release}"
 [[ "$venv" == /* ]] || venv="$root/$venv"
 [[ "$tmp_root" == /* ]] || tmp_root="$root/$tmp_root"
 cd "$root"
 
 fail() { printf 'make venv: %s\n' "$*" >&2; exit 2; }
+
+# Profiles add dependencies; they never synchronize or prune an existing venv.
+case "$profile" in
+    runtime) project_requirement='.' ;;
+    dev|release) project_requirement='.[test]' ;;
+    *) fail 'PYTHON_PROFILE must be runtime, dev or release' ;;
+esac
 
 check_local_path() {
     local candidate="$1" ancestor="$1" physical
@@ -83,8 +91,10 @@ export PATH="$venv/bin:$PATH" VIRTUAL_ENV="$venv"
 if command -v uv >/dev/null; then
     uv pip install --python "$python" "pip==${ZLANG_BOOTSTRAP_PIP_VERSION:?}" \
         "setuptools==${ZLANG_BOOTSTRAP_SETUPTOOLS_VERSION:?}"
-    uv pip install --python "$python" --no-build-isolation -e '.[test]'
-    uv pip install --python "$python" "$@"
+    uv pip install --python "$python" --no-build-isolation -e "$project_requirement"
+    if [[ $# -gt 0 ]]; then
+        uv pip install --python "$python" "$@"
+    fi
 else
     if ! "$python" -m pip --version >/dev/null 2>&1; then
         "$python" -m ensurepip --upgrade || \
@@ -92,8 +102,10 @@ else
     fi
     "$python" -m pip install --disable-pip-version-check --upgrade \
         "pip==${ZLANG_BOOTSTRAP_PIP_VERSION:?}" "setuptools==${ZLANG_BOOTSTRAP_SETUPTOOLS_VERSION:?}"
-    "$python" -m pip install --disable-pip-version-check --no-build-isolation -e '.[test]'
-    "$python" -m pip install --disable-pip-version-check "$@"
+    "$python" -m pip install --disable-pip-version-check --no-build-isolation -e "$project_requirement"
+    if [[ $# -gt 0 ]]; then
+        "$python" -m pip install --disable-pip-version-check "$@"
+    fi
 fi
 version="$("$python" -c 'from zlang._version import __version__; print(__version__)')"
 if ! "$make_command" --no-print-directory native-release-install \

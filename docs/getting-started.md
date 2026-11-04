@@ -21,9 +21,13 @@ workflow does not require a suitable Python interpreter to be installed first;
 `uv` can download and manage the verified runtime. From the repository root:
 
 ```sh
-make venv
+make install
 source .venv/bin/activate
 ```
+
+This is the ordinary compiler/native/LSP setup. Compiler contributors can use
+`make venv PYTHON_PROFILE=dev` for test/formal dependencies and Ruff; the default
+`make venv` selects the complete release-maintainer profile.
 
 If a compatible interpreter is already available, the complete installation
 guide also documents a conventional `venv`/pip path without relying on a

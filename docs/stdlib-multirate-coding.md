@@ -2,8 +2,8 @@
 
 These source modules use the ordinary ready/valid contract. Input samples and
 all associated controls are consumed only on `input.transfer`. Except for the
-multi-stage CORDIC pipeline and interpolator phase batches described below,
-there is one pending result slot.
+multi-stage CORDIC pipelines, two-stage interpolated NCO and interpolator
+phase batches described below, there is one pending result slot.
 A stalled result holds its value and stops new acceptance;
 same-edge retirement and acceptance are allowed. Reset discards pending work.
 No component below changes clock domains or inserts a hidden rate converter.

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from zlang.source import SourceSpan
+from zlang.simulation_io_model import SimulationBlock
 
 
 class Direction(str, Enum):
@@ -291,6 +292,7 @@ class AggregateInterfaceDecl:
     arguments: tuple[SpecializationArgument, ...]
     role: str
     domain: str | None = None
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -332,6 +334,7 @@ class ModuleParameter:
     type_name: TypeSyntax | None = None
     callable_parameters: tuple[TypeSyntax, ...] = ()
     callable_return_type: TypeSyntax | None = None
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -346,6 +349,7 @@ class CallableRef:
 class SpecializationArgument:
     name: str | None
     value: int | str | TypeSyntax | CallableRef
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -441,6 +445,7 @@ class RequestResponseDecl:
     max_outstanding: int
     ordering: RequestResponseOrdering
     match_by: str | None = None
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 class ConnectionAdapter(str, Enum):
@@ -484,6 +489,7 @@ class ConnectionDecl:
     destination_name_origins: tuple[SourceSpan | None, ...] = field(
         default=(), compare=False, repr=False
     )
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -513,6 +519,7 @@ class ArbiterDecl:
     destination: str
     policy: ArbitrationPolicy
     grant_scope: GrantScope
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 class ContractKind(str, Enum):
@@ -1204,6 +1211,7 @@ class ContractDecl:
     clock: str
     reset: str
     expression: Expression
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1467,6 +1475,7 @@ class FsmDecl:
 class RulePriority:
     higher: str
     lower: str
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1474,6 +1483,7 @@ class RulePriorityChain:
     """Syntax-only priority chain lowered to adjacent RulePriority edges."""
 
     names: tuple[str, ...]
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -1643,6 +1653,7 @@ class Module:
     contracts: tuple[ContractDecl, ...] = ()
     verification_goals: tuple[VerificationGoalDecl, ...] = ()
     verification_scopes: tuple[VerificationScopeDecl, ...] = ()
+    simulation_blocks: tuple[SimulationBlock[Expression], ...] = field(default=(), repr=False)
     equivalences: tuple[EquivDecl, ...] = ()
     parameters: tuple[ModuleParameter, ...] = ()
     instances: tuple[InstanceDecl, ...] = ()

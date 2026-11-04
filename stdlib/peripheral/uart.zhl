@@ -1,0 +1,132 @@
+import std.peripheral.regbus
+
+struct UartRxBeat { data:bits<8> framing_error:bit }
+
+// One 8N1 transmitter, LSB first, with an immutable sample-clock divisor.
+module UartTx8N1<DIVISOR=16> where DIVISOR >= 4 && DIVISOR <= 65535 {
+    clock clk reset rst
+    in reset_active : bit
+    in input : rv<bits<8>>
+    out tx,busy : bit
+    reg frame : bits<10> = 0x3ff
+    reg remaining : u4 = 0
+    reg timer : u16 = 0
+    active = remaining != 0
+    finishing = active & (remaining == 1) & (timer == 0)
+    input.ready = ~reset_active & (~active | finishing)
+    tx = reset_active ? 1 : (active ? frame[0] : 1)
+    busy = active
+    when input.transfer {
+        frame <- concat(bitcast<bits<1>>(1),input.payload,bitcast<bits<1>>(0))
+        remaining <- 10
+        timer <- extend<16>(DIVISOR-1)
+    } else when active {
+        when timer == 0 {
+            frame <- (frame>>1) | 0x200
+            timer <- extend<16>(DIVISOR-1)
+            remaining <- truncate<4>(remaining-1)
+        } else { timer <- truncate<16>(timer-1) }
+    }
+}
+
+// One receive slot. Framing errors are explicit; overflow is sticky until reset.
+// rx_sampled must already belong to clk's sampling domain.
+module UartRx8N1<DIVISOR=16> where DIVISOR >= 4 && DIVISOR <= 65535 {
+    clock clk reset rst
+    in reset_active,rx_sampled : bit
+    out output : rv<UartRxBeat>
+    out busy,overrun : bit
+    reg state : u3 = 0
+    reg timer : u16 = 0
+    reg bit_index : u3 = 0
+    reg shift : bits<8> = 0
+    reg pending : bit = 0
+    reg data : bits<8> = 0
+    reg framing : bit = 0
+    reg lost : bit = 0
+    complete = ~reset_active & (state == 3) & (timer == 0)
+    available = ~pending | output.transfer
+    store = complete & available
+    output.valid = ~reset_active & pending
+    output.payload = UartRxBeat {data=data framing_error=framing}
+    busy = state != 0
+    overrun = lost
+    pending <- store ? 1 : (output.transfer ? 0 : pending)
+    lost <- lost | (complete & ~available)
+    when store { data <- shift framing <- ~rx_sampled }
+    when state == 0 {
+        when ~rx_sampled { state <- 1 timer <- extend<16>((DIVISOR>>1)-1) }
+    } else when state == 4 {
+        when rx_sampled { state <- 0 }
+    } else when timer != 0 {
+        timer <- truncate<16>(timer-1)
+    } else when state == 1 {
+        when rx_sampled { state <- 0 }
+        else { state <- 2 bit_index <- 0 timer <- extend<16>(DIVISOR-1) }
+    } else when state == 2 {
+        shift <- (shift>>1) | (rx_sampled ? bitcast<bits<8>>(0x80) : zeros<8>)
+        timer <- extend<16>(DIVISOR-1)
+        when bit_index == 7 { state <- 3 }
+        else { bit_index <- truncate<3>(bit_index+1) }
+    } else when state == 3 { state <- rx_sampled ? 0 : 4 }
+}
+
+// Register declarations own read data, reset storage and command events.
+module Uart8N1BasicRegisters<DIVISOR=16> {
+    clock clk reset rst
+    in status,received:u32
+    in cfg_divisor:u32
+    out transmit,pop:bits<32>
+    csr registers @0 {
+        STATUS @0 { value u32 @31:0 ro <- status }
+        TX @4 { value u32 @31:0 ro=0
+            command bits<32> @31:0 on_write -> transmit }
+        RX @8 { value u32 @31:0 ro <- received }
+        POP @12 { value u32 @31:0 ro=0
+            command bits<32> @31:0 on_write -> pop }
+        DIVISOR @16 { value u32 @31:0 ro <- cfg_divisor }
+    }
+}
+
+module Uart8N1RegBus32<DIVISOR=16> {
+    clock clk reset rst
+    in reset_active : bit
+    interface regbus : RegBus<32,32>.responder
+    in rx_sampled:bit out tx:bit
+
+    port : BasicPeripheralTarget32 {reset_active}
+    port.request.payload=regbus.request.payload
+    port.request.valid=regbus.request.valid
+    regbus.request.ready=port.request.ready
+    regbus.response.payload=port.response.payload
+    regbus.response.valid=port.response.valid
+    port.response.ready=regbus.response.ready
+    writing=regbus.request.payload.write
+    strobes=regbus.request.payload.wstrb
+    address=regbus.request.payload.addr
+    effective=strobes!=0
+    port.read_value=bank.rdata
+    port.error=invalid
+
+    // Named CSR read-hit views decode presence and access without write feedback.
+    // CSR ready includes its write enable; it is not a permission predicate.
+    read_only=bank.registers.events.STATUS.value.read_hit | bank.registers.events.RX.value.read_hit | bank.registers.events.DIVISOR.value.read_hit
+    present=read_only | bank.registers.events.TX.value.read_hit | bank.registers.events.POP.value.read_hit
+    invalid=~present | (writing & read_only) | (writing & strobes[0] & (((bank.registers.events.TX.value.read_hit) & ~transmitter.input.ready) | ((bank.registers.events.POP.value.read_hit) & regbus.request.payload.wdata[0] & ~receiver.output.valid)))
+    old_word=zeros<32>
+    bank : Uart8N1BasicRegisters<DIVISOR=DIVISOR> {
+        addr=address read=1
+        write=port.accept & writing & ~invalid & (strobes[0])
+        wdata=bitcast<u32>(basic_peripheral_merge(old_word,
+            bitcast<bits<32>>(regbus.request.payload.wdata),strobes))
+    }
+    bank.cfg_divisor=extend<32>(DIVISOR)
+    bank.status=bitcast<u32>(concat(zeros<26>,bitcast<bits<1>>(receiver.busy),bitcast<bits<1>>(transmitter.busy),bitcast<bits<1>>(receiver.overrun),bitcast<bits<1>>(receiver.output.payload.framing_error),bitcast<bits<1>>(receiver.output.valid),bitcast<bits<1>>(transmitter.input.ready)))
+    bank.received=bitcast<u32>(concat(zeros<23>,bitcast<bits<1>>(receiver.output.payload.framing_error),receiver.output.payload.data))
+    transmitter:UartTx8N1<DIVISOR=DIVISOR> {reset_active}
+    transmitter.input.valid=bank.registers.events.TX.value.write_hit
+    transmitter.input.payload=bank.transmit[7:0]
+    receiver:UartRx8N1<DIVISOR=DIVISOR> {reset_active rx_sampled}
+    receiver.output.ready=bank.pop[0]
+    tx=transmitter.tx
+}

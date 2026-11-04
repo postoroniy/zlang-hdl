@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any
 
+from zlang.diagnostics import diagnostic_source
 from zlang.ast import nodes as ast
 from zlang.ir import expressions as ir_expr
 from zlang.ir import module as ir_module
@@ -67,7 +68,7 @@ class AssignmentAnalyzer:
         ] = {}
         for declaration in module.instances:
             hierarchical_assignments.extend(
-                ast.Assignment(f"{declaration.name}.{binding.target}", binding.expression)
+                replace(binding, target=f"{declaration.name}.{binding.target}")
                 for binding in declaration.bindings
             )
         for assignment in hierarchical_assignments:
@@ -91,16 +92,24 @@ class AssignmentAnalyzer:
                             or child_port.direction is not ir_module.PortDirection.INPUT
                         ):
                             raise SemanticError(
-                                f"'{assignment.target}' is not a writable static "
-                                "child ready/valid payload field"
+                                f"'{assignment.target}' is not a writable static child ready/valid payload field",
+                                primary=semantic_observations.declaration_origin(
+                                    assignment.name_origin or assignment.origin,
+                                    f"assignment {assignment.target}",
+                                    module_context,
+                                ),
                             )
                         field_path = tuple(parts[payload_index + 1:])
                         field_type: ir_types.HardwareType = child_port.type
                         for field_name in field_path:
                             if not isinstance(field_type, ir_types.StructType):
                                 raise SemanticError(
-                                    f"'{assignment.target}' does not select a "
-                                    "struct payload field"
+                                    f"'{assignment.target}' does not select a struct payload field",
+                                    primary=semantic_observations.declaration_origin(
+                                        assignment.name_origin or assignment.origin,
+                                        f"assignment {assignment.target}",
+                                        module_context,
+                                    ),
                                 )
                             selected = next(
                                 (field for field in field_type.fields
@@ -108,8 +117,12 @@ class AssignmentAnalyzer:
                             )
                             if selected is None:
                                 raise SemanticError(
-                                    f"child payload '{child_name}' has no field "
-                                    f"'{field_name}'"
+                                    f"child payload '{child_name}' has no field '{field_name}'",
+                                    primary=semantic_observations.declaration_origin(
+                                        assignment.name_origin or assignment.origin,
+                                        f"assignment {assignment.target}",
+                                        module_context,
+                                    ),
                                 )
                             field_type = selected.type
                         bound = module_context.expressions.check_typed_boundary(
@@ -118,8 +131,12 @@ class AssignmentAnalyzer:
                         )
                         if bound.type != field_type:
                             raise SemanticError(
-                                f"binding '{assignment.target}' has type "
-                                f"{bound.type}, expected {field_type}"
+                                f"binding '{assignment.target}' has type {bound.type}, expected {field_type}",
+                                primary=semantic_observations.declaration_origin(
+                                    assignment.name_origin or assignment.origin,
+                                    f"assignment {assignment.target}",
+                                    module_context,
+                                ),
                             )
                         bound_domains = {
                             item for item in expression_domains.expression_domains(
@@ -147,8 +164,12 @@ class AssignmentAnalyzer:
                         )
                         if field_path in fields_for_port:
                             raise SemanticError(
-                                f"child protocol payload field '{assignment.target}' "
-                                "has multiple drivers"
+                                f"child protocol payload field '{assignment.target}' has multiple drivers",
+                                primary=semantic_observations.declaration_origin(
+                                    assignment.name_origin or assignment.origin,
+                                    f"assignment {assignment.target}",
+                                    module_context,
+                                ),
                             )
                         fields_for_port[field_path] = bound
                         continue
@@ -156,12 +177,22 @@ class AssignmentAnalyzer:
                         signal = ir_interfaces.ReadyValidSignal(parts[-1])
                     except ValueError as error:
                         raise SemanticError(
-                            f"child protocol signal '{assignment.target}' is unknown"
+                            f"child protocol signal '{assignment.target}' is unknown",
+                            primary=semantic_observations.declaration_origin(
+                                assignment.name_origin or assignment.origin,
+                                f"assignment {assignment.target}",
+                                module_context,
+                            ),
                         ) from error
                     if signal is ir_interfaces.ReadyValidSignal.TRANSFER or len(parts) not in {3, 4}:
                         raise SemanticError(
                             f"child protocol binding '{assignment.target}' must select "
-                            "one payload, valid, or ready signal"
+                            "one payload, valid, or ready signal",
+                            primary=semantic_observations.declaration_origin(
+                                assignment.name_origin or assignment.origin,
+                                f"assignment {assignment.target}",
+                                module_context,
+                            ),
                         )
                     child_name = "__".join(parts[1:-1])
                     child_port = next(
@@ -169,8 +200,12 @@ class AssignmentAnalyzer:
                     )
                     if child_port is None or child_port.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID:
                         raise SemanticError(
-                            f"'{assignment.target}' is not a static child "
-                            "ready/valid signal"
+                            f"'{assignment.target}' is not a static child ready/valid signal",
+                            primary=semantic_observations.declaration_origin(
+                                assignment.name_origin or assignment.origin,
+                                f"assignment {assignment.target}",
+                                module_context,
+                            ),
                         )
                     writable = (
                         signal is ir_interfaces.ReadyValidSignal.READY
@@ -179,7 +214,12 @@ class AssignmentAnalyzer:
                     )
                     if not writable:
                         raise SemanticError(
-                            f"child protocol signal '{assignment.target}' is child-owned"
+                            f"child protocol signal '{assignment.target}' is child-owned",
+                            primary=semantic_observations.declaration_origin(
+                                assignment.name_origin or assignment.origin,
+                                f"assignment {assignment.target}",
+                                module_context,
+                            ),
                         )
                     signal_type = (
                         child_port.type if signal is ir_interfaces.ReadyValidSignal.PAYLOAD else ir_types.BitType()
@@ -190,8 +230,12 @@ class AssignmentAnalyzer:
                     )
                     if bound.type != signal_type:
                         raise SemanticError(
-                            f"binding '{assignment.target}' has type {bound.type}, "
-                            f"expected {signal_type}"
+                            f"binding '{assignment.target}' has type {bound.type}, expected {signal_type}",
+                            primary=semantic_observations.declaration_origin(
+                                assignment.name_origin or assignment.origin,
+                                f"assignment {assignment.target}",
+                                module_context,
+                            ),
                         )
                     scalar_name = ir_interfaces.ready_valid_field_name(child_name, signal)
                     if any(
@@ -199,8 +243,12 @@ class AssignmentAnalyzer:
                         for item in instance_bindings
                     ):
                         raise SemanticError(
-                            f"child protocol signal '{assignment.target}' has "
-                            "multiple drivers"
+                            f"child protocol signal '{assignment.target}' has multiple drivers",
+                            primary=semantic_observations.declaration_origin(
+                                assignment.name_origin or assignment.origin,
+                                f"assignment {assignment.target}",
+                                module_context,
+                            ),
                         )
                     bound_domains = {
                         item for item in expression_domains.expression_domains(
@@ -224,25 +272,56 @@ class AssignmentAnalyzer:
                     )
                     continue
                 if len(parts) != 2:
-                    raise SemanticError("instance binding must select one child port")
+                    raise SemanticError(
+                        "instance binding must select one child port",
+                        primary=semantic_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"assignment {assignment.target}",
+                            module_context,
+                        ),
+                    )
                 child = child_irs[root]
                 child_port = next((port for port in child.inputs if port.name == parts[1]), None)
                 if child_port is None:
-                    raise SemanticError(f"instance '{root}' has no input port '{parts[1]}'")
+                    raise SemanticError(
+                        f"instance '{root}' has no input port '{parts[1]}'",
+                        primary=semantic_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"assignment {assignment.target}",
+                            module_context,
+                        ),
+                    )
                 if child_port.protocol is not ir_interfaces.InterfaceProtocol.WIRE:
                     raise SemanticError(
                         f"protocol endpoint '{assignment.target}' must use connect, "
-                        "not an inline scalar binding"
+                        "not an inline scalar binding",
+                        primary=semantic_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"assignment {assignment.target}",
+                            module_context,
+                        ),
                     )
                 bound = module_context.expressions.check_typed_boundary(
                     assignment.expression, value_symbols, child_port.type, module_context
                 )
                 if bound.type != child_port.type:
                     raise SemanticError(
-                        f"binding '{assignment.target}' has type {bound.type}, expected {child_port.type}"
+                        f"binding '{assignment.target}' has type {bound.type}, expected {child_port.type}",
+                        primary=semantic_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"assignment {assignment.target}",
+                            module_context,
+                        ),
                     )
                 if any(item.instance == root and item.port == child_port.name for item in instance_bindings):
-                    raise SemanticError(f"instance input '{assignment.target}' is assigned more than once")
+                    raise SemanticError(
+                        f"instance input '{assignment.target}' is assigned more than once",
+                        primary=semantic_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"assignment {assignment.target}",
+                            module_context,
+                        ),
+                    )
                 bound_domains = {
                     item
                     for item in expression_domains.expression_domains(
@@ -281,13 +360,27 @@ class AssignmentAnalyzer:
                     )
                     break
             if root in request_response_symbols:
-                target, channel, signal, target_type = assignment_targets.resolve_request_response_target(
-                    target_text, request_response_symbols
-                )
+                with diagnostic_source(
+                    semantic_observations.declaration_origin(
+                        assignment.name_origin or assignment.origin,
+                        f"assignment {assignment.target}",
+                        module_context,
+                    )
+                ):
+                    target, channel, signal, target_type = assignment_targets.resolve_request_response_target(
+                        target_text, request_response_symbols
+                    )
             else:
-                target, signal, target_type = assignment_targets.resolve_port_target(
-                    target_text, symbols
-                )
+                with diagnostic_source(
+                    semantic_observations.declaration_origin(
+                        assignment.name_origin or assignment.origin,
+                        f"assignment {assignment.target}",
+                        module_context,
+                    )
+                ):
+                    target, signal, target_type = assignment_targets.resolve_port_target(
+                        target_text, symbols
+                    )
             if (
                 isinstance(target, ir_module.Port)
                 and target.registered
@@ -309,7 +402,14 @@ class AssignmentAnalyzer:
                 rendered = render_assignment_target(
                     target, signal, channel
                 )
-                raise SemanticError(f"output '{rendered}' is assigned more than once")
+                raise SemanticError(
+                    f"output '{rendered}' is assigned more than once",
+                    primary=semantic_observations.declaration_origin(
+                        assignment.name_origin or assignment.origin,
+                        f"assignment {assignment.target}",
+                        module_context,
+                    ),
+                )
 
             expression_context = (
                 module_context.with_scope(allow_runtime_instance_projection=True)
@@ -322,7 +422,14 @@ class AssignmentAnalyzer:
             )
             if isinstance(assignment.expression, ast.ImplementExpr):
                 if signal is not None or channel is not None:
-                    raise SemanticError("implement currently requires a wire output")
+                    raise SemanticError(
+                        "implement currently requires a wire output",
+                        primary=semantic_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"assignment {assignment.target}",
+                            module_context,
+                        ),
+                    )
                 assert isinstance(target, ir_module.Port)
                 implementation = implementation_analyzer.analyze_site(
                     assignment.expression,
@@ -349,7 +456,12 @@ class AssignmentAnalyzer:
             elif isinstance(assignment.expression, ast.ImplementationChoiceExpr):
                 if signal is not None or channel is not None:
                     raise SemanticError(
-                        "implementation choices currently require a wire output"
+                        "implementation choices currently require a wire output",
+                        primary=semantic_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"assignment {assignment.target}",
+                            module_context,
+                        ),
                     )
                 expression_context = module_context.with_scope(
                     allow_implementation_choice=True,
@@ -469,6 +581,7 @@ class AssignmentAnalyzer:
         # not a broadcast binding.  Validate every scalar input here so both
         # backends consume the same complete typed wiring graph.
         for array, length in module_context.scope.instance_arrays.items():
+            declaration = next(item for item in module.instances if item.name == array)
             for index in range(length):
                 physical = f"{array}[{index}]"
                 child = child_irs[physical]
@@ -480,8 +593,12 @@ class AssignmentAnalyzer:
                         for binding in instance_bindings
                     ):
                         raise SemanticError(
-                            f"instance '{physical}' input '{port.name}' has no "
-                            "compile-time indexed binding"
+                            f"instance '{physical}' input '{port.name}' has no compile-time indexed binding",
+                            primary=semantic_observations.declaration_origin(
+                                declaration.name_origin or declaration.origin,
+                                f"instance array {array}",
+                                module_context,
+                            ),
                         )
 
         return AssignmentAnalysisProduct(

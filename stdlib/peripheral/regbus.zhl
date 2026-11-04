@@ -1,0 +1,34 @@
+import std.bus.reg
+
+// One request, one captured response. Effects occur only at request acceptance.
+// A stalled response never repeats a command or changes its read snapshot.
+module BasicPeripheralTarget32 {
+    clock clk reset rst
+    in reset_active : bit
+    in request : rv<RegRequest<32,32>>
+    out response : rv<RegResponse<32>>
+    in read_value : u32
+    in error : bit
+    out accept : bit
+    reg occupied : bit = 0
+    reg saved_value : u32 = 0
+    reg saved_error : bit = 0
+    request.ready = ~reset_active & ~occupied
+    response.valid = ~reset_active & occupied
+    response.payload = RegResponse {rdata=saved_value error=saved_error}
+    accept = request.transfer
+    when request.transfer {
+        occupied <- 1
+        saved_value <- error ? 0 : read_value
+        saved_error <- error
+    } else when response.transfer { occupied <- 0 }
+}
+
+// The CSR access ABI has no WSTRB; merge bytes at this ordinary stdlib boundary.
+fn basic_peripheral_merge(old:bits<32>,data:bits<32>,strobes:bits<4>) -> bits<32> {
+    byte0 = strobes[0] ? data[7:0] : old[7:0]
+    byte1 = strobes[1] ? data[15:8] : old[15:8]
+    byte2 = strobes[2] ? data[23:16] : old[23:16]
+    byte3 = strobes[3] ? data[31:24] : old[31:24]
+    concat(byte3,byte2,byte1,byte0)
+}

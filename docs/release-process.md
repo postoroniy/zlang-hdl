@@ -10,6 +10,11 @@ gates. A fix is not
 release evidence until it is represented in the candidate's
 `release/regressions.json` with permanent tests.
 
+`0.1.0a24` is the final planned public alpha release. It remains a candidate
+until the exact accepted tag and release are published. This procedure does not
+authorize another public feature release, overwrite an existing asset, rewrite
+history or change licence grants.
+
 ## Operator checklist
 
 Use the following ordered gates. Do not substitute
@@ -57,6 +62,15 @@ hash proves only that the reviewed bytes were retained and never replaces this
 full visual review. Keep the three PDFs together and check offline named-destination
 links between them. JavaScript and Launch actions are forbidden. A missing,
 stale or wrongly mapped book blocks `community-pdf-check`, preflight and staging.
+
+Non-book PDF source links use the prospective tag matching the release version,
+not a historical unrelated commit or moving `main`. Before publication those
+web URLs may be unavailable; candidate validation checks the complete linked
+file closure and hashes against the candidate tree. The release tag must name
+that exact accepted tree. `release/status.json` cannot hash itself, so its
+complete bytes are bound by the signed release tree; all other linked source
+files participate in documentation freshness. Actual PDF source URLs are also
+compared with the expected release-bound inventory. Inter-book links work offline.
 
 The stable asset names are `ZLang-HDL-Language-Reference.pdf`,
 `ZLang-HDL-Standard-Library-Guide.pdf` and `ZLang-HDL-User-Guide.pdf`.
@@ -139,7 +153,8 @@ wheel/VSIX identities, security evidence, package inventories, and retained
 test/EDA artifacts. Only then create and push one signed annotated tag at that
 exact accepted `main` commit. The tag workflow repeats validation and is the
 only workflow path that attests and publishes. Never rewrite a tag; a failed
-tag requires a later reviewed alpha.
+tag stops publication and requires a separate maintainer decision; it does not
+authorize rewriting that tag or creating another public alpha.
 
 Keep named implementation and recovery branches until the published artifact
 replay, exact-tag checks, durable evidence archive, and regression-ledger review

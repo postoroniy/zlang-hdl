@@ -61,6 +61,7 @@ the specific eligible relations rather than promising arbitrary proof.
 | `bounded-intent-structural-exploration` | bounded | not applicable | selected typed alternatives |
 | `capacity-one-temporal-sharing` | bounded | supported | supported |
 | `elastic-ready-valid-pipeline` | bounded | supported | supported |
+| `simulation-source-io` | bounded | supported | independent testbench; DUT unchanged |
 | `per-bit-native-logic-state` | bounded | supported | unchanged |
 | `combinational-instance-arrays` | bounded | supported | supported |
 | `runtime-instance-output-projection` | bounded | supported | supported |
@@ -104,6 +105,7 @@ the specific eligible relations rather than promising arbitrary proof.
 | `bounded-intent-structural-exploration` | exact-value alternatives retain equivalence provenance before implementation evidence is evaluated |
 | `capacity-one-temporal-sharing` | capacity-one transaction-stream bounded model checking; unbounded proof is not claimed |
 | `elastic-ready-valid-pipeline` | ready/valid stability safety only; end-to-end equivalence is not supported |
+| `simulation-source-io` | DUT unchanged; specialization-specific non-interference witnesses |
 | `per-bit-native-logic-state` | simulation-only diagnostic semantics; not a formal proof relation |
 | `combinational-instance-arrays` | hierarchical equivalence is not supported |
 | `runtime-instance-output-projection` | hierarchical equivalence is not supported |

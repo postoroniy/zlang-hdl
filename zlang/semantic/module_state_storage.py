@@ -364,16 +364,36 @@ class StateStoragePreparer:
                 continue
             if len(parts) not in {2, 3}:
                 raise SemanticError(
-                    f"storage control target '{assignment.target}' has invalid depth"
+                    f"storage control target '{assignment.target}' has invalid depth",
+                    primary=_observations.declaration_origin(
+                        assignment.name_origin or assignment.origin,
+                        f"storage control {assignment.target}",
+                        module_context,
+                    ),
                 )
             resource = resource_symbols[parts[0]]
+            if len(parts) != 2 and isinstance(resource, (FifoSymbol, RomSymbol)):
+                kind = "FIFO" if isinstance(resource, FifoSymbol) else "ROM"
+                raise SemanticError(
+                    f"{kind} control '{assignment.target}' selects one field",
+                    primary=_observations.declaration_origin(
+                        assignment.name_origin,
+                        f"storage control {assignment.target}",
+                        module_context,
+                    ),
+                )
             field = parts[-1]
             if isinstance(resource, FifoSymbol):
                 try:
                     signal = ir_storage.FifoSignal(field)
                 except ValueError as error:
                     raise SemanticError(
-                        f"FIFO '{resource.name}' has no field '{field}'"
+                        f"FIFO '{resource.name}' has no field '{field}'",
+                        primary=_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"storage control {assignment.target}",
+                            module_context,
+                        ),
                     ) from error
                 writable = {
                     ir_storage.FifoSignal.DATA,
@@ -385,8 +405,12 @@ class StateStoragePreparer:
                 if resource.ports:
                     if len(parts) != 3:
                         raise SemanticError(
-                            f"ported memory control '{assignment.target}' must select "
-                            "a named port and field"
+                            f"ported memory control '{assignment.target}' must select a named port and field",
+                            primary=_observations.declaration_origin(
+                                assignment.name_origin or assignment.origin,
+                                f"storage control {assignment.target}",
+                                module_context,
+                            ),
                         )
                     port = next(
                         (item for item in resource.ports if item.name == parts[1]),
@@ -394,7 +418,12 @@ class StateStoragePreparer:
                     )
                     if port is None:
                         raise SemanticError(
-                            f"memory '{resource.name}' has no port '{parts[1]}'"
+                            f"memory '{resource.name}' has no port '{parts[1]}'",
+                            primary=_observations.declaration_origin(
+                                assignment.name_origin or assignment.origin,
+                                f"storage control {assignment.target}",
+                                module_context,
+                            ),
                         )
                     allowed = {
                         ast.MemoryPortKind.READ: {"address", "read_enable"},
@@ -406,25 +435,44 @@ class StateStoragePreparer:
                     }[port.kind]
                     if field not in allowed:
                         raise SemanticError(
-                            f"memory port '{resource.name}.{port.name}' has no writable "
-                            f"field '{field}'"
+                            f"memory port '{resource.name}.{port.name}' has no writable field '{field}'",
+                            primary=_observations.declaration_origin(
+                                assignment.name_origin or assignment.origin,
+                                f"storage control {assignment.target}",
+                                module_context,
+                            ),
                         )
                     control_key = f"{port.name}.{field}"
                     if control_key in resource_controls[resource.name]:
                         raise SemanticError(
-                            f"storage control '{assignment.target}' is assigned more than once"
+                            f"storage control '{assignment.target}' is assigned more than once",
+                            primary=_observations.declaration_origin(
+                                assignment.name_origin or assignment.origin,
+                                f"storage control {assignment.target}",
+                                module_context,
+                            ),
                         )
                     resource_controls[resource.name][control_key] = assignment.expression
                     continue
                 if len(parts) != 2:
                     raise SemanticError(
-                        f"legacy memory control '{assignment.target}' selects one field"
+                        f"legacy memory control '{assignment.target}' selects one field",
+                        primary=_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"storage control {assignment.target}",
+                            module_context,
+                        ),
                     )
                 try:
                     signal = ir_storage.MemorySignal(field)
                 except ValueError as error:
                     raise SemanticError(
-                        f"memory '{resource.name}' has no field '{field}'"
+                        f"memory '{resource.name}' has no field '{field}'",
+                        primary=_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"storage control {assignment.target}",
+                            module_context,
+                        ),
                     ) from error
                 writable = {
                     ir_storage.MemorySignal.READ_ADDRESS,
@@ -439,16 +487,31 @@ class StateStoragePreparer:
                     signal = ir_storage.RomSignal(field)
                 except ValueError as error:
                     raise SemanticError(
-                        f"ROM '{resource.name}' has no field '{field}'"
+                        f"ROM '{resource.name}' has no field '{field}'",
+                        primary=_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"storage control {assignment.target}",
+                            module_context,
+                        ),
                     ) from error
                 writable = {ir_storage.RomSignal.READ_ADDRESS}
             if signal not in writable:
                 raise SemanticError(
-                    f"storage field '{assignment.target}' is read-only"
+                    f"storage field '{assignment.target}' is read-only",
+                    primary=_observations.declaration_origin(
+                        assignment.name_origin or assignment.origin,
+                        f"storage control {assignment.target}",
+                        module_context,
+                    ),
                 )
             if field in resource_controls[resource.name]:
                 raise SemanticError(
-                    f"storage control '{assignment.target}' is assigned more than once"
+                    f"storage control '{assignment.target}' is assigned more than once",
+                    primary=_observations.declaration_origin(
+                        assignment.name_origin or assignment.origin,
+                        f"storage control {assignment.target}",
+                        module_context,
+                    ),
                 )
             resource_controls[resource.name][field] = assignment.expression
 

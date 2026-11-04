@@ -12,6 +12,8 @@ import ast
 from hashlib import sha256
 import io
 import json
+import os
+import re
 from pathlib import Path, PurePosixPath
 import subprocess
 import tarfile
@@ -321,9 +323,56 @@ def _git(root, *args, binary=False):
     return r.stdout if binary else r.stdout.decode().strip()
 
 
+def _github_integration_merge(root: Path, policy: dict) -> str | None:
+    """Recognize only the checkout product of this GitHub PR verification job.
+
+    Both source histories remain subject to the normal ancestry/content rules.
+    This exception cannot authorize a real merge on a branch, tag or release.
+    """
+    workspace = os.environ.get("GITHUB_WORKSPACE")
+    if (os.environ.get("GITHUB_ACTIONS") != "true"
+            or os.environ.get("GITHUB_EVENT_NAME") != "pull_request"
+            or not workspace or Path(workspace).resolve() != root.resolve()):
+        return None
+    parents = _git(root, "rev-list", "--parents", "-n", "1", "HEAD").split()
+    if len(parents) != 3:
+        return None
+    try:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+        request = event["pull_request"]
+        head, base = request["head"]["sha"], request["base"]["sha"]
+        number = event["number"]
+        repository = os.environ["GITHUB_REPOSITORY"]
+        valid = (
+            type(number) is int and number > 0
+            and event["repository"]["full_name"] == repository
+            and request["base"]["repo"]["full_name"] == repository
+            and request["base"]["ref"] == "main"
+            and os.environ.get("GITHUB_REF") == f"refs/pull/{number}/merge"
+            and os.environ.get("GITHUB_SHA") == parents[0]
+            and all(isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value)
+                    for value in (base, head))
+            and parents[1:] == [base, head] and base != head
+        )
+    except (KeyError, TypeError, ValueError, OSError) as error:
+        raise BoundaryError("invalid GitHub PR integration context") from error
+    if not valid:
+        raise BoundaryError("GitHub PR integration context does not match checkout")
+    origin = _git(root, "remote", "get-url", "origin").removesuffix(".git")
+    if origin != f"https://github.com/{repository}":
+        raise BoundaryError("GitHub PR integration repository does not match origin")
+    for tip in (base, head):
+        _git(root, "merge-base", "--is-ancestor", policy["public_base"], tip)
+    expected_tree = _git(root, "merge-tree", "--write-tree", base, head).splitlines()[0]
+    if _git(root, "rev-parse", "HEAD^{tree}") != expected_tree:
+        raise BoundaryError("GitHub PR integration tree is not the exact parent merge")
+    return parents[0]
+
+
 def validate_history(root: Path, policy: dict) -> int:
     if _git(root, "rev-parse", "--is-shallow-repository") != "false":
         raise BoundaryError("public ancestry requires complete Git history (checkout fetch-depth: 0)")
+    integration = _github_integration_merge(root, policy)
     base = policy["public_base"]
     _git(root, "merge-base", "--is-ancestor", base, "HEAD")
     reachable = set(_git(root, "rev-list", "HEAD").splitlines())
@@ -331,12 +380,14 @@ def validate_history(root: Path, policy: dict) -> int:
         raise BoundaryError("private-only commit is reachable from the candidate")
     commits = _git(root, "rev-list", "--reverse", base + "..HEAD").splitlines()
     for commit in commits:
-        if len(_git(root, "rev-list", "--parents", "-n", "1", commit).split()) != 2:
+        if (commit != integration
+                and len(_git(root, "rev-list", "--parents", "-n", "1", commit).split()) != 2):
             raise BoundaryError("unreviewed merge ancestry after the public baseline")
         names = (
             _git(
                 root,
                 "diff-tree",
+                *(("-m",) if commit == integration else ()),
                 "--no-commit-id",
                 "--name-only",
                 "-r",

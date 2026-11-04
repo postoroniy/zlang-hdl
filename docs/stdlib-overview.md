@@ -38,6 +38,7 @@ directory name and is not a Python or user-package import.
 | `std.coding.gf256` | Exact polynomial-basis GF(256) arithmetic, polynomial 0x11D |
 | `std.coding.rs_dvb` / `std.coding.rs_dvb_decode` | Framed systematic DVB RS(204,188) encoder / errors-only decoder |
 | `std.coding.viterbi_k7` | Framed K=7 hard/3-bit-soft Viterbi core and word adapter |
+| `std.peripheral.*` | Fixed-width GPIO, timer, PWM, rising capture, UART 8N1, SPI mode 0 and single-byte I²C write cores, each with a CSR-backed RegBus32 wrapper; [contracts](stdlib-peripherals.md) |
 | `std.bus.reg` | RegBus and the source-authoritative CSR target |
 | `std.bus.axi_lite` | AXI4-Lite protocol and RegBus frontend |
 | `std.bus.axi_burst` | Bounded no-ID AXI burst profile, read/write views, and single-outstanding burst/single-beat helpers |
@@ -62,9 +63,9 @@ Import `std.math.fp` for `RvBinaryFloat<E,F>`. Its supported interchange profile
 are E=8/F=23 (binary32) and E=11/F=52 (binary64). `FpRequest<W>` carries raw
 operands, an explicit operation and rounding mode; `FpResult` carries the result,
 exception flags and illegal-operation indication. These declarations and helpers
-are ordinary stdlib sources, shared by standalone hardware and CPU integration;
-they are not copied into the ZRISCV package. Binary64 library availability does
-not mean that the CPU implements the RISC-V D extension.
+are ordinary stdlib sources for standalone hardware and composition into larger
+designs. Library availability does not establish support in any particular
+processor or application.
 
 The core holds one transaction and one buffered result. Simple operations take
 one edge; finite division takes F+6 and square root F+5 edges. Output stalls
@@ -73,6 +74,36 @@ hidden CSR or overlapping transaction execution. See the [API inventory](stdlib-
 and [source contract](../stdlib/math/fp.zhl) for exact signatures and operation
 selection. Source availability and specialization tests do not establish a
 universal IEEE arithmetic proof.
+
+`FpRequest<W>` carries `a`, `b` and `c` as `bits<W>`, an `integer:bits<64>`,
+`operation:u5`, `rounding:u3`, and the `word`/`unsigned_integer` control bits.
+Operation values follow the source contract:
+
+| Value | Operation |
+| --- | --- |
+| 0…4 | Add, subtract, multiply, divide, square root |
+| 5…8 | Fused multiply-add, multiply-subtract, negated multiply-subtract, negated multiply-add |
+| 9…11 | Copy, negate, or XOR the operand sign |
+| 12…17 | Minimum, maximum, equality, less-than, less-or-equal, classify |
+| 18…20 | Float-to-integer, integer-to-float, conversion from the other supported float format |
+| 21 | Move raw floating bits to the integer result |
+| 22 | Move raw integer bits to the floating result |
+
+Rounding values 0…4 mean nearest-even, toward zero, toward negative infinity,
+toward positive infinity, and nearest with ties away from zero. Operations that
+do not round ignore this field. `FpResult.value` is always `bits<64>`; floating
+results occupy the low W bits. Integer conversion uses `word` and
+`unsigned_integer`; raw moves follow their operation/format contract. Operation
+20 reads the other-format raw bits
+from `request.integer` (its low 32 bits for a binary64 destination), rather than
+from `a`. `flags[4:0]` is invalid, divide-by-zero, overflow, underflow, inexact.
+Operation values 23…31 are illegal. Inspect `illegal` as well as flags.
+
+Use the stream module for the complete finite division/square-root datapath;
+`fp_compute` alone does not implement those iterative cases. Hold each input
+until transfer, consume each result only on output transfer, and use `cancel`
+only to discard work. See [ready/valid semantics](hierarchy-protocols.md) for
+the common handshake contract.
 
 ## Buffered stream composition, CRC and FIR
 

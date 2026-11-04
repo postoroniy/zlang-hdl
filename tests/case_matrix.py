@@ -22,8 +22,8 @@ _FROZEN_MATRICES: dict[str, tuple[int, str]] = {
     ),
     "numeric": (25, "6c7d78691dcc8827eb307e74458ab0a20e89e0d1ade27d961c226b333af583c7"),
     "capabilities": (
-        38,
-        "9edf12dd11efccd7b0109bf0970c6fc26f52497da5d40dc42f4fb387b244bc97",
+        39,
+        "4b3013e760f725286665fa51a1941938f46814b334f5ff0bc4f8be23022b5f0c",
     ),
     "intrinsic_families": (
         11,

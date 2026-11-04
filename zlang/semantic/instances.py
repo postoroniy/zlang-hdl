@@ -8,6 +8,7 @@ from dataclasses import dataclass, fields, is_dataclass, replace
 import hashlib
 from typing import Any
 
+from zlang.diagnostics import diagnostic_source
 from zlang.analysis_needs import AnalysisNeeds
 from zlang.ast import nodes as ast
 from zlang.ir import cdc as ir_cdc
@@ -296,61 +297,79 @@ class InstanceSpecializer:
         types: dict[str, ir_types.HardwareType] = {}
         deferred: list[ast.SpecializationArgument] = []
         for argument in declaration.arguments:
-            key = argument.name
-            if key is None:
-                while positional < len(parameters) and parameters[positional].name in seen:
-                    positional += 1
-                if positional >= len(parameters):
-                    raise SemanticError(
-                        f"too many specialization arguments for '{declaration.module}'"
-                    )
-                key = parameters[positional].name
-                positional += 1
-            if key not in parameter_names:
-                raise SemanticError(f"unknown specialization parameter '{key}'")
-            if key in seen:
-                raise SemanticError(
-                    f"specialization parameter '{key}' is assigned more than once"
+            with diagnostic_source(
+                semantic_observations.declaration_origin(
+                    argument.origin, "specialization argument", self.context.expression_context
                 )
-            seen.add(key)
-            parameter = next(item for item in parameters if item.name == key)
-            value = argument.value
-            if parameter.kind in {"constant", "callable"}:
-                if argument.name is None:
+            ):
+                key = argument.name
+                if key is None:
+                    while positional < len(parameters) and parameters[positional].name in seen:
+                        positional += 1
+                    if positional >= len(parameters):
+                        raise SemanticError(
+                            f"too many specialization arguments for '{declaration.module}'"
+                        )
+                    key = parameters[positional].name
+                    positional += 1
+                if key not in parameter_names:
+                    raise SemanticError(f"unknown specialization parameter '{key}'")
+                if key in seen:
                     raise SemanticError(
-                        f"compile-time {parameter.kind} parameter '{key}' of "
-                        f"'{declaration.module}' requires a named argument"
+                        f"specialization parameter '{key}' is assigned more than once"
                     )
-                deferred.append(argument)
-            elif parameter.kind == "type":
-                if isinstance(value, int):
-                    raise SemanticError(
-                        f"type parameter '{key}' of '{declaration.module}' "
-                        "requires a type argument"
-                    )
-                syntax = value if isinstance(
-                    value, (ast.TypeName, ast.VectorTypeName, ast.TupleTypeName)
-                ) else ast.TypeName(str(value))
-                try:
-                    resolved_type = self.context.type_resolver.resolve(syntax)
-                except SemanticError as error:
-                    raise SemanticError(
-                        f"cannot resolve type argument for parameter '{key}' of "
-                        f"'{declaration.module}': {error}"
-                    ) from error
-                types[key] = resolved_type
-                resolved[key] = str(resolved_type)
-            else:
-                try:
-                    resolved[key] = self._resolve_value_argument(declaration, key, value)
-                except SemanticError as error:
-                    if error.primary is not None or declaration.origin is None:
-                        raise
-                    raise SemanticError(str(error), code=error.code,
-                        primary=SourceOrigin(declaration.origin, f"instance {declaration.name}",
-                            self.context.source_unit, self.context.source_digest),
-                        notes=error.notes, fixes=error.fixes,
-                        machine_fixes=error.machine_fixes) from error
+                seen.add(key)
+                parameter = next(item for item in parameters if item.name == key)
+                value = argument.value
+                if parameter.kind in {"constant", "callable"}:
+                    if argument.name is None:
+                        raise SemanticError(
+                            f"compile-time {parameter.kind} parameter '{key}' of "
+                            f"'{declaration.module}' requires a named argument"
+                        )
+                    deferred.append(argument)
+                elif parameter.kind == "type":
+                    if isinstance(value, int):
+                        raise SemanticError(
+                            f"type parameter '{key}' of '{declaration.module}' "
+                            "requires a type argument"
+                        )
+                    syntax = value if isinstance(
+                        value, (ast.TypeName, ast.VectorTypeName, ast.TupleTypeName)
+                    ) else ast.TypeName(str(value), origin=argument.origin)
+                    try:
+                        resolved_type = self.context.type_resolver.resolve(syntax)
+                    except SemanticError as error:
+                        raise SemanticError(
+                            f"cannot resolve type argument for parameter '{key}' of "
+                            f"'{declaration.module}': {error}",
+                            primary=error.primary,
+                            notes=error.notes,
+                            fixes=error.fixes,
+                            machine_fixes=error.machine_fixes,
+                            physical_source=error.physical_source,
+                        ) from error
+                    types[key] = resolved_type
+                    resolved[key] = str(resolved_type)
+                else:
+                    try:
+                        resolved[key] = self._resolve_value_argument(declaration, key, value)
+                    except SemanticError as error:
+                        if error.primary is not None or declaration.origin is None:
+                            raise
+                        raise SemanticError(
+                            str(error),
+                            code=error.code,
+                            primary=SourceOrigin(
+                                argument.origin or declaration.origin,
+                                f"instance {declaration.name}",
+                                self.context.source_unit,
+                                self.context.source_digest,
+                            ),
+                            notes=error.notes,
+                            fixes=error.fixes,
+                            machine_fixes=error.machine_fixes,
+                        ) from error
         return resolved, types, deferred
 
     def _resolve_value_argument(
@@ -685,88 +704,95 @@ class InstanceElaborator:
         )
 
     def _elaborate(self, declaration: ast.InstanceDecl) -> None:
-        if declaration.name in self.names or declaration.name in self.base.symbols:
-            raise SemanticError(f"duplicate instance '{declaration.name}'")
-        if declaration.module not in self.context.specializer.known_modules:
-            raise SemanticError(
-                f"unknown instantiated module '{declaration.module}'"
+        with diagnostic_source(
+            semantic_observations.declaration_origin(
+                declaration.name_origin or declaration.origin,
+                f"instance {declaration.name}",
+                self.base.expression_context,
             )
-        array_length = self._array_length(declaration)
-        self.names.add(declaration.name)
-        (
-            resolved_arguments,
-            resolved_types,
-            constants,
-            callables,
-            specialized_parameters,
-            specialization_tuple,
-        ) = self.context.specializer.resolve(declaration)
-        child_ast = self.context.specializer.specialized_child(
-            declaration, specialized_parameters
-        )
-        semantic_observations.record_module_definition(
-            self.base.expression_context, declaration, child_ast
-        )
-        child_ir = self._analyze_child(
-            child_ast,
-            resolved_arguments,
-            resolved_types,
-            constants,
-            callables,
-        )
-        if array_length is not None:
-            self._validate_array_child(declaration.name, child_ir)
-        physical_names = (
-            tuple(
-                f"{declaration.name}[{index}]" for index in range(array_length)
-            )
-            if array_length is not None
-            else (declaration.name,)
-        )
-        self.child_irs[declaration.name] = child_ir
-        for physical_name in physical_names:
-            self.names.add(physical_name)
-            instance = ir_module.Instance(
-                name=physical_name,
-                module=declaration.module,
-                specializations=specialization_tuple,
-                array_length=None,
-            )
-            self.instances.append(instance)
-            self.child_irs[physical_name] = child_ir
-        instance_clock, instance_reset = self._matched_domain(
-            declaration.name, child_ir
-        )
-        if not isinstance(
-            self.context.hierarchy_cache,
-            ir_hierarchy.HierarchyTraversalCache,
         ):
-            raise TypeError("instance elaboration requires a hierarchy traversal cache")
-        specialization_identity = ir_hierarchy.module_specialization_identity(
-            child_ir,
-            typed_content_identity=self.context.hierarchy_cache.fingerprint(child_ir),
-        )
-        for physical_name in physical_names:
-            instance = next(
-                item for item in self.instances if item.name == physical_name
+            if declaration.name in self.names or declaration.name in self.base.symbols:
+                raise SemanticError(f"duplicate instance '{declaration.name}'")
+            if declaration.module not in self.context.specializer.known_modules:
+                raise SemanticError(
+                    f"unknown instantiated module '{declaration.module}'"
+                )
+            array_length = self._array_length(declaration)
+            self.names.add(declaration.name)
+            (
+                resolved_arguments,
+                resolved_types,
+                constants,
+                callables,
+                specialized_parameters,
+                specialization_tuple,
+            ) = self.context.specializer.resolve(declaration)
+            child_ast = self.context.specializer.specialized_child(
+                declaration, specialized_parameters
             )
-            self.elaborated.append(ir_module.ElaboratedInstance(
-                instance=instance,
-                child_module=child_ir.name,
-                clock=instance_clock,
-                reset=instance_reset,
-                instance_identity=hashlib.sha256(
-                    f"{self.base.module.name}|{physical_name}|"
-                    f"{declaration.module}|"
-                    f"{tuple(sorted(resolved_arguments.items()))}".encode()
-                ).hexdigest()[:24],
-                semantic_path=(self.base.module.name, physical_name),
-                specialization_identity=specialization_identity,
-            ))
-            _validate_child_outputs(self.base, physical_name, child_ir)
-            _validate_child_protocol_outputs(self.base, physical_name, child_ir)
-            _project_child_csr_outputs(self.base, physical_name, child_ir)
-        self._publish_child_value(declaration, child_ir, array_length)
+            semantic_observations.record_module_definition(
+                self.base.expression_context, declaration, child_ast
+            )
+            child_ir = self._analyze_child(
+                child_ast,
+                resolved_arguments,
+                resolved_types,
+                constants,
+                callables,
+            )
+            if array_length is not None:
+                self._validate_array_child(declaration.name, child_ir)
+            physical_names = (
+                tuple(
+                    f"{declaration.name}[{index}]" for index in range(array_length)
+                )
+                if array_length is not None
+                else (declaration.name,)
+            )
+            self.child_irs[declaration.name] = child_ir
+            for physical_name in physical_names:
+                self.names.add(physical_name)
+                instance = ir_module.Instance(
+                    name=physical_name,
+                    module=declaration.module,
+                    specializations=specialization_tuple,
+                    array_length=None,
+                )
+                self.instances.append(instance)
+                self.child_irs[physical_name] = child_ir
+            instance_clock, instance_reset = self._matched_domain(
+                declaration.name, child_ir
+            )
+            if not isinstance(
+                self.context.hierarchy_cache,
+                ir_hierarchy.HierarchyTraversalCache,
+            ):
+                raise TypeError("instance elaboration requires a hierarchy traversal cache")
+            specialization_identity = ir_hierarchy.module_specialization_identity(
+                child_ir,
+                typed_content_identity=self.context.hierarchy_cache.fingerprint(child_ir),
+            )
+            for physical_name in physical_names:
+                instance = next(
+                    item for item in self.instances if item.name == physical_name
+                )
+                self.elaborated.append(ir_module.ElaboratedInstance(
+                    instance=instance,
+                    child_module=child_ir.name,
+                    clock=instance_clock,
+                    reset=instance_reset,
+                    instance_identity=hashlib.sha256(
+                        f"{self.base.module.name}|{physical_name}|"
+                        f"{declaration.module}|"
+                        f"{tuple(sorted(resolved_arguments.items()))}".encode()
+                    ).hexdigest()[:24],
+                    semantic_path=(self.base.module.name, physical_name),
+                    specialization_identity=specialization_identity,
+                ))
+                _validate_child_outputs(self.base, physical_name, child_ir)
+                _validate_child_protocol_outputs(self.base, physical_name, child_ir)
+                _project_child_csr_outputs(self.base, physical_name, child_ir)
+            self._publish_child_value(declaration, child_ir, array_length)
 
     def _array_length(self, declaration: ast.InstanceDecl) -> int | None:
         length = (

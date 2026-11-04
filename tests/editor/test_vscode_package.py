@@ -22,7 +22,7 @@ EXT = ROOT / "editors" / "vscode" / "zlang-hdl"
 TOOLCHAIN = json.loads((EXT / "editor-toolchain.json").read_text(encoding="utf-8"))
 PINS = {
     "@vscode/test-electron": TOOLCHAIN["vscodeTestElectron"],
-    "@vscode/vsce": "4.0.0",
+    "@vscode/vsce": TOOLCHAIN["vsce"],
     "esbuild": TOOLCHAIN["esbuild"],
     "vscode-oniguruma": "2.0.1",
     "vscode-textmate": "9.3.2",
@@ -48,9 +48,10 @@ GENERATED_RUNTIME = {
 NATIVE_NOTICE = "extension/THIRD_PARTY_NOTICES_NATIVE.txt"
 NATIVE_NOTICE_SOURCE = ROOT / "release" / "native-editor" / "THIRD_PARTY_LICENSES.md"
 RUNTIME_PACKAGES = {
+    "@isaacs/nonrecursive-glob-match": "1.0.3",
     "balanced-match": "4.0.4",
     "brace-expansion": "5.0.12",
-    "minimatch": "10.2.6",
+    "minimatch": TOOLCHAIN["minimatch"],
     "semver": "7.8.5",
     "vscode-jsonrpc": "10.0.0",
     "vscode-languageclient": TOOLCHAIN["vscodeLanguageClient"],
@@ -276,6 +277,10 @@ def validate_metadata(
         _require("scripts" not in package, "development scripts shipped")
         _require("overrides" not in package, "build dependency overrides shipped")
     else:
+        _require(package.get("overrides", {}).get("minimatch") == TOOLCHAIN["minimatch"],
+                 "minimatch override must match the reviewed toolchain")
+        _require(package.get("scripts", {}).get("postinstall")
+                 == "node test/patch-languageclient.cjs", "missing reviewed client patch")
         _require(package.get("devDependencies") == PINS, "dev dependencies must be pinned")
         _require("extension.js" in package.get("files", []), "entrypoint missing from source files")
 
@@ -299,6 +304,9 @@ def validate_lock(package: dict, lock: dict) -> None:
             continue
         _require(name.startswith("node_modules/") and isinstance(node, dict) and not node.get("link"),
                  f"invalid package record: {name}")
+        if name.endswith("node_modules/minimatch"):
+            _require(node.get("version") == TOOLCHAIN["minimatch"],
+                     "unreviewed minimatch dependency")
         if node.get("dev") is not True:
             runtime_records[name.removeprefix("node_modules/")] = node.get("version")
         _require(isinstance(node.get("version"), str) and bool(re.fullmatch(
@@ -584,6 +592,59 @@ class VSCodePackageTests(unittest.TestCase):
         with self.assertRaisesRegex(VSIXAuditError, "unlocked direct dependency: playwright"):
             validate_lock(package, lock)
 
+    def test_vsce_manifest_and_lock_must_match_reviewed_toolchain(self) -> None:
+        package = _json((EXT / "package.json").read_bytes())
+        lock = _json((EXT / "package-lock.json").read_bytes())
+        self.assertEqual(package["devDependencies"]["@vscode/vsce"], TOOLCHAIN["vsce"])
+        validate_metadata(package, native=True)
+        validate_lock(package, lock)
+        for version in (None, "4.0.0", "^4.1.0"):
+            with self.subTest(version=version):
+                altered = copy.deepcopy(package)
+                if version is None:
+                    altered["devDependencies"].pop("@vscode/vsce")
+                else:
+                    altered["devDependencies"]["@vscode/vsce"] = version
+                with self.assertRaisesRegex(VSIXAuditError, "dev dependencies must be pinned"):
+                    validate_metadata(altered, native=True)
+        for location in ("", "node_modules/@vscode/vsce"):
+            with self.subTest(location=location):
+                altered = copy.deepcopy(lock)
+                if location:
+                    altered["packages"][location]["version"] = "4.0.0"
+                else:
+                    altered["packages"][location]["devDependencies"]["@vscode/vsce"] = "4.0.0"
+                with self.assertRaises(VSIXAuditError):
+                    validate_lock(package, altered)
+
+    def test_minimatch_override_and_entire_lock_closure_are_patched(self) -> None:
+        package = _json((EXT / "package.json").read_bytes())
+        lock = _json((EXT / "package-lock.json").read_bytes())
+        validate_metadata(package, native=True)
+        validate_lock(package, lock)
+        for version in (None, "10.2.6", "^11.0.1"):
+            with self.subTest(override=version):
+                altered = copy.deepcopy(package)
+                if version is None:
+                    altered["overrides"].pop("minimatch")
+                else:
+                    altered["overrides"]["minimatch"] = version
+                with self.assertRaisesRegex(VSIXAuditError, "minimatch override"):
+                    validate_metadata(altered, native=True)
+        for location in ("node_modules/minimatch",
+                         "node_modules/@vscode/vsce/node_modules/minimatch"):
+            with self.subTest(location=location):
+                altered = copy.deepcopy(lock)
+                record = copy.deepcopy(lock["packages"]["node_modules/minimatch"])
+                record.update(version="10.2.6", dev=True)
+                altered["packages"][location] = record
+                with self.assertRaisesRegex(VSIXAuditError, "unreviewed minimatch"):
+                    validate_lock(package, altered)
+        altered = copy.deepcopy(package)
+        altered["scripts"].pop("postinstall")
+        with self.assertRaisesRegex(VSIXAuditError, "reviewed client patch"):
+            validate_metadata(altered, native=True)
+
     def test_source_metadata_and_lock_are_runtime_pinned(self) -> None:
         if str(ROOT) not in sys.path:
             sys.path.insert(0, str(ROOT))
@@ -657,7 +718,7 @@ class VSCodePackageTests(unittest.TestCase):
         status = json.loads((ROOT / "release/status.json").read_text(encoding="utf-8"))
         self.assertEqual(
             {tool: status["eda_toolchain"][tool] for tool in ("verilator", "yosys", "z3")},
-            {"verilator": "5.053", "yosys": "0.70", "z3": "5.3.1"},
+            {"verilator": "5.053", "yosys": "0.70", "z3": "5.3.3"},
         )
         self.assertNotIn("python3.12", guide)
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

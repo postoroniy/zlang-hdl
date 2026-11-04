@@ -6,6 +6,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const moduleBuiltin = require('node:module').builtinModules;
 const path = require('node:path');
+const { createRequire } = require('node:module');
+const { assertPatchedClient } = require('./patch-languageclient.cjs');
 const esbuild = require('esbuild');
 const { buildWaveformBundle } = require('./waveform-assets.cjs');
 
@@ -17,18 +19,27 @@ function json(relative) {
 }
 
 function assertToolchain() {
+  assertPatchedClient();
   const manifest = json('package.json');
   const installedClient = json('node_modules/vscode-languageclient/package.json');
   const installedEsbuild = json('node_modules/esbuild/package.json');
   const installedTest = json('node_modules/@vscode/test-electron/package.json');
+  const installedVsce = json('node_modules/@vscode/vsce/package.json');
   assert.equal(manifest.engines.vscode, `^${toolchain.vscodeStable.version}`);
   assert.equal(manifest.dependencies['vscode-languageclient'], toolchain.vscodeLanguageClient);
   assert.equal(manifest.devDependencies.esbuild, toolchain.esbuild);
   assert.equal(manifest.devDependencies['@vscode/test-electron'], toolchain.vscodeTestElectron);
   assert.equal(manifest.devDependencies.typescript, toolchain.typescript);
+  assert.equal(manifest.devDependencies['@vscode/vsce'], toolchain.vsce);
+  assert.equal(installedVsce.version, toolchain.vsce);
   assert.equal(installedClient.version, toolchain.vscodeLanguageClient);
   assert.equal(installedEsbuild.version, toolchain.esbuild);
   assert.equal(installedTest.version, toolchain.vscodeTestElectron);
+  assert.equal(manifest.overrides.minimatch, toolchain.minimatch);
+  for (const dependency of ['@vscode/vsce', 'vscode-languageclient/node']) {
+    const consumer = createRequire(require.resolve(dependency));
+    assert.equal(consumer('minimatch/package.json').version, toolchain.minimatch);
+  }
 }
 
 async function buildBundle() {
@@ -113,6 +124,8 @@ function thirdPartyNotices(packages = runtimePackages()) {
     'ZLang HDL VS Code extension — third-party notices',
     '',
     'The extension runtime bundles the following packages. Their license texts follow.',
+    'vscode-languageclient includes a local, hash-verified minimatch 11 compatibility patch:',
+    'two pattern-validity guards use the parsed pattern set instead of the removed RegExp API.',
     '',
     sections.join('\n\n' + '='.repeat(72) + '\n\n'),
     '',

@@ -100,14 +100,40 @@ def _make(checkout, *arguments, **environment):
 
 
 @pytest.mark.parametrize("flags", (("-n",), ("-n", "-j2"), ("--just-print",)))
-def test_make_venv_dry_run_has_no_side_effects(checkout, flags):
+@pytest.mark.parametrize("target", ("venv", "install"))
+def test_make_venv_dry_run_has_no_side_effects(checkout, flags, target):
     root, _ = checkout
     before = sorted(str(path.relative_to(root)) for path in root.rglob("*"))
-    result = _make(checkout, *flags, "venv", BOOTSTRAP_TEST_FORBID_EXECUTION="1")
+    result = _make(checkout, *flags, target, BOOTSTRAP_TEST_FORBID_EXECUTION="1")
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip()
     assert not _calls(root)
     assert sorted(str(path.relative_to(root)) for path in root.rglob("*")) == before
+
+
+@pytest.mark.parametrize("use_uv", (False, True))
+@pytest.mark.parametrize("editor_opt_out", (None, "command-line", "environment"))
+def test_make_install_is_runtime_setup_with_optional_editor(checkout, use_uv, editor_opt_out):
+    root, _ = checkout
+    if not use_uv:
+        (root / "host-bin/uv").unlink()
+    arguments = ["-s", "install"]
+    environment = {}
+    if editor_opt_out == "command-line":
+        arguments.append("INSTALL_EDITOR=0")
+    elif editor_opt_out == "environment":
+        environment["INSTALL_EDITOR"] = "0"
+    result = _make(checkout, *arguments, **environment)
+    assert result.returncode == 0, result.stderr
+    calls = _calls(root)
+    installs = [call["args"] for call in calls if "install" in call["args"]]
+    assert len(installs) == 2
+    editable = next(args for args in installs if "-e" in args)
+    assert editable[editable.index("-e") + 1] == "."
+    assert not any(arg.startswith(("pytest", "ruff", "reuse", "twine"))
+                   for args in installs for arg in args)
+    assert any(call["args"][-1:] == ["native-release-install"] for call in calls)
+    assert any(call["args"][-1:] == ["editor-install"] for call in calls) == (editor_opt_out is None)
 
 
 @pytest.mark.parametrize("use_uv", (False, True))
@@ -139,6 +165,95 @@ def test_make_venv_installs_local_compiler_native_and_editor(checkout, use_uv):
         scratch = Path(call["tmp"])
         assert scratch.parent == root / "build/tmp"
         assert not scratch.exists()
+
+
+@pytest.mark.parametrize("use_uv", (False, True))
+@pytest.mark.parametrize("profile", ("runtime", "dev", "release"))
+def test_python_profiles_select_dependencies_and_keep_native_audit(checkout, use_uv, profile):
+    root, _ = checkout
+    if not use_uv:
+        (root / "host-bin/uv").unlink()
+    result = _make(checkout, "-s", "venv", f"PYTHON_PROFILE={profile}")
+    assert result.returncode == 0, result.stderr
+    calls = _calls(root)
+    installs = [call["args"] for call in calls if "install" in call["args"]]
+    editable = next(args for args in installs if "-e" in args)
+    assert editable[editable.index("-e") + 1] == ("." if profile == "runtime" else ".[test]")
+    assert "--no-build-isolation" in editable
+    assert len(installs) == (2 if profile == "runtime" else 3)
+    tools = [arg for args in installs for arg in args if "==" in arg]
+    assert ("ruff==0.12.12" in tools) == (profile != "runtime")
+    for pin in ("cyclonedx-bom==7.0.0", "pip-audit==2.10.1", "reuse==5.1.1",
+                "twine==6.2.0", "wheel==0.46.3"):
+        assert (pin in tools) == (profile == "release")
+    assert any(call["args"][-1:] == ["native-release-install"] for call in calls)
+    assert any(call["args"][-1:] == ["editor-install"] for call in calls) == (profile == "release")
+
+
+@pytest.mark.parametrize("profile", ("", "DEV", "unknown", "dev release"))
+def test_unknown_python_profile_fails_before_provisioning(checkout, profile):
+    root, _ = checkout
+    result = _make(checkout, "-s", "venv", f"PYTHON_PROFILE={profile}")
+    assert result.returncode != 0
+    assert "PYTHON_PROFILE must be runtime, dev or release" in result.stderr
+    assert not _calls(root)
+    assert not (root / ".venv").exists()
+    assert not (root / "build").exists()
+
+
+@pytest.mark.parametrize("use_uv", (False, True))
+def test_runtime_profile_does_not_prune_existing_external_packages(checkout, use_uv):
+    root, environment = checkout
+    if not use_uv:
+        (root / "host-bin/uv").unlink()
+    interpreter = root / ".venv/bin/python"
+    interpreter.parent.mkdir(parents=True)
+    shutil.copyfile(environment["BOOTSTRAP_TEST_SHIM"], interpreter)
+    interpreter.chmod(0o755)
+    marker = root / ".venv/lib/python3.12/site-packages/external-package.marker"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("owned by another workflow\n")
+    result = _make(checkout, "-s", "venv", "PYTHON_PROFILE=runtime")
+    assert result.returncode == 0, result.stderr
+    assert marker.read_text() == "owned by another workflow\n"
+    assert not any(set(call["args"]) & {"sync", "uninstall"} for call in _calls(root))
+
+
+@pytest.mark.parametrize("profile", ("runtime", "dev"))
+def test_smaller_profiles_honor_explicit_editor_install(checkout, profile):
+    root, _ = checkout
+    result = _make(checkout, "-s", "venv", f"PYTHON_PROFILE={profile}", "INSTALL_EDITOR=1")
+    assert result.returncode == 0, result.stderr
+    assert any(call["args"][-1:] == ["editor-install"] for call in _calls(root))
+
+
+def test_runtime_compilation_and_native_execution_do_not_import_dev_tools():
+    script = '''
+import importlib.abc
+import sys
+
+blocked = {"pytest", "xdist", "z3", "yaml", "build", "ruff", "pip_audit",
+           "reuse", "twine", "cyclonedx", "cyclonedx_py"}
+
+class RuntimeOnly(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".")[0] in blocked:
+            raise ModuleNotFoundError("runtime profile must not import " + fullname)
+
+sys.meta_path.insert(0, RuntimeOnly())
+from zlang.compiler import compile_source
+from zlang.native_simulation import simulate
+
+compiled = compile_source("module RuntimeProbe { in a,b:u8 out y:u9 y=a+b }")
+assert simulate(compiled.ir, a=7, b=9) == {"y": 16}
+print("runtime-only compile/native execution passed")
+'''
+    result = subprocess.run(
+        (sys.executable, "-c", script), cwd=ROOT,
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "runtime-only compile/native execution passed" in result.stdout
 
 
 @pytest.mark.parametrize("unavailable", ("node", "npm", "old-node", "code"))

@@ -11,6 +11,7 @@ sources = [
   "docs/types-and-numerics.md",
   "docs/expressions-functions-generics.md",
   "docs/compile-time-integers.md",
+  "docs/simulation-io.md",
   "docs/sequential-state-storage.md",
   "docs/physical-clock-reset-contract.md",
   "docs/hierarchy-protocols.md",
@@ -35,6 +36,7 @@ pdf = "docs/ZLang-HDL-Standard-Library-Guide.pdf"
 sources = [
   "docs/stdlib-overview.md",
   "docs/standard-bus-library.md",
+  "docs/stdlib-peripherals.md",
   "docs/stdlib-stream-dsp.md",
   "docs/stdlib-reloadable-fir.md",
   "docs/stdlib-multirate-coding.md",

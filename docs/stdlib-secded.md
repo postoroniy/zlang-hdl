@@ -28,7 +28,7 @@ clears validity and discards the pending word.
 
 ## Run the 39/32 example
 
-After `make venv`, run from the repository root:
+After `make install`, run from the repository root:
 
 ```sh
 .venv/bin/zlang sim examples/secded.zhl --top Secded32Decode \

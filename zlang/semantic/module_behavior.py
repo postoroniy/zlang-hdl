@@ -129,7 +129,14 @@ class ModuleBehaviorAnalyzer:
             )
             semantic_callables._validate_tuple_destructure_assignment(declaration, value)
             if expected is not None and value.type != expected:
-                raise SemanticError(f"local '{declaration.target}' has type {value.type}, expected {expected}")
+                raise SemanticError(
+                    f"local '{declaration.target}' has type {value.type}, expected {expected}",
+                    primary=_observations.declaration_origin(
+                        declaration.name_origin or declaration.origin,
+                        f"value {declaration.target}",
+                        module_context,
+                    ),
+                )
             compile_time, value_range = expression_support._local_constant_and_range(
                 value, module_context, name=declaration.target
             )
@@ -172,11 +179,17 @@ class ModuleBehaviorAnalyzer:
             target = state_storage.register_symbols.get(assignment.target)
             if target is None:
                 raise SemanticError(
-                    f"next-state target '{assignment.target}' is not a register"
+                    f"next-state target '{assignment.target}' is not a register",
+                    primary=_observations.declaration_origin(
+                        assignment.target_origin, f"next assignment {assignment.target}", module_context
+                    ),
                 )
             if target.name in assigned_registers:
                 raise SemanticError(
-                    f"register '{target.name}' has more than one next-state assignment"
+                    f"register '{target.name}' has more than one next-state assignment",
+                    primary=_observations.declaration_origin(
+                        assignment.target_origin, f"next assignment {assignment.target}", module_context
+                    ),
                 )
             _observations.record_definition(
                 module_context,
@@ -195,7 +208,10 @@ class ModuleBehaviorAnalyzer:
             if expression.type != target.type:
                 raise SemanticError(
                     f"next state for register '{target.name}' has type "
-                    f"{expression.type}, expected {target.type}"
+                    f"{expression.type}, expected {target.type}",
+                    primary=_observations.declaration_origin(
+                        assignment.target_origin, f"next assignment {assignment.target}", module_context
+                    ),
                 )
             next_assignments.append(ir_module.NextAssignment(target, expression))
             assigned_registers.add(target.name)
@@ -218,6 +234,8 @@ class ModuleBehaviorAnalyzer:
             transition_prefix=storage_product.transition_prefix,
             clock=clock,
             reset=reset,
+            source_unit=preparation.source_unit,
+            source_digest=preparation.source_digest,
         )
         rule_output_targets = transition_product.rule_output_targets
 

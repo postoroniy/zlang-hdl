@@ -22,6 +22,8 @@ def _contract(relative: Path) -> str:
     name = relative.as_posix()
     if name.startswith("debug/"):
         return "stdlib-debug.md"
+    if name.startswith("peripheral/"):
+        return "stdlib-peripherals.md"
     if name.startswith("bus/"):
         return "standard-bus-library.md"
     if name.startswith("target/"):

@@ -218,7 +218,10 @@ def compile_time_integer_value(
         value = Fraction(expression.numerator, expression.denominator)
         if value.denominator == 1:
             return value.numerator
-        raise SemanticError("non-integral compile-time real value cannot be used as an integer")
+        raise SemanticError(
+            "non-integral compile-time real value cannot be used as an integer",
+            primary=expression_origins.semantic_origin(expression, context),
+        )
     if isinstance(expression, ast.NameExpr):
         if expression.name in context.scope.index_bindings:
             return context.scope.index_bindings[expression.name]
@@ -238,14 +241,18 @@ def compile_time_integer_value(
                     ir_types.BitType, ir_types.BitsType, ir_types.UIntType, ir_types.SIntType))):
             return symbol.expression.value
         raise SemanticError(
-            f"compile-time condition references runtime value '{expression.name}'"
+            f"compile-time condition references runtime value '{expression.name}'",
+            primary=expression_origins.semantic_origin(expression, context),
         )
     if isinstance(expression, ast.UnaryExpr):
         if expression.operator is ast.BinaryOperator.LOGIC_NOT:
             return int(not compile_time_integer_value(expression.expression, inputs, context))
         if expression.operator is ast.BinaryOperator.SUBTRACT:
             return -compile_time_integer_value(expression.expression, inputs, context)
-        raise SemanticError("unsupported compile-time unary operator")
+        raise SemanticError(
+            "unsupported compile-time unary operator",
+            primary=expression_origins.semantic_origin(expression, context),
+        )
     if isinstance(expression, ast.AddExpr):
         return (
             compile_time_integer_value(expression.left, inputs, context)
@@ -298,18 +305,28 @@ def compile_time_integer_value(
             return left % right
         if operator is ast.BinaryOperator.DIVIDE:
             if right == 0 or left % right:
-                raise SemanticError("compile-time division must be exact and non-zero")
+                raise SemanticError(
+                    "compile-time division must be exact and non-zero",
+                    primary=expression_origins.semantic_origin(expression, context),
+                )
             return left // right
         if operator is ast.BinaryOperator.SHIFT_LEFT:
             if right < 0:
-                raise SemanticError("compile-time shift must be non-negative")
+                raise SemanticError(
+                    "compile-time shift must be non-negative",
+                    primary=expression_origins.semantic_origin(expression, context),
+                )
             return left << right
         if operator is ast.BinaryOperator.SHIFT_RIGHT:
             if right < 0:
-                raise SemanticError("compile-time shift must be non-negative")
+                raise SemanticError(
+                    "compile-time shift must be non-negative",
+                    primary=expression_origins.semantic_origin(expression, context),
+                )
             return left >> right
         raise SemanticError(
-            f"operator '{operator.value}' is not allowed in a compile-time condition"
+            f"operator '{operator.value}' is not allowed in a compile-time condition",
+            primary=expression_origins.semantic_origin(expression, context),
         )
     if isinstance(expression, ast.CallExpr):
         if expression.function in semantic_limits.REAL_INTRINSICS:
@@ -318,17 +335,24 @@ def compile_time_integer_value(
             if exact is None:
                 raise SemanticError(
                     f"intrinsic '{expression.function}' produced a non-integral compile-time real value; "
-                    "use explicit quantize(...) for fixed-point hardware"
+                    "use explicit quantize(...) for fixed-point hardware",
+                    primary=expression_origins.semantic_origin(expression, context),
                 )
             return exact
         if len(expression.arguments) != 1:
-            raise SemanticError(f"compile-time intrinsic '{expression.function}' expects one argument")
+            raise SemanticError(
+                f"compile-time intrinsic '{expression.function}' expects one argument",
+                primary=expression_origins.semantic_origin(expression, context),
+            )
         if expression.function == "length":
             value = context.expressions.check(
                 expression.arguments[0], inputs, None, context
             )
             if not isinstance(value.type, ir_types.VecType):
-                raise SemanticError("length(...) requires a concrete vec<N,T>")
+                raise SemanticError(
+                    "length(...) requires a concrete vec<N,T>",
+                    primary=expression_origins.semantic_origin(expression, context),
+                )
             return value.type.length
         value = compile_time_integer_value(expression.arguments[0], inputs, context)
         if expression.function in INTEGER_INTRINSICS:
@@ -336,14 +360,19 @@ def compile_time_integer_value(
                 expression.function, value
             )
         raise SemanticError(
-            f"compile-time condition function '{expression.function}' is not supported"
+            f"compile-time condition function '{expression.function}' is not supported",
+            primary=expression_origins.semantic_origin(expression, context),
         )
     type_value = compile_time_type_value(expression, context)
     if type_value is not None:
-        raise SemanticError("type values may only be used with == or !=")
+        raise SemanticError(
+            "type values may only be used with == or !=",
+            primary=expression_origins.semantic_origin(expression, context),
+        )
     raise SemanticError(
         "compile-time if condition must use compile-time values; use ?:, mux, "
-        "switch, when, or priority { ... } for runtime actions"
+        "switch, when, or priority { ... } for runtime actions",
+        primary=expression_origins.semantic_origin(expression, context),
     )
 
 

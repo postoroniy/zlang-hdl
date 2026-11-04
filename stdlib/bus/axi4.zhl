@@ -173,7 +173,7 @@ fn axi4_burst_shape_valid<DW>(length : u8, size : u3, burst : bits<2>) -> bit {
 fn axi4_address_valid<AW,DW,IW>(request : Axi4Address<AW,IW>) -> bit {
     wide_addr = extend<80>(request.addr)
     bytes = truncate<80>(extend<80>(1) << request.size)
-    count = truncate<80>(extend<80>(request.len) + 1)
+    count = extend<80>(request.len + 1)
     aligned = wide_addr & ~truncate<80>(bytes - 1)
     wrap_bytes = truncate<80>(count << request.size)
     incr_last = truncate<80>(aligned + wrap_bytes - 1)
@@ -213,7 +213,7 @@ fn axi4_beat_address<AW,IW>(request : Axi4Address<AW,IW>, index : u9)
 // of at most 128 bytes and at most 16 beats.  Pair matching and reservation
 // invalidation are stateful backend responsibilities, not this pure predicate.
 fn axi4_exclusive_address_valid<AW,DW,IW>(request : Axi4Address<AW,IW>) -> bit {
-    count = truncate<16>(extend<16>(request.len) + 1)
+    count = extend<16>(request.len + 1)
     span = truncate<16>(count << request.size)
     address = extend<80>(request.addr)
     span_mask = extend<80>(truncate<16>(span - 1))
@@ -280,7 +280,7 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
         mux(axi_ar.transfer & free[i], command.payload.id, ids[i])
     remaining <- generate(i in 0..D)
         mux(axi_ar.transfer & free[i],
-            truncate<9>(extend<9>(command.payload.len) + 1),
+            command.payload.len + 1,
             mux(axi_r.transfer & matching[i],
                 truncate<9>(remaining[i] - 1), remaining[i]))
     older <- generate(i in 0..D)
@@ -344,7 +344,7 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
         mux(axi.ar.transfer & free[i], command.payload.id, ids[i])
     remaining <- generate(i in 0..D)
         mux(axi.ar.transfer & free[i],
-            truncate<9>(extend<9>(command.payload.len) + 1),
+            command.payload.len + 1,
             mux(axi.r.transfer & matching[i],
                 truncate<9>(remaining[i] - 1), remaining[i]))
     older <- generate(i in 0..D)
@@ -465,7 +465,7 @@ where AW >= 1 && AW <= 64 && WIW >= 1 && WIW <= 32 &&
                 older[i][j] & ~retiring[j])
     remaining <- generate(i in 0..D)
         mux(accept & free[i],
-            truncate<9>(extend<9>(command.payload.len) + 1),
+            command.payload.len + 1,
             mux(axi.w.transfer & sending[i] & (remaining[i] != 0),
                 truncate<9>(remaining[i] - 1), remaining[i]))
     beat_index <- generate(i in 0..D)
@@ -575,7 +575,7 @@ where AW >= 1 && AW <= 64 && WIW >= 1 && WIW <= 32 &&
                 older[i][j] & ~retiring[j])
     remaining <- generate(i in 0..D)
         mux(accept & free[i],
-            truncate<9>(extend<9>(command.payload.len) + 1),
+            command.payload.len + 1,
             mux(axi_w.transfer & sending[i] & (remaining[i] != 0),
                 truncate<9>(remaining[i] - 1), remaining[i]))
     beat_index <- generate(i in 0..D)

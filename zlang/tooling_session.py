@@ -10,7 +10,7 @@ from pathlib import Path
 
 from zlang._version import __version__
 from zlang.analysis_needs import AnalysisNeeds
-from zlang.compiler import check_file_snapshot
+from zlang.compiler import check_file_snapshot, observe_file_declarations
 from zlang.module_resolver import ModuleResolutionError
 from zlang.intent_structural_exploration import IntentStructuralExplorationCache
 from zlang.project import ProjectModelError, discover_project_manifest
@@ -64,6 +64,9 @@ class ToolingSession:
             Path, tuple[str, models._ToolingSnapshotEntry]
         ] = OrderedDict()
         self._symbol_bytes = 0
+        self._declaration_symbols: OrderedDict[
+            tuple[object, ...], models._ToolingSymbolEntry
+        ] = OrderedDict()
         self._editor_workspace = models.EditorWorkspaceSnapshot(())
         requested_mode = os.environ.get(
             "ZLANG_LSP_SYMBOL_CACHE", "persistent"
@@ -377,6 +380,41 @@ class ToolingSession:
         if requested.wants(AnalysisNeeds.DEFINITIONS):
             self._remember_symbol_snapshot(path, source_text, result, context_key)
         return result
+
+    def declaration_snapshot(self, source: Path, source_text: str) -> models._SymbolSnapshot:
+        """Cache header-only facts separately from successful semantic checks.
+
+        These bounded memory entries never become diagnostic proofs, persistent
+        full-analysis shards or cross-root typed products.
+        """
+
+        path = source.expanduser().resolve()
+        key = self._context_key(
+            path, source_text, source_digest=None, project=None, profile=None, top=None,
+            editor_identity=self._editor_workspace.identity_for(path),
+        )
+        entry = self._declaration_symbols.get(key)
+        if entry is not None:
+            if (symbol_cache._inventory_matches(entry)
+                    and entry.environment_signature == self._environment_signature(
+                        entry.result.physical_inputs)):
+                self._declaration_symbols.move_to_end(key)
+                return entry.result
+            del self._declaration_symbols[key]
+        result = observe_file_declarations(
+            path, source_text, source_overlays=self._editor_workspace.overlays_for(path)
+        )
+        snapshot, _ = symbol_cache._normalized_symbol_payload(path, result, self)
+        if (self._symbol_mode != "off" and snapshot.serialized_size <=
+                symbol_cache._SYMBOL_MEMORY_MAX_BYTES // self._MAX_ENTRIES):
+            self._declaration_symbols[key] = models._ToolingSymbolEntry(
+                key, snapshot, self._environment_signature(snapshot.physical_inputs),
+                self._environment_fingerprint(snapshot.physical_inputs),
+                symbol_cache._symbol_root_inventory(snapshot.physical_inputs),
+            )
+            while len(self._declaration_symbols) > self._MAX_ENTRIES:
+                self._declaration_symbols.popitem(last=False)
+        return snapshot
 
     def trivia_diagnostic_proof(self, source: Path, source_text: str) -> bool:
         """Reuse an earlier *clean* check without returning stale typed IR."""

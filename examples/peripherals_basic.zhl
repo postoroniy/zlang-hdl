@@ -1,0 +1,61 @@
+import std.peripheral.gpio
+import std.peripheral.timer
+import std.peripheral.pwm
+import std.peripheral.capture
+import std.peripheral.uart
+import std.peripheral.spi
+import std.peripheral.i2c
+
+// reset_active and rst must be driven by the same physical reset.
+module BasicPeripherals {
+    clock clk reset rst
+    in reset_active,enable : bit
+    in gpio_in,gpio_data,gpio_oe : bits<8>
+    out gpio_sampled,gpio_out,gpio_output_enable : bits<8>
+    out timer_tick,pwm_pin : bit
+    in capture_level : bit
+    out capture_time : rv<u32>
+    out capture_overflow : bit
+    in uart_tx : rv<bits<8>>
+    out uart_rx : rv<UartRxBeat>
+    in uart_rx_sampled : bit
+    out uart_tx_pin : bit
+    in spi_input : rv<bits<8>>
+    out spi_output : rv<bits<8>>
+    in miso_sampled : bit
+    out sck,mosi,cs_n : bit
+    in i2c_input : rv<I2cWriteRequest>
+    out i2c_status : rv<u3>
+    in scl_sampled,sda_sampled : bit
+    out scl_low,sda_low : bit
+    reg timestamp : u32 = 0
+    timestamp <- truncate<32>(timestamp+1)
+
+    gpio : Gpio8 { reset_active pins_in=gpio_in data=gpio_data oe=gpio_oe }
+    gpio_sampled = gpio.sampled
+    gpio_out = gpio.pins_out
+    gpio_output_enable = gpio.pins_oe
+    timer : PeriodicTimer32<PERIOD=1000> { reset_active enable }
+    timer_tick = timer.tick
+    pwm : Pwm16<PERIOD=256,DUTY=128> { reset_active enable }
+    pwm_pin = pwm.pin
+    capture : RisingCapture32 { reset_active enable level=capture_level timestamp }
+    capture.output -> capture_time
+    capture_overflow = capture.overflow
+    transmitter : UartTx8N1<DIVISOR=16> { reset_active }
+    receiver : UartRx8N1<DIVISOR=16> { reset_active rx_sampled=uart_rx_sampled }
+    uart_tx -> transmitter.input
+    receiver.output -> uart_rx
+    uart_tx_pin = transmitter.tx
+    spi : SpiMasterMode0<HALF_PERIOD=2> { reset_active miso_sampled }
+    spi_input -> spi.input
+    spi.output -> spi_output
+    sck = spi.sck
+    mosi = spi.mosi
+    cs_n = spi.cs_n
+    i2c : I2cWriteByte<HALF_PERIOD=4> { reset_active scl_sampled sda_sampled }
+    i2c_input -> i2c.input
+    i2c.output -> i2c_status
+    scl_low = i2c.scl_low
+    sda_low = i2c.sda_low
+}

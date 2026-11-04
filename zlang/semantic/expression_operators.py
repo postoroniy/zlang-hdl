@@ -84,6 +84,8 @@ def _outer_nominal_name(syntax: ast.TypeSyntax) -> str | None:
 def validate_operator_declarations(
     declarations: tuple[ast.OperatorDecl, ...],
     structs: tuple[ast.StructDecl, ...],
+    *,
+    source_digests: dict[str, str] | None = None,
 ) -> None:
     struct_by_name = {declaration.name: declaration for declaration in structs}
     struct_names = set(struct_by_name)
@@ -149,13 +151,31 @@ def validate_operator_declarations(
         )
     for declaration in declarations:
         if declaration.operator not in {"+", "-", "*"}:
-            raise SemanticError(f"unsupported operator overload '{declaration.operator}'")
+            raise SemanticError(
+                f"unsupported operator overload '{declaration.operator}'",
+                primary=SourceOrigin(
+                    declaration.origin,
+                    f"operator {declaration.operator}",
+                    declaration.source_identity,
+                    (source_digests or {}).get(declaration.source_identity),
+                )
+                if declaration.origin is not None
+                else None,
+            )
         expected_arity = 1 if len(declaration.parameters) == 1 else 2
         if len(declaration.parameters) not in {1, 2} or (
             len(declaration.parameters) == 1 and declaration.operator != "-"
         ):
             raise SemanticError(
-                f"operator '{declaration.operator}' has unsupported arity {len(declaration.parameters)}"
+                f"operator '{declaration.operator}' has unsupported arity {len(declaration.parameters)}",
+                primary=SourceOrigin(
+                    declaration.origin,
+                    f"operator {declaration.operator}",
+                    declaration.source_identity,
+                    (source_digests or {}).get(declaration.source_identity),
+                )
+                if declaration.origin is not None
+                else None,
             )
         del expected_arity
         owners = tuple(
@@ -165,14 +185,30 @@ def validate_operator_declarations(
         if not any(owner in struct_names for owner in owners):
             raise SemanticError(
                 f"operator '{declaration.operator}' must be owned by a nominal struct operand; "
-                "built-in scalar and fixed operators cannot be overloaded"
+                "built-in scalar and fixed operators cannot be overloaded",
+                primary=SourceOrigin(
+                    declaration.origin,
+                    f"operator {declaration.operator}",
+                    declaration.source_identity,
+                    (source_digests or {}).get(declaration.source_identity),
+                )
+                if declaration.origin is not None
+                else None,
             )
         first_owner = next(owner for owner in owners if owner in struct_names)
         owner_declaration = struct_by_name[first_owner]
         if declaration.source_identity != owner_declaration.source_identity:
             raise SemanticError(
                 f"operator '{declaration.operator}' violates nominal-owner coherence: "
-                f"'{first_owner}' is owned by {owner_declaration.source_identity or 'this source'}"
+                f"'{first_owner}' is owned by {owner_declaration.source_identity or 'this source'}",
+                primary=SourceOrigin(
+                    declaration.origin,
+                    f"operator {declaration.operator}",
+                    declaration.source_identity,
+                    (source_digests or {}).get(declaration.source_identity),
+                )
+                if declaration.origin is not None
+                else None,
             )
         if declaration.generic_parameters:
             key = (first_owner, declaration.operator, len(declaration.parameters))
@@ -186,7 +222,15 @@ def validate_operator_declarations(
             if previous is not None:
                 raise SemanticError(
                     f"overlapping generic operator '{declaration.operator}' declarations "
-                    f"for owner '{first_owner}'"
+                    f"for owner '{first_owner}'",
+                    primary=SourceOrigin(
+                        declaration.origin,
+                        f"operator {declaration.operator}",
+                        declaration.source_identity,
+                        (source_digests or {}).get(declaration.source_identity),
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
             generic_signatures.setdefault(key, []).append(declaration)
 

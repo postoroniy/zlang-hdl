@@ -4,7 +4,7 @@ The reviewed native workspace uses the exact crates below from the locked
 crates.io index. This conservative inventory covers the debugger, waveform
 indexer and companion native-simulation wheel; an individual executable may
 link only a subset. It is generated from `Cargo.lock` plus offline Cargo
-metadata, and the private release audit rejects Git/path dependencies, missing
+metadata. The release audit rejects Git/path dependencies, missing
 checksums, missing licenses and license identifiers outside the reviewed
 allow-list.
 

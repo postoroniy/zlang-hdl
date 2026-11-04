@@ -274,3 +274,34 @@ def test_legacy_source_suffixes_are_rejected_before_file_io(tmp_path: Path) -> N
 
         missing = _run(tmp_path / f"also-legacy{suffix}", "json")
         assert json.loads(missing.stderr)["code"] == "ZL-SOURCE-EXTENSION"
+
+
+@pytest.mark.parametrize("diagnostic_format", ("text", "json"))
+def test_mixed_register_writers_include_file_line_and_column(tmp_path, diagnostic_format):
+    source = tmp_path / "accumulator.zhl"
+    source.write_text(
+        "module Accumulator {\n"
+        "    clock clk reset rst\n"
+        "    in enable : bit\n"
+        "    in value : u8\n"
+        "    out reg total : u9 = 0\n"
+        "    total <- 0\n"
+        "    when enable {\n"
+        "        total <- truncate<9>(total + value)\n"
+        "    }\n}\n"
+    )
+    result = _run(source, diagnostic_format, "--check")
+    assert result.returncode == 1
+    assert result.stdout == ""
+    if diagnostic_format == "json":
+        diagnostic = json.loads(result.stderr)
+        assert diagnostic["primary"]["source_unit"] == source.name
+        assert diagnostic["primary"]["span"] == {
+            "start_line": 8, "start_column": 9,
+            "end_line": 8, "end_column": 14,
+        }
+    else:
+        assert result.stderr.startswith(
+            f"zlang: {source}:8:9: error[ZL-SEMANTIC-001]: "
+        )
+    assert "register 'total' has both a rule action and next-state assignment" in result.stderr

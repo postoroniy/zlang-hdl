@@ -96,6 +96,16 @@ def _register_update_statement(
             raise SystemVerilogEmissionError(
                 "vector register update requires a vector register"
             )
+        boundary = emission_context.current_top_boundary()
+        if boundary is not None and boundary.is_direct_vector(register_name):
+            # A public packed-array root is selected in elements, while
+            # internal registers and boundary aliases are flat bit vectors.
+            # The typed action proves the active index is within this vector.
+            index_width = max(1, (vector_type.length - 1).bit_length())
+            return (
+                f"{target}[{index_width}'({render(value.index)})] <= "
+                f"{render(value.value)};"
+            )
         element_width = _width(vector_type.element_type)
         base = _scaled_packed_index(render(value.index), element_width)
         return (

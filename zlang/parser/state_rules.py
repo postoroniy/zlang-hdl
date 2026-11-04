@@ -355,11 +355,12 @@ class StateRules:
             origin,
         )
 
-    def rule_priority(self, items: list[object]) -> ast_nodes.RulePriority | ast_nodes.RulePriorityChain:
+    @v_args(meta=True)
+    def rule_priority(self, meta: object, items: list[object]) -> ast_nodes.RulePriority | ast_nodes.RulePriorityChain:
         names = tuple(str(item) for item in items)
         if len(names) == 2:
-            return ast_nodes.RulePriority(*names)
-        return ast_nodes.RulePriorityChain(names)
+            return ast_nodes.RulePriority(*names, origin=self._span(meta))
+        return ast_nodes.RulePriorityChain(names, origin=self._span(meta))
 
     @v_args(meta=True)
     def labeled_priority_arm(self, meta: object, items: list[object]) -> ast_nodes.PriorityRuleArm:
@@ -517,11 +518,13 @@ class StateRules:
             origin=self._span(meta),
             contents_reset=(
                 reset_policy[1]
-                if reset_policy is not None else ast_nodes.MemoryResetPolicy.CLEAR
+                if reset_policy is not None
+                else ast_nodes.MemoryResetPolicy.CLEAR
             ),
             read_data_reset=(
                 reset_policy[2]
-                if reset_policy is not None else ast_nodes.MemoryResetPolicy.CLEAR
+                if reset_policy is not None
+                else ast_nodes.MemoryResetPolicy.CLEAR
             ),
             domain=domain,
             ports=ports,

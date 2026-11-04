@@ -34,6 +34,12 @@ git rev-parse --short HEAD
 Read the applicable `AGENTS.md` before acting. Never assume a clean tree and
 never discard, overwrite, stage, commit, or publish unrelated work.
 
+For ordinary setup use `make install`; for compiler tests use
+`make venv PYTHON_PROFILE=dev`, and for release/audit work use `make venv`.
+The [installation guide](../../../docs/installing-toolchain.md#reference-installing-toolchain-python-dependency-profiles)
+owns additive profiles and the optional `formal` extra. Use the current
+checkout's pins; dependencies alone are not proof evidence.
+
 ## Authority and documentation routing
 
 Use this order:
@@ -67,7 +73,7 @@ algorithms in another checkout do not establish support in this distribution.
 Read only the reference relevant to the task:
 
 - Exact scalar/aggregate types, representation operations, ready/valid,
-  credit, request/response, standard buses, and boundary examples:
+  credit, request/response, standard buses, peripherals/RegBus and boundary examples:
   [references/types-and-interfaces.md](references/types-and-interfaces.md).
 - Source authoring, state, storage, hierarchy, protocols, numeric rules, and
   production commands: [references/language-and-rtl.md](references/language-and-rtl.md).
@@ -180,3 +186,11 @@ Never finish with “should compile”, “should synthesize”, “proved”, �
 or “standards compliant” without the matching executed evidence. If this skill
 conflicts with current compiler behavior, follow the repository, record the
 drift, and update the skill only after confirming a general rule.
+
+## Simulation I/O
+
+Use [simulation-only source I/O](../../../docs/simulation-io.md) for conditional typed JSONL reads,
+pre-edge structured logs and explicit EOF behavior. Activation requires a named
+`simulation` block and channel bindings; inactive blocks do not alter hardware.
+The runnable `examples/simulation_io.zhl` includes reset, stalls and drain;
+VS Code provides **Debug simulation I/O**. Use fresh file outputs or console `-`.

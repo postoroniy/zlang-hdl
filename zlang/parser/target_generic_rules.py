@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import re
 
 from lark import v_args
 
@@ -294,11 +295,15 @@ class TargetAndGenericRules:
     def parameter_name(self, items: list[object]) -> str:
         return str(items[0])
 
-    def type_module_parameter(self, items: list[object]) -> ast_nodes.ModuleParameter:
-        return ast_nodes.ModuleParameter(str(items[0]), "type")
+    @v_args(meta=True)
+    def type_module_parameter(self, meta: object, items: list[object]) -> ast_nodes.ModuleParameter:
+        return ast_nodes.ModuleParameter(str(items[0]), "type", origin=self._span(meta))
 
-    def constant_module_parameter(self, items: list[object]) -> ast_nodes.ModuleParameter:
-        return ast_nodes.ModuleParameter(str(items[0]), "constant", type_name=items[1])
+    @v_args(meta=True)
+    def constant_module_parameter(self, meta: object, items: list[object]) -> ast_nodes.ModuleParameter:
+        return ast_nodes.ModuleParameter(
+            str(items[0]), "constant", type_name=items[1], origin=self._span(meta)
+        )
 
     def callable_parameter_types(self, items: list[object]) -> tuple[object, ...]:
         return tuple(items)
@@ -308,7 +313,8 @@ class TargetAndGenericRules:
         return_type = next(item for item in reversed(items) if not isinstance(item, tuple))
         return ("callable_type", parameters, return_type)
 
-    def callable_module_parameter(self, items: list[object]) -> ast_nodes.ModuleParameter:
+    @v_args(meta=True)
+    def callable_module_parameter(self, meta: object, items: list[object]) -> ast_nodes.ModuleParameter:
         signature = items[1]
         assert isinstance(signature, tuple) and signature[0] == "callable_type"
         return ast_nodes.ModuleParameter(
@@ -316,16 +322,18 @@ class TargetAndGenericRules:
             "callable",
             callable_parameters=tuple(signature[1]),
             callable_return_type=signature[2],
+            origin=self._span(meta),
         )
 
-    def value_module_parameter(self, items: list[object]) -> ast_nodes.ModuleParameter:
+    @v_args(meta=True)
+    def value_module_parameter(self, meta: object, items: list[object]) -> ast_nodes.ModuleParameter:
         value = items[1] if len(items) > 1 else None
         if isinstance(value, str):
             try:
                 value = self._parse_number(value)
             except (ValueError, ParseError):
                 pass
-        return ast_nodes.ModuleParameter(str(items[0]), "value", value)
+        return ast_nodes.ModuleParameter(str(items[0]), "value", value, origin=self._span(meta))
 
     def signed_parameter_number(self, items: list[object]) -> int:
         value = self._parse_number(str(items[1]))
@@ -334,11 +342,15 @@ class TargetAndGenericRules:
     def module_parameters(self, items: list[object]) -> tuple[ast_nodes.ModuleParameter, ...]:
         return tuple(items)
 
-    def named_specialization_argument(self, items: list[object]) -> ast_nodes.SpecializationArgument:
-        return ast_nodes.SpecializationArgument(str(items[0]), items[1])
+    @v_args(meta=True)
+    def named_specialization_argument(self, meta: object, items: list[object]) -> ast_nodes.SpecializationArgument:
+        return ast_nodes.SpecializationArgument(
+            str(items[0]), items[1], origin=self._span(meta)
+        )
 
-    def positional_specialization_argument(self, items: list[object]) -> ast_nodes.SpecializationArgument:
-        return ast_nodes.SpecializationArgument(None, items[0])
+    @v_args(meta=True)
+    def positional_specialization_argument(self, meta: object, items: list[object]) -> ast_nodes.SpecializationArgument:
+        return ast_nodes.SpecializationArgument(None, items[0], origin=self._span(meta))
 
     def specialization_arguments(self, items: list[object]) -> tuple[ast_nodes.SpecializationArgument, ...]:
         return tuple(items)
@@ -416,7 +428,10 @@ class TargetAndGenericRules:
             return type_name, ()
         base, body = text.split("<", 1)
         body = body[:-1]
-        fields: list[str] = []
+        if re.search(r"\bfn\b", body):
+            # Reuse explicit argument grammar before text splitting loses typed actuals.
+            return ast_nodes.TypeName(base), self._parse_concise_specializations(type_name)
+        fields: list[tuple[str, int]] = []
         start = 0
         angle_depth = 0
         paren_depth = 0
@@ -430,12 +445,20 @@ class TargetAndGenericRules:
             elif character == ")":
                 paren_depth -= 1
             elif character == "," and angle_depth == 0 and paren_depth == 0:
-                fields.append(body[start:index].strip())
+                fields.append((body[start:index], start))
                 start = index + 1
-        fields.append(body[start:].strip())
+        fields.append((body[start:], start))
 
+        body_source_offset = None
+        if type_name.origin is not None:
+            origin = type_name.origin
+            begin = self._source_offset(origin.start_line, origin.start_column)
+            end = self._source_offset(origin.end_line, origin.end_column)
+            if self._source_context.source[begin:end] == text:
+                body_source_offset = begin + len(base) + 1
         parsed: list[ast_nodes.SpecializationArgument] = []
-        for field in fields:
+        for raw_field, field_offset in fields:
+            field = raw_field.strip()
             angle_depth = 0
             paren_depth = 0
             separator = None
@@ -463,7 +486,14 @@ class TargetAndGenericRules:
                 value: object = self._parse_number(value_text)
             except (ValueError, ParseError):
                 value = value_text
-            parsed.append(ast_nodes.SpecializationArgument(name, value))
+            origin = None
+            if body_source_offset is not None:
+                begin = body_source_offset + field_offset + len(raw_field) - len(raw_field.lstrip())
+                end = body_source_offset + field_offset + len(raw_field.rstrip())
+                start_line, start_column = self._source_context.position(begin)
+                end_line, end_column = self._source_context.position(end)
+                origin = SourceSpan(start_line, start_column, end_line, end_column)
+            parsed.append(ast_nodes.SpecializationArgument(name, value, origin=origin))
         return ast_nodes.TypeName(base), tuple(parsed)
 
     def _root_action_chain(
@@ -569,13 +599,18 @@ class TargetAndGenericRules:
     def target_index(self, items: list[object]) -> tuple[str, object]:
         return ("target_index", items[0])
 
-    def instance_input_binding(self, items: list[object]) -> ast_nodes.Assignment:
+    @v_args(meta=True)
+    def instance_input_binding(self, meta: object, items: list[object]) -> ast_nodes.Assignment:
         expression = (
             items[1]
             if len(items) > 1 and items[1] is not None
             else ast_nodes.NameExpr(str(items[0]))
         )
-        return ast_nodes.Assignment(str(items[0]), expression)
+        return ast_nodes.Assignment(
+            str(items[0]),
+            expression,
+            name_origin=self._name_span_from_meta(meta, str(items[0]).split(".", 1)[0].split("[", 1)[0]),
+        )
 
     def instance_binding_block(self, items: list[object]) -> tuple[ast_nodes.Assignment, ...]:
         return tuple(items)

@@ -28,7 +28,7 @@ VSIX, and bundled debug tools must come from the same ZLang HDL release.
 From a source checkout:
 
 ```sh
-make venv
+make install
 source .venv/bin/activate
 .venv/bin/zlang-lsp --version
 ```
@@ -447,3 +447,11 @@ The public source checkout can reproduce the package envelope from the same
 reviewed executable bytes with `make editor-native-host-test`. Rebuilding the
 native Rust implementation is deliberately a release-host operation and is
 not presented as a public-source command.
+
+## Source simulation channels
+
+Use [simulation-only source I/O](simulation-io.md) for conditional typed JSONL reads,
+pre-edge structured logs and explicit EOF behavior. Activation requires a named
+`simulation` block and channel bindings; inactive blocks do not alter hardware.
+The runnable `examples/simulation_io.zhl` includes reset, stalls and drain;
+VS Code provides **Debug simulation I/O**. Use fresh file outputs or console `-`.

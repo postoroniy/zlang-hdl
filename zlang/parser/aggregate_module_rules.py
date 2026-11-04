@@ -203,7 +203,8 @@ class AggregateCallableModuleRules:
             and (item[1] is None or isinstance(item[1], int))
         )
         return ast_nodes.EnumDecl(
-            str(items[0]), tuple(item[0] for item in members),
+            str(items[0]),
+            tuple(item[0] for item in members),
             origin=self._span(meta),
             backing_type=backing_type,
             encodings=tuple(item[1] for item in members),
@@ -236,7 +237,9 @@ class AggregateCallableModuleRules:
     ) -> ast_nodes.TaggedUnionDecl:
         return ast_nodes.TaggedUnionDecl(
             str(items[0]),
-            tuple(item for item in items[1:] if isinstance(item, ast_nodes.TaggedUnionVariantDecl)),
+            tuple(
+                item for item in items[1:] if isinstance(item, ast_nodes.TaggedUnionVariantDecl)
+            ),
             origin=self._span(meta),
             name_origin=self._token_span(items[0]),
         )
@@ -257,7 +260,9 @@ class AggregateCallableModuleRules:
         )
         fields = tuple(item for item in items[1:] if isinstance(item, ast_nodes.StructFieldDecl))
         return ast_nodes.StructDecl(
-            str(items[0]), fields, parameters,
+            str(items[0]),
+            fields,
+            parameters,
             origin=self._span(meta),
             name_origin=self._token_span(items[0]),
         )
@@ -272,9 +277,12 @@ class AggregateCallableModuleRules:
         domain = names[1] if len(names) > 1 else None
         return (str(items[0]), arguments, role, domain)
 
-    def aggregate_interface_decl(self, items: list[object]) -> ast_nodes.AggregateInterfaceDecl:
+    @v_args(meta=True)
+    def aggregate_interface_decl(self, meta: object, items: list[object]) -> ast_nodes.AggregateInterfaceDecl:
         protocol, arguments, role, domain = items[1]
-        return ast_nodes.AggregateInterfaceDecl(str(items[0]), protocol, arguments, role, domain)
+        return ast_nodes.AggregateInterfaceDecl(
+            str(items[0]), protocol, arguments, role, domain, origin=self._span(meta)
+        )
 
     @v_args(meta=True)
     def parameter(self, _meta: object, items: list[object]) -> ast_nodes.Parameter:
@@ -426,15 +434,9 @@ class AggregateCallableModuleRules:
             ports=tuple(item for item in body if isinstance(item, ast_nodes.PortDecl)),
             clocks=tuple(item[1] for item in body if _tagged(item, "clock")),
             resets=tuple(item[1] for item in body if _tagged(item, "reset")),
-            reset_domains=tuple(
-                (item[1], item[2]) for item in body if _tagged(item, "reset")
-            ),
-            clock_physical=tuple(
-                item[2] for item in body if _tagged(item, "clock")
-            ),
-            reset_physical=tuple(
-                item[3] for item in body if _tagged(item, "reset")
-            ),
+            reset_domains=tuple((item[1], item[2]) for item in body if _tagged(item, "reset")),
+            clock_physical=tuple(item[2] for item in body if _tagged(item, "clock")),
+            reset_physical=tuple(item[3] for item in body if _tagged(item, "reset")),
             request_responses=tuple(
                 item for item in body if isinstance(item, ast_nodes.RequestResponseDecl)
             ),
@@ -453,7 +455,7 @@ class AggregateCallableModuleRules:
         for item in items[1:]:
             if isinstance(item, ast_nodes.RulePriorityChain):
                 body.extend(
-                    ast_nodes.RulePriority(higher, lower)
+                    ast_nodes.RulePriority(higher, lower, origin=item.origin)
                     for higher, lower in zip(item.names, item.names[1:])
                 )
             else:
@@ -472,25 +474,13 @@ class AggregateCallableModuleRules:
         return ast_nodes.Module(
             name=name,
             ports=tuple(item for item in body if isinstance(item, ast_nodes.PortDecl)),
-            assignments=tuple(
-                item for item in body if isinstance(item, ast_nodes.Assignment)
-            ),
+            assignments=tuple(item for item in body if isinstance(item, ast_nodes.Assignment)),
             clocks=tuple(item[1] for item in body if _tagged(item, "clock")),
             resets=tuple(item[1] for item in body if _tagged(item, "reset")),
-            reset_domains=tuple(
-                (item[1], item[2])
-                for item in body
-                if _tagged(item, "reset")
-            ),
-            clock_physical=tuple(
-                item[2] for item in body if _tagged(item, "clock")
-            ),
-            reset_physical=tuple(
-                item[3] for item in body if _tagged(item, "reset")
-            ),
-            registers=tuple(
-                item for item in body if isinstance(item, ast_nodes.RegisterDecl)
-            ),
+            reset_domains=tuple((item[1], item[2]) for item in body if _tagged(item, "reset")),
+            clock_physical=tuple(item[2] for item in body if _tagged(item, "clock")),
+            reset_physical=tuple(item[3] for item in body if _tagged(item, "reset")),
+            registers=tuple(item for item in body if isinstance(item, ast_nodes.RegisterDecl)),
             next_assignments=tuple(
                 item for item in body if isinstance(item, ast_nodes.NextAssignment)
             ),
@@ -503,14 +493,11 @@ class AggregateCallableModuleRules:
             connection_chains=tuple(
                 item for item in body if isinstance(item, ast_nodes.ConnectionChainDecl)
             ),
-            csr_blocks=tuple(
-                item for item in body if isinstance(item, ast_nodes.CsrBlockDecl)
-            ),
-            csr_groups=tuple(
-                item for item in body if isinstance(item, ast_nodes.CsrGroupDecl)
-            ),
+            csr_blocks=tuple(item for item in body if isinstance(item, ast_nodes.CsrBlockDecl)),
+            csr_groups=tuple(item for item in body if isinstance(item, ast_nodes.CsrGroupDecl)),
             rules=tuple(
-                item for item in body
+                item
+                for item in body
                 if isinstance(item, (ast_nodes.RuleDecl, ast_nodes.AnonymousRuleDecl))
             ),
             rule_priorities=tuple(
@@ -528,10 +515,15 @@ class AggregateCallableModuleRules:
             verification_scopes=tuple(
                 item for item in body if isinstance(item, ast_nodes.VerificationScopeDecl)
             ),
+            simulation_blocks=tuple(
+                item for item in body if isinstance(item, ast_nodes.SimulationBlock)
+            ),
             parameters=parameters,
             declared_parameters=parameters,
             instances=tuple(item for item in body if isinstance(item, ast_nodes.InstanceDecl)),
-            aggregate_interfaces=tuple(item for item in body if isinstance(item, ast_nodes.AggregateInterfaceDecl)),
+            aggregate_interfaces=tuple(
+                item for item in body if isinstance(item, ast_nodes.AggregateInterfaceDecl)
+            ),
             generic_declarations=tuple(
                 item for item in body if isinstance(item, ast_nodes.GenericDeclaration)
             ),
@@ -544,7 +536,8 @@ class AggregateCallableModuleRules:
             timing=timings[0] if timings else None,
             conforms_to=interface_ref,
             ordered_items=tuple(
-                item for item in body
+                item
+                for item in body
                 if item is not parameters
                 and item is not interface_ref
                 and not _tagged(item, "module_where")

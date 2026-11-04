@@ -5,5 +5,5 @@ module ByteLaneAlignerWitness<N=32> {
     out aligned : vec<N,u8>
 
     aligned = generate(i in 0..N)
-        source[truncate<6>(extend<6>(offset) + extend<6>(i))]
+        source[truncate<6>(offset + i)]
 }

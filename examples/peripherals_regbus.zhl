@@ -1,0 +1,92 @@
+import std.peripheral.gpio
+import std.peripheral.timer
+import std.peripheral.pwm
+import std.peripheral.capture
+import std.peripheral.uart
+import std.peripheral.spi
+import std.peripheral.i2c
+
+// Each peripheral has its own RegBus32 responder. Decode upstream explicitly.
+// reset_active and rst must connect to the same physical active-high reset.
+module BasicRegBusPeripherals {
+    clock clk reset rst
+    in reset_active : bit
+    in gpio_in : bits<8>
+    out gpio_out,gpio_oe : bits<8>
+    out timer_tick,pwm_pin : bit
+    in capture_level : bit
+    in timestamp : u32
+    in rx_sampled,miso_sampled,scl_sampled,sda_sampled : bit
+    out tx,sck,mosi,cs_n,scl_low,sda_low : bit
+    interface gpio_bus : RegBus<32,32>.responder
+    interface timer_bus : RegBus<32,32>.responder
+    interface pwm_bus : RegBus<32,32>.responder
+    interface capture_bus : RegBus<32,32>.responder
+    interface uart_bus : RegBus<32,32>.responder
+    interface spi_bus : RegBus<32,32>.responder
+    interface i2c_bus : RegBus<32,32>.responder
+
+    gpio:Gpio8RegBus32 {reset_active}
+    gpio.regbus.request.valid=gpio_bus.request.valid
+    gpio.regbus.request.payload=gpio_bus.request.payload
+    gpio_bus.request.ready=gpio.regbus.request.ready
+    gpio_bus.response.valid=gpio.regbus.response.valid
+    gpio_bus.response.payload=gpio.regbus.response.payload
+    gpio.regbus.response.ready=gpio_bus.response.ready
+
+    timer:PeriodicTimer32RegBus32<PERIOD=1000> {reset_active}
+    timer.regbus.request.valid=timer_bus.request.valid
+    timer.regbus.request.payload=timer_bus.request.payload
+    timer_bus.request.ready=timer.regbus.request.ready
+    timer_bus.response.valid=timer.regbus.response.valid
+    timer_bus.response.payload=timer.regbus.response.payload
+    timer.regbus.response.ready=timer_bus.response.ready
+
+    pwm:Pwm16RegBus32<PERIOD=256,DUTY=128> {reset_active}
+    pwm.regbus.request.valid=pwm_bus.request.valid
+    pwm.regbus.request.payload=pwm_bus.request.payload
+    pwm_bus.request.ready=pwm.regbus.request.ready
+    pwm_bus.response.valid=pwm.regbus.response.valid
+    pwm_bus.response.payload=pwm.regbus.response.payload
+    pwm.regbus.response.ready=pwm_bus.response.ready
+
+    capture:RisingCapture32RegBus32 {reset_active}
+    capture.regbus.request.valid=capture_bus.request.valid
+    capture.regbus.request.payload=capture_bus.request.payload
+    capture_bus.request.ready=capture.regbus.request.ready
+    capture_bus.response.valid=capture.regbus.response.valid
+    capture_bus.response.payload=capture.regbus.response.payload
+    capture.regbus.response.ready=capture_bus.response.ready
+
+    uart:Uart8N1RegBus32<DIVISOR=16> {reset_active}
+    uart.regbus.request.valid=uart_bus.request.valid
+    uart.regbus.request.payload=uart_bus.request.payload
+    uart_bus.request.ready=uart.regbus.request.ready
+    uart_bus.response.valid=uart.regbus.response.valid
+    uart_bus.response.payload=uart.regbus.response.payload
+    uart.regbus.response.ready=uart_bus.response.ready
+
+    spi:SpiMode0RegBus32<HALF_PERIOD=2> {reset_active}
+    spi.regbus.request.valid=spi_bus.request.valid
+    spi.regbus.request.payload=spi_bus.request.payload
+    spi_bus.request.ready=spi.regbus.request.ready
+    spi_bus.response.valid=spi.regbus.response.valid
+    spi_bus.response.payload=spi.regbus.response.payload
+    spi.regbus.response.ready=spi_bus.response.ready
+
+    i2c:I2cWriteByteRegBus32<HALF_PERIOD=4> {reset_active}
+    i2c.regbus.request.valid=i2c_bus.request.valid
+    i2c.regbus.request.payload=i2c_bus.request.payload
+    i2c_bus.request.ready=i2c.regbus.request.ready
+    i2c_bus.response.valid=i2c.regbus.response.valid
+    i2c_bus.response.payload=i2c.regbus.response.payload
+    i2c.regbus.response.ready=i2c_bus.response.ready
+
+    gpio.pins_in=gpio_in gpio_out=gpio.pins_out gpio_oe=gpio.pins_oe
+    timer_tick=timer.tick pwm_pin=pwm.pin
+    capture.level=capture_level capture.timestamp=timestamp
+    uart.rx_sampled=rx_sampled tx=uart.tx
+    spi.miso_sampled=miso_sampled sck=spi.sck mosi=spi.mosi cs_n=spi.cs_n
+    i2c.scl_sampled=scl_sampled i2c.sda_sampled=sda_sampled
+    scl_low=i2c.scl_low sda_low=i2c.sda_low
+}

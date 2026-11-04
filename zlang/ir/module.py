@@ -1,6 +1,7 @@
 """Typed module-level IR."""
 
 from __future__ import annotations
+from zlang.simulation_io_model import SimulationBlock
 
 from dataclasses import dataclass, field, fields, is_dataclass
 from enum import Enum
@@ -977,6 +978,9 @@ class Module:
     # the typed module for canonical round trips and bundle generation while
     # production backends deliberately ignore it.
     verification_scopes: tuple[VerificationScope, ...] = ()
+    simulation_blocks: tuple[SimulationBlock[Expression], ...] = field(
+        default=(), compare=False, repr=False,
+    )
     # Host-work evidence from semantic construction.  It is deliberately
     # excluded from module equality/canonical identity and need not survive a
     # canonical round trip.

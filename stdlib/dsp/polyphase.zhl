@@ -43,9 +43,9 @@ where R >= 1 && K >= 1 && N == R*K {
     clock clk reset rst
     in input : rv<fixed<SW,SF>>
     out output : rv<fixed<OW,OF>>
-    inst core : RvPolyphaseFirDecimatorExact<SW=SW,SF=SF,CW=CW,CF=CF,R=R,K=K,
+    core : RvPolyphaseFirDecimatorExact<SW=SW,SF=SF,CW=CW,CF=CF,R=R,K=K,
                                               coefficients=coefficients>
-    connect input -> core.input
+    input -> core.input
     core.output.ready = output.ready
     output.valid = core.output.valid
     output.payload = quantize<fixed<OW,OF>>(core.output.payload) {

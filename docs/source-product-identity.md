@@ -13,9 +13,14 @@ Logical imports do not contain a source suffix. For example,
 `import std.math.fixed` resolves to `stdlib/math/fixed.zhl`, while project and
 locked-package imports use their logical module identities.
 
-Older dependency locks are rejected by the current versioned lock schema;
-regenerate them with `zlang lock update`. Source, build, and proof caches are
-bound to dependency and source-unit identities, and stale inputs miss safely.
+Project schema 1 and dependency-lock schema 2 remain supported. Projects that
+opt into the exact compiler/stdlib toolchain contract use project schema 2 and
+lock schema 3. Unsupported schemas and stale resolution or toolchain inputs
+are rejected; restore the matching lock and inputs, or run `zlang lock update`
+after an intentional dependency/toolchain change. A normal compile or LSP
+request never fetches dependencies or rewrites the lock. Source, build, and
+proof caches are bound to dependency and source-unit identities, and stale
+inputs miss safely. See [project and lock contracts](projects-dependencies.md).
 
 The short prose name **ZLang** remains valid after the product has been
 introduced. The Python package `zlang`, `zlang.toml`, `zlang.lock`, the

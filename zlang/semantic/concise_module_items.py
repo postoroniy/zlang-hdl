@@ -145,17 +145,20 @@ class _ConciseDeclarationResolver:
         if declaration.initializer is not None and len(names) > 1:
             raise SemanticError(
                 "grouped port declarations cannot have an initializer; "
-                "use one inline output declaration per driven output"
+                "use one inline output declaration per driven output",
+                primary=origin,
             )
         if declaration.initializer is not None:
             if declaration.direction is ast.Direction.INPUT:
                 raise SemanticError(
                     f"input port '{declaration.name}' cannot have an initializer; "
-                    "inputs are driven by the parent/environment"
+                    "inputs are driven by the parent/environment",
+                    primary=origin,
                 )
             if isinstance(declaration.type_name, ast.InterfaceTypeName):
                 raise SemanticError(
-                    f"protocol port '{declaration.name}' cannot have an initializer"
+                    f"protocol port '{declaration.name}' cannot have an initializer",
+                    primary=origin,
                 )
         expanded: list[object] = []
         for index, name in enumerate(names):
@@ -219,6 +222,7 @@ class _ConciseDeclarationResolver:
                 arguments,
                 declaration.role,
                 self._inferred_domain(declaration.domain),
+                         origin=declaration.origin,
             )
             self.interfaces.append(result)
             return result
@@ -298,7 +302,15 @@ class _ConciseDeclarationResolver:
             if domain is None:
                 if len(self.module.clocks) > 1:
                     raise SemanticError(
-                        f"protocol endpoint '{declaration.name}' requires an explicit domain"
+                        f"protocol endpoint '{declaration.name}' requires an explicit domain",
+                        primary=SourceOrigin(
+                            declaration.origin,
+                            f"protocol endpoint {declaration.name}",
+                            self.module.source_identity or self.source_unit,
+                            self.module.source_hash or self.source_digest,
+                        )
+                        if declaration.origin is not None
+                        else None,
                     )
                 domain = default_domain
             normalized.append(replace(declaration, domain=domain))
@@ -376,8 +388,15 @@ class _ConciseBindingNormalizer:
                 resolved = self.declarations.type_resolver.resolve(item.type_name)
                 if not isinstance(resolved, ir_types.StructType):
                     raise SemanticError(
-                        "immutable destructuring requires a nominal struct type, "
-                        f"got {resolved}"
+                        f"immutable destructuring requires a nominal struct type, got {resolved}",
+                        primary=SourceOrigin(
+                            item.origin,
+                            "destructuring declaration",
+                            self.module.source_identity or self.declarations.source_unit,
+                            self.module.source_hash or self.declarations.source_digest,
+                        )
+                        if item.origin is not None
+                        else None,
                     )
                 declared_fields = tuple(field.name for field in resolved.fields)
                 unknown = tuple(
@@ -394,7 +413,15 @@ class _ConciseBindingNormalizer:
                         details.append("missing: " + ", ".join(missing))
                     raise SemanticError(
                         f"destructuring of '{resolved.name}' must name every field "
-                        f"exactly once ({'; '.join(details)})"
+                        f"exactly once ({'; '.join(details)})",
+                        primary=SourceOrigin(
+                            item.origin,
+                            "destructuring declaration",
+                            self.module.source_identity or self.declarations.source_unit,
+                            self.module.source_hash or self.declarations.source_digest,
+                        )
+                        if item.origin is not None
+                        else None,
                     )
                 normalized.extend(
                     self.destructure_bindings(
@@ -449,7 +476,17 @@ class _ConciseBindingNormalizer:
                 if is_struct
                 else f"tuple destructuring repeats binding '{duplicate}'"
             )
-            raise SemanticError(description)
+            raise SemanticError(
+                description,
+                primary=SourceOrigin(
+                    origin,
+                    "destructuring binding",
+                    self.module.source_identity or self.declarations.source_unit,
+                    self.module.source_hash or self.declarations.source_digest,
+                )
+                if origin is not None
+                else None,
+            )
         collision = next(
             (name for name in names if name in self.occupied_value_names),
             None,
@@ -460,7 +497,17 @@ class _ConciseBindingNormalizer:
                 if is_struct
                 else f"tuple binding '{collision}' shadows an existing symbol"
             )
-            raise SemanticError(description)
+            raise SemanticError(
+                description,
+                primary=SourceOrigin(
+                    origin,
+                    "destructuring binding",
+                    self.module.source_identity or self.declarations.source_unit,
+                    self.module.source_hash or self.declarations.source_digest,
+                )
+                if origin is not None
+                else None,
+            )
         span = (
             origin.render()
             if origin is not None

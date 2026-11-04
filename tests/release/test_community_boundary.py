@@ -189,3 +189,109 @@ def test_shallow_history_cannot_hide_an_older_denied_commit(tmp_path, depth):
         validate_history(shallow, p)
     p["denied_commits"] = []
     assert validate_history(shallow, p) == 1
+
+
+def _github_merge(tmp_path, monkeypatch, *, nested=False, removed_private=False):
+    p = repo(tmp_path)
+    git(tmp_path, "branch", "-M", "main")
+    git(tmp_path, "checkout", "-qb", "feature")
+    (tmp_path / "feature.txt").write_text("feature\n")
+    git(tmp_path, "add", "feature.txt")
+    git(tmp_path, "commit", "-qm", "feature source")
+    if removed_private:
+        private = tmp_path / "zlang/dft_pipeline.py"
+        private.parent.mkdir()
+        private.write_text("VALUE=1\n")
+        git(tmp_path, "add", ".")
+        git(tmp_path, "commit", "-qm", "unavailable owner")
+        private.unlink()
+        git(tmp_path, "commit", "-qam", "remove owner")
+    if nested:
+        git(tmp_path, "checkout", "-qb", "side", p["public_base"])
+        (tmp_path / "side.txt").write_text("side\n")
+        git(tmp_path, "add", "side.txt")
+        git(tmp_path, "commit", "-qm", "side source")
+        git(tmp_path, "checkout", "feature")
+        git(tmp_path, "merge", "--no-ff", "-qm", "real source merge", "side")
+    head = git(tmp_path, "rev-parse", "HEAD")
+    git(tmp_path, "checkout", "main")
+    (tmp_path / "base.txt").write_text("base\n")
+    git(tmp_path, "add", "base.txt")
+    git(tmp_path, "commit", "-qm", "base source")
+    base = git(tmp_path, "rev-parse", "HEAD")
+    git(tmp_path, "merge", "--no-ff", "-qm", "integration product", "feature")
+    merge = git(tmp_path, "rev-parse", "HEAD")
+    git(tmp_path, "remote", "add", "origin", "https://github.com/public/example.git")
+    event = {"number": 7, "repository": {"full_name": "public/example"},
+             "pull_request": {"base": {"sha": base, "ref": "main",
+                                        "repo": {"full_name": "public/example"}},
+                              "head": {"sha": head}}}
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps(event))
+    for key, value in {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "pull_request",
+                       "GITHUB_WORKSPACE": str(tmp_path), "GITHUB_EVENT_PATH": str(event_path),
+                       "GITHUB_REPOSITORY": "public/example", "GITHUB_REF": "refs/pull/7/merge",
+                       "GITHUB_SHA": merge}.items():
+        monkeypatch.setenv(key, value)
+    return p, event, event_path
+
+
+def test_exact_github_integration_checks_both_histories(tmp_path, monkeypatch):
+    p, _, _ = _github_merge(tmp_path, monkeypatch)
+    assert validate_history(tmp_path, p) == 3
+    # Publication retains the ordinary ban on source-history merges.
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    with pytest.raises(BoundaryError, match="unreviewed merge"):
+        validate_history(tmp_path, p)
+
+
+@pytest.mark.parametrize("mutation", (
+    "missing_event", "number", "repository", "base_repository", "head", "swapped",
+    "sha", "ref", "origin", "wrong_tree",
+))
+def test_github_integration_context_fails_closed(tmp_path, monkeypatch, mutation):
+    p, event, path = _github_merge(tmp_path, monkeypatch)
+    request = event["pull_request"]
+    if mutation == "missing_event":
+        path.unlink()
+    elif mutation == "number":
+        event["number"] = 8
+    elif mutation == "repository":
+        event["repository"]["full_name"] = "different/repository"
+    elif mutation == "base_repository":
+        request["base"]["repo"]["full_name"] = "different/repository"
+    elif mutation == "head":
+        request["head"]["sha"] = p["public_base"]
+    elif mutation == "swapped":
+        request["base"]["sha"], request["head"]["sha"] = request["head"]["sha"], request["base"]["sha"]
+    elif mutation == "sha":
+        monkeypatch.setenv("GITHUB_SHA", p["public_base"])
+    elif mutation == "ref":
+        monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    elif mutation == "origin":
+        git(tmp_path, "remote", "set-url", "origin", "https://github.com/different/repository.git")
+    else:
+        (tmp_path / "integration-only.txt").write_text("unreviewed integration change\n")
+        git(tmp_path, "add", "integration-only.txt")
+        tree = git(tmp_path, "write-tree")
+        altered = git(tmp_path, "commit-tree", tree, "-p", request["base"]["sha"],
+                      "-p", request["head"]["sha"], "-m", "altered integration")
+        git(tmp_path, "update-ref", "HEAD", altered)
+        monkeypatch.setenv("GITHUB_SHA", altered)
+    if mutation != "missing_event":
+        path.write_text(json.dumps(event))
+    with pytest.raises(BoundaryError):
+        validate_history(tmp_path, p)
+
+
+@pytest.mark.parametrize("mutation", ("denied_base", "denied_head", "nested_merge", "removed_private"))
+def test_github_integration_preserves_source_ancestry_and_content_denials(tmp_path, monkeypatch, mutation):
+    p, event, _ = _github_merge(tmp_path, monkeypatch, nested=mutation == "nested_merge",
+                              removed_private=mutation == "removed_private")
+    if mutation == "denied_base":
+        p["denied_commits"] = [event["pull_request"]["base"]["sha"]]
+    elif mutation == "denied_head":
+        p["denied_commits"] = [event["pull_request"]["head"]["sha"]]
+    with pytest.raises(BoundaryError):
+        validate_history(tmp_path, p)

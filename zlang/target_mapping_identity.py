@@ -215,6 +215,7 @@ def _generic_physical_digest(value: object) -> str:
                         "pipeline_explorations",
                         "equivalences",
                         "verification_scopes",
+                        "simulation_blocks",
                     }
                 )
             payload = (

@@ -66,7 +66,8 @@ def test_timing_mismatch_keeps_exact_structured_diagnostic() -> None:
         "latency 2"
     )
     assert raised.value.code == "ZL-TIMING-CONTRACT"
-    assert raised.value.primary is None
+    assert raised.value.primary is not None
+    assert raised.value.primary.span.start_column == source.index("timing") + 1
     assert raised.value.notes == ()
     assert raised.value.fixes == (
         "make the declared and derived exact latencies equal",

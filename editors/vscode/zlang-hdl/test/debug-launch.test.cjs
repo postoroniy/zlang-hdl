@@ -3,7 +3,7 @@
 'use strict';
 const assert=require('node:assert/strict');
 const {test}=require('node:test');
-const {expandLaunchPath,debugLaunches,selectDebugLaunch,DebugLaunchController}=require('../debug_launch');
+const {expandLaunchPath,expandSimulationChannels,debugLaunches,selectDebugLaunch,DebugLaunchController}=require('../debug_launch');
 
 const config=(name,top='Top')=>({type:'zlang-hdl',request:'launch',name,top,program:'${workspaceFolder}/example.zhl'});
 function fixture(){
@@ -70,4 +70,14 @@ test('a rejected stop cleans listeners and never starts the replacement',async()
   const f=fixture();f.vscode.debug.stopDebugging=async()=>{throw new Error('cannot stop');};
   await assert.rejects(f.controller.start(debugLaunches(f.vscode)[0]),/cannot stop/);
   assert.equal(f.listeners.size,0);assert.deepEqual(f.events,[]);
+});
+
+
+test('simulation channel bindings preserve console and workspace paths without mutating launches',()=>{
+  const input={src:'${workspaceFolder}/vectors.jsonl',log:'-'};
+  assert.deepEqual(expandSimulationChannels(input,'/work/design.zhl','/work'),{src:'/work/vectors.jsonl',log:'-'});
+  assert.equal(input.src,'${workspaceFolder}/vectors.jsonl');
+  assert.deepEqual(expandSimulationChannels(undefined),{});
+  for(const value of [null,[],{src:1},{src:''}])
+    assert.throws(()=>expandSimulationChannels(value),/Simulation channel/);
 });

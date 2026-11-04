@@ -72,3 +72,12 @@ Community supports explicit passive taps and user-managed vendor debug wrappers.
 It does not provide automatic hardware instrumentation or an ASIC scan/ATPG flow.
 External tools and board capture are separately qualified; see the
 [vendor example](../examples/fpga_debug/README.md).
+
+## Simulation source I/O
+
+[Simulation-only typed channels](simulation-io.md) require explicit activation.
+Input snapshots and pre-edge structured logs are bounded, with explicit EOF and
+fail-closed type/ownership checks. Native ABI v13 and inactive DUT products are
+unchanged. Packet-arbiter tops reject activation. Source availability does not
+qualify stale packaged runtimes or PDFs; source-matched editor binaries are
+required for debug overlay v4.

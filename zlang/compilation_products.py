@@ -69,6 +69,15 @@ class AnalysisProduct:
 
 
 @dataclass(frozen=True)
+class DeclarationObservationProduct:
+    """Resolved declaration facts, never evidence of a valid hardware top."""
+
+    physical_inputs: PhysicalCompilationInputs
+    definition_resolutions: tuple[DefinitionResolution, ...]
+    definition_declarations: tuple[DefinitionTarget, ...]
+
+
+@dataclass(frozen=True)
 class SelectionProduct:
     """Canonical selection output and its deterministic evidence."""
 

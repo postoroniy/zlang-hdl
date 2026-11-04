@@ -10,10 +10,11 @@ import re
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
+from zlang.diagnostics import diagnostic_source
 from zlang.analysis_needs import AnalysisNeeds
 from zlang.ast import nodes as ast
 from zlang.ir import types as ir_types
-from zlang.source import SourceOrigin
+from zlang.source import SourceOrigin, SourceSpan
 
 from . import compile_time_real as ct_real
 from . import limits as semantic_limits
@@ -182,17 +183,21 @@ class TypeResolver:
         self._definition_context: semantic_context.ExpressionContext | None = None
 
         for declaration in aliases:
-            self._check_available(declaration.name, "type alias")
+            with diagnostic_source(self.declaration_origin(declaration)):
+                self._check_available(declaration.name, "type alias")
             self._aliases[declaration.name] = declaration.target
             self._alias_declarations[declaration.name] = declaration
         for declaration in structs:
-            self._check_available(declaration.name, "struct")
+            with diagnostic_source(self.declaration_origin(declaration)):
+                self._check_available(declaration.name, "struct")
             self._structs[declaration.name] = declaration
         for declaration in enums:
-            self._check_available(declaration.name, "enum")
+            with diagnostic_source(self.declaration_origin(declaration)):
+                self._check_available(declaration.name, "enum")
             if not declaration.members:
                 raise SemanticError(
-                    f"enum '{declaration.name}' must contain at least one member"
+                    f"enum '{declaration.name}' must contain at least one member",
+                    primary=self.declaration_origin(declaration),
                 )
             duplicate = next(
                 (
@@ -202,13 +207,22 @@ class TypeResolver:
                 None,
             )
             if duplicate is not None:
+                member_index = declaration.members.index(
+                    duplicate, declaration.members.index(duplicate) + 1,
+                )
                 raise SemanticError(
-                    f"duplicate member '{duplicate}' in enum '{declaration.name}'"
+                    f"duplicate member '{duplicate}' in enum '{declaration.name}'",
+                    primary=self.declaration_origin(
+                        declaration,
+                        span=declaration.member_origins[member_index]
+                        if member_index < len(declaration.member_origins) else None,
+                    ),
                 )
             owner = declaration.source_identity or identity_namespace
             if owner is None:
                 raise SemanticError(
-                    f"enum '{declaration.name}' has no logical declaration identity"
+                    f"enum '{declaration.name}' has no logical declaration identity",
+                    primary=self.declaration_origin(declaration),
                 )
             explicit_width: int | None = None
             explicit_codes: tuple[int, ...] | None = None
@@ -218,14 +232,16 @@ class TypeResolver:
             )
             if len(encodings) != len(declaration.members):
                 raise SemanticError(
-                    f"enum '{declaration.name}' has malformed member encodings"
+                    f"enum '{declaration.name}' has malformed member encodings",
+                    primary=self.declaration_origin(declaration),
                 )
             if declaration.backing_type is None:
                 if any(code is not None for code in encodings):
                     raise SemanticError(
                         f"enum '{declaration.name}' member codes require an explicit "
                         "bit, bits<W>, or unsigned integer "
-                        "(uN/u<W>/uint<W>) backing type"
+                        "(uN/u<W>/uint<W>) backing type",
+                        primary=self.declaration_origin(declaration),
                     )
             else:
                 backing = self.resolve(
@@ -238,7 +254,10 @@ class TypeResolver:
                     raise SemanticError(
                         f"enum '{declaration.name}' backing type must be bit, "
                         f"bits<W>, or an unsigned integer "
-                        f"(uN/u<W>/uint<W>), got {backing}"
+                        f"(uN/u<W>/uint<W>), got {backing}",
+                        primary=self.declaration_origin(
+                            declaration, span=declaration.backing_type.origin,
+                        ),
                     )
                 explicit_width = backing.width
                 explicit_backing_kind = (
@@ -261,16 +280,30 @@ class TypeResolver:
                     None,
                 )
                 if duplicate_code is not None:
+                    member_index = explicit_codes.index(
+                        duplicate_code, explicit_codes.index(duplicate_code) + 1,
+                    )
                     raise SemanticError(
-                        f"duplicate code {duplicate_code} in enum '{declaration.name}'"
+                        f"duplicate code {duplicate_code} in enum '{declaration.name}'",
+                        primary=self.declaration_origin(
+                            declaration,
+                            span=declaration.member_origins[member_index]
+                            if member_index < len(declaration.member_origins) else None,
+                        ),
                     )
                 oversized = next(
                     (code for code in explicit_codes if code >= (1 << backing.width)),
                     None,
                 )
                 if oversized is not None:
+                    member_index = explicit_codes.index(oversized)
                     raise SemanticError(
-                        f"enum '{declaration.name}' code {oversized} does not fit {backing}"
+                        f"enum '{declaration.name}' code {oversized} does not fit {backing}",
+                        primary=self.declaration_origin(
+                            declaration,
+                            span=declaration.member_origins[member_index]
+                            if member_index < len(declaration.member_origins) else None,
+                        ),
                     )
             enum_type = ir_types.EnumType(
                 declaration.name,
@@ -283,8 +316,24 @@ class TypeResolver:
             self._enum_declarations[declaration.name] = declaration
             self._enums[declaration.name] = enum_type
         for declaration in tagged_unions:
-            self._check_available(declaration.name, "tagged union")
+            with diagnostic_source(self.declaration_origin(declaration)):
+                self._check_available(declaration.name, "tagged union")
             self._tagged_union_declarations[declaration.name] = declaration
+
+    def declaration_origin(
+        self, declaration: ast.TypeAlias | ast.StructDecl | ast.EnumDecl | ast.TaggedUnionDecl,
+        *, span: SourceSpan | None = None,
+    ) -> SourceOrigin | None:
+        """Locate declaration validation before an expression context exists."""
+
+        span = span or declaration.name_origin or declaration.origin
+        if span is None:
+            return None
+        unit = declaration.source_identity or self._source_unit
+        digest = self._source_digests.get(unit) if unit is not None else None
+        if digest is None and unit == self._source_unit:
+            digest = self._source_digest
+        return SourceOrigin(span, f"type declaration {declaration.name}", unit, digest)
 
     def _check_available(self, name: str, description: str) -> None:
         if builtin_type(name) is not None or name == "string":
@@ -669,7 +718,9 @@ class TypeResolver:
                 base, arguments = generic
                 declaration = self._structs[base]
                 if len(arguments) != len(declaration.parameters):
-                    raise SemanticError(f"struct '{base}' expects {len(declaration.parameters)} parameters")
+                    raise SemanticError(
+                        f"struct '{base}' expects {len(declaration.parameters)} parameters",
+                    )
                 values = dict(self._parameter_values)
                 bindings: dict[str, ir_types.HardwareType] = {}
                 canonical_arguments: list[str] = []
@@ -710,13 +761,19 @@ class TypeResolver:
             elif name in self._structs:
                 declaration = self._structs[name]
                 if not declaration.fields:
-                    raise SemanticError(f"struct '{name}' must contain at least one field")
+                    raise SemanticError(
+                        f"struct '{name}' must contain at least one field",
+                        primary=self.declaration_origin(declaration),
+                    )
                 field_names: set[str] = set()
                 fields: list[ir_types.StructField] = []
                 for field in declaration.fields:
                     if field.name in field_names:
                         raise SemanticError(
-                            f"duplicate field '{field.name}' in struct '{name}'"
+                            f"duplicate field '{field.name}' in struct '{name}'",
+                            primary=self.declaration_origin(
+                                declaration, span=field.name_origin or field.origin,
+                            ),
                         )
                     field_names.add(field.name)
                     fields.append(ir_types.StructField(field.name, self.resolve(field.type_name)))
@@ -725,7 +782,8 @@ class TypeResolver:
                 declaration = self._tagged_union_declarations[name]
                 if not declaration.variants:
                     raise SemanticError(
-                        f"tagged union '{name}' must contain at least one variant"
+                        f"tagged union '{name}' must contain at least one variant",
+                        primary=self.declaration_origin(declaration),
                     )
                 variant_names = tuple(item.name for item in declaration.variants)
                 duplicate_variant = next(
@@ -733,13 +791,21 @@ class TypeResolver:
                     None,
                 )
                 if duplicate_variant is not None:
+                    variant_index = variant_names.index(
+                        duplicate_variant, variant_names.index(duplicate_variant) + 1,
+                    )
+                    variant = declaration.variants[variant_index]
                     raise SemanticError(
-                        f"duplicate variant '{duplicate_variant}' in tagged union '{name}'"
+                        f"duplicate variant '{duplicate_variant}' in tagged union '{name}'",
+                        primary=self.declaration_origin(
+                            declaration, span=variant.name_origin or variant.origin,
+                        ),
                     )
                 owner = declaration.source_identity or self._identity_namespace
                 if owner is None:
                     raise SemanticError(
-                        f"tagged union '{name}' has no logical declaration identity"
+                        f"tagged union '{name}' has no logical declaration identity",
+                        primary=self.declaration_origin(declaration),
                     )
                 variants: list[ir_types.TaggedUnionVariant] = []
                 flat = (ir_types.BitType, ir_types.BitsType, ir_types.UIntType, ir_types.SIntType, ir_types.FixedType, ir_types.UFixedType)
@@ -750,9 +816,16 @@ class TypeResolver:
                         None,
                     )
                     if duplicate_field is not None:
+                        field_index = field_names.index(
+                            duplicate_field, field_names.index(duplicate_field) + 1,
+                        )
+                        field = variant.fields[field_index]
                         raise SemanticError(
                             f"duplicate field '{duplicate_field}' in tagged-union variant "
-                            f"'{name}.{variant.name}'"
+                            f"'{name}.{variant.name}'",
+                            primary=self.declaration_origin(
+                                declaration, span=field.name_origin or field.origin,
+                            ),
                         )
                     fields_: list[ir_types.TaggedUnionField] = []
                     for field_ in variant.fields:
@@ -760,7 +833,10 @@ class TypeResolver:
                         if not isinstance(resolved, flat):
                             raise SemanticError(
                                 f"tagged-union field '{name}.{variant.name}.{field_.name}' "
-                                f"must have a flat scalar type, got {resolved}"
+                                f"must have a flat scalar type, got {resolved}",
+                                primary=self.declaration_origin(
+                                    declaration, span=field_.type_name.origin,
+                                ),
                             )
                         fields_.append(ir_types.TaggedUnionField(field_.name, resolved))
                     variants.append(ir_types.TaggedUnionVariant(variant.name, tuple(fields_)))
@@ -910,7 +986,7 @@ def record_named_type_definition(
 
 def record_type_syntax_definitions(
     context: semantic_context.ExpressionContext,
-    syntax: ast.TypeSyntax,
+    syntax: ast.PortTypeSyntax,
     resolver: TypeResolver,
     *,
     shadowed_names: frozenset[str] = frozenset(),
@@ -925,6 +1001,9 @@ def record_type_syntax_definitions(
     elif isinstance(syntax, ast.TupleTypeName):
         for element in syntax.elements:
             record_type_syntax_definitions(context, element, resolver, shadowed_names=shadowed_names)
+    elif isinstance(syntax, ast.InterfaceTypeName):
+        record_type_syntax_definitions(context, syntax.payload_type, resolver,
+                                       shadowed_names=shadowed_names)
 
 
 def record_enum_member_definition(

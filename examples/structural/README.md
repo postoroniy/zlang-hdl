@@ -60,6 +60,3 @@ can be attributed to that shape rather than to a mixed benchmark:
 | `scatter_gather.zhl` | Runtime gather and explicit scatter collisions. |
 | `variable_slice.zhl` | Range-proven packed dynamic slice. |
 | `wide_arbiter.zhl` | Width-scaled fixed-priority grant. |
-
-`test.zhl` is a private large-emission performance witness. It is deliberately
-excluded from the public example corpus and release projection.

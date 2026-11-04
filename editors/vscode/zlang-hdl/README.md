@@ -95,8 +95,9 @@ the **ZLang HDL** output channel; they are not source errors at line 1.
 From the repository root, `make editor-install` builds a fresh, audited VSIX
 from this checkout and installs it with `code --install-extension ... --force`.
 Linux x86-64 includes the native debugger/viewer; other hosts get editor/LSP
-support only. `make venv` also runs this step on local hosts with `code` on PATH
-(not in CI); opt out with `INSTALL_EDITOR=0`. Node.js 22 is required for building.
+support only. `make install` also runs this step on local hosts when VS Code,
+Node.js 22 and npm are available (not in CI); opt out with `INSTALL_EDITOR=0`.
+The native package audit additionally needs `readelf` from binutils.
 Set `VSCODE=/path/to/code` to select another CLI executable.
 
 After installation, run **Developer: Reload Window** and close/reopen waveform
@@ -129,8 +130,8 @@ npm --prefix editors/vscode/zlang-hdl run package:linux-x64 -- \
 
 Ordinary users should install the matching prebuilt Linux-x64 VSIX from the
 GitHub release instead of rebuilding it. The public repository contains the
-executables and their reviewed license inventory, but no Rust implementation
-source or private release-host build scripts.
+executables and their reviewed license inventory; Rust implementation sources
+are not included.
 
 Choose a new output filename; packaging refuses to overwrite an existing VSIX.
 The build uses pinned `esbuild` and `@vscode/vsce` in an isolated staging
@@ -184,10 +185,11 @@ launch configuration:
 ```
 
 Each JSONL line is one atomic event. It may contain binary `set` assignments,
-packed four-state `set_logic` assignments, physical `reset` levels, coincident
+packed four-state `set_logic` assignments, logical reset assertion booleans, coincident
 clock `edges`, and a positive bounded `repeat`. Instead of `events`, a simple
 launch may provide `clock` plus bounded `cycles`; the two forms are mutually
-exclusive.
+exclusive. `reset: {"rst": true}` asserts the named reset regardless of
+its declared pin polarity; `false` releases it.
 
 Use **ZLang HDL: Switch Debug Example…** or **Switch debug…** in the live
 waveform toolbar to choose among all 25 supplied runnable example/top launches.

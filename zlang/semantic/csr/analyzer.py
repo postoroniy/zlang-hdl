@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from zlang.diagnostics import diagnostic_source
 from zlang.ast import nodes as ast
 from zlang.ir import cdc as ir_cdc
 from zlang.ir import csr as ir_csr
@@ -49,9 +50,19 @@ class CsrAnalyzer:
         group_catalog: dict[str, ast.CsrGroupDecl] = {}
         for group in groups:
             if group.name in group_catalog:
-                raise SemanticError(f"duplicate CSR group '{group.name}'")
+                raise SemanticError(
+                    f"duplicate CSR group '{group.name}'",
+                    primary=SourceOrigin(group.origin, "CSR declaration", source_unit, source_digest)
+                    if group.origin is not None
+                    else None,
+                )
             if not group.registers and not group.split_registers:
-                raise SemanticError(f"CSR group '{group.name}' has no registers")
+                raise SemanticError(
+                    f"CSR group '{group.name}' has no registers",
+                    primary=SourceOrigin(group.origin, "CSR declaration", source_unit, source_digest)
+                    if group.origin is not None
+                    else None,
+                )
             group_catalog[group.name] = group
         expanded_declarations = tuple(
             self._layout.expand_block(declaration, group_catalog, type_resolver)
@@ -65,8 +76,12 @@ class CsrAnalyzer:
         for block_ordinal, declaration in enumerate(expanded_declarations):
             if not clock_domains:
                 raise SemanticError(
-                    f"CSR blocks require a module clock and reset; found "
-                    f"'{declaration.name}'"
+                    f"CSR blocks require a module clock and reset; found '{declaration.name}'",
+                    primary=SourceOrigin(
+                        declaration.origin, "CSR declaration", source_unit, source_digest
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
             declared_domains = {item.clock: item for item in clock_domains}
             selected_clock = declaration.domain or clock_domain
@@ -76,6 +91,11 @@ class CsrAnalyzer:
                     f"ambiguous clock domain for CSR block '{declaration.name}'; "
                     f"available domains: {available}; annotate it with @clock",
                     code="ZL-DOMAIN-AMBIGUOUS",
+                    primary=SourceOrigin(
+                        declaration.origin, "CSR declaration", source_unit, source_digest
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
             selected_domain = declared_domains.get(selected_clock)
             if selected_domain is None:
@@ -83,6 +103,11 @@ class CsrAnalyzer:
                     f"CSR block '{declaration.name}' references unknown clock domain "
                     f"'{selected_clock}'",
                     code="ZL-DOMAIN-UNKNOWN",
+                    primary=SourceOrigin(
+                        declaration.origin, "CSR declaration", source_unit, source_digest
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
             selected_reset = selected_domain.reset
             block_identity = ir_csr.CsrBlockIdentity(module_identity, block_ordinal)
@@ -97,24 +122,42 @@ class CsrAnalyzer:
                 else None
             )
             if declaration.name in block_names:
-                raise SemanticError(f"duplicate CSR block '{declaration.name}'")
-            block_names.add(declaration.name)
-            base_address = (
-                declaration.base_address
-                if isinstance(declaration.base_address, int)
-                else type_resolver.evaluate_constant_integer(
-                    declaration.base_address,
-                    description=f"CSR block '{declaration.name}' base address",
-                    allow_zero=True,
+                raise SemanticError(
+                    f"duplicate CSR block '{declaration.name}'",
+                    primary=SourceOrigin(
+                        declaration.origin, "CSR declaration", source_unit, source_digest
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
-            )
+            block_names.add(declaration.name)
+            with diagnostic_source(block_origin):
+                base_address = (
+                    declaration.base_address
+                    if isinstance(declaration.base_address, int)
+                    else type_resolver.evaluate_constant_integer(
+                        declaration.base_address,
+                        description=f"CSR block '{declaration.name}' base address",
+                        allow_zero=True,
+                    )
+                )
             if base_address % 4:
                 raise SemanticError(
-                    f"CSR block '{declaration.name}' base address must be 4-byte aligned"
+                    f"CSR block '{declaration.name}' base address must be 4-byte aligned",
+                    primary=SourceOrigin(
+                        declaration.origin, "CSR declaration", source_unit, source_digest
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
             if not 0 <= base_address <= 0xFFFF_FFFF:
                 raise SemanticError(
-                    f"CSR block '{declaration.name}' base address does not fit 32 bits"
+                    f"CSR block '{declaration.name}' base address does not fit 32 bits",
+                    primary=SourceOrigin(
+                        declaration.origin, "CSR declaration", source_unit, source_digest
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
             register_names: set[str] = set()
             offsets: set[int] = set()
@@ -137,30 +180,49 @@ class CsrAnalyzer:
                 )
                 if register.name in register_names:
                     raise SemanticError(
-                        f"duplicate register '{register.name}' in CSR block "
-                        f"'{declaration.name}'"
+                        f"duplicate register '{register.name}' in CSR block '{declaration.name}'",
+                        primary=SourceOrigin(register.origin, "CSR declaration", source_unit, source_digest)
+                        if register.origin is not None
+                        else None,
                     )
                 register_names.add(register.name)
                 if register.offset % 4:
                     raise SemanticError(
-                        f"CSR register '{register.name}' offset must be 4-byte aligned"
+                        f"CSR register '{register.name}' offset must be 4-byte aligned",
+                        primary=SourceOrigin(register.origin, "CSR declaration", source_unit, source_digest)
+                        if register.origin is not None
+                        else None,
                     )
                 if register.offset in offsets:
                     raise SemanticError(
-                        f"duplicate CSR register offset 0x{register.offset:x}"
+                        f"duplicate CSR register offset 0x{register.offset:x}",
+                        primary=SourceOrigin(register.origin, "CSR declaration", source_unit, source_digest)
+                        if register.origin is not None
+                        else None,
                     )
                 offsets.add(register.offset)
                 address = base_address + register.offset
                 if address > 0xFFFF_FFFF:
                     raise SemanticError(
-                        f"CSR register '{register.name}' address does not fit 32 bits"
+                        f"CSR register '{register.name}' address does not fit 32 bits",
+                        primary=SourceOrigin(register.origin, "CSR declaration", source_unit, source_digest)
+                        if register.origin is not None
+                        else None,
                     )
                 if address in absolute_addresses:
-                    raise SemanticError(f"overlapping CSR address 0x{address:08x}")
+                    raise SemanticError(
+                        f"overlapping CSR address 0x{address:08x}",
+                        primary=SourceOrigin(register.origin, "CSR declaration", source_unit, source_digest)
+                        if register.origin is not None
+                        else None,
+                    )
                 absolute_addresses.add(address)
                 if not register.fields:
                     raise SemanticError(
-                        f"CSR register '{register.name}' has no fields"
+                        f"CSR register '{register.name}' has no fields",
+                        primary=SourceOrigin(register.origin, "CSR declaration", source_unit, source_digest)
+                        if register.origin is not None
+                        else None,
                     )
                 field_names: set[str] = set()
                 occupied_bits: set[int] = set()
@@ -185,14 +247,16 @@ class CsrAnalyzer:
                     if field_decl.name in field_names:
                         raise SemanticError(
                             f"duplicate field '{field_decl.name}' in CSR register "
-                            f"'{register.name}'"
+                            f"'{register.name}'",
+                            primary=field_origin,
                         )
                     field_names.add(field_decl.name)
                     type_ = type_resolver.resolve(field_decl.type_name)
                     if not isinstance(type_, (BitType, UIntType, BitsType)):
                         raise SemanticError(
                             f"CSR field '{field_decl.name}' requires bit, unsigned, "
-                            "or bits type"
+                            "or bits type",
+                            primary=field_origin,
                         )
                     if field_decl.msb is None:
                         lsb = next_lsb
@@ -201,28 +265,33 @@ class CsrAnalyzer:
                         if field_decl.lsb is None:
                             raise SemanticError(
                                 f"CSR field '{field_decl.name}' has an incomplete "
-                                "bit position"
+                                "bit position",
+                                primary=field_origin,
                             )
                         msb = field_decl.msb
                         lsb = field_decl.lsb
                         if msb < lsb:
                             raise SemanticError(
-                                f"CSR field '{field_decl.name}' bit range must be msb:lsb"
+                                f"CSR field '{field_decl.name}' bit range must be msb:lsb",
+                                primary=field_origin,
                             )
                         if msb - lsb + 1 != type_.width:
                             raise SemanticError(
                                 f"CSR field '{field_decl.name}' range width does not "
-                                f"match {type_}"
+                                f"match {type_}",
+                                primary=field_origin,
                             )
                     if msb >= 32:
                         raise SemanticError(
-                            f"CSR field '{field_decl.name}' exceeds 32-bit register width"
+                            f"CSR field '{field_decl.name}' exceeds 32-bit register width",
+                            primary=field_origin,
                         )
                     bits = set(range(lsb, msb + 1))
                     if bits & occupied_bits:
                         raise SemanticError(
                             f"CSR field '{field_decl.name}' overlaps another field in "
-                            f"'{register.name}'"
+                            f"'{register.name}'",
+                            primary=field_origin,
                         )
                     occupied_bits.update(bits)
                     next_lsb = max(next_lsb, msb + 1)
@@ -230,7 +299,8 @@ class CsrAnalyzer:
                     if reset >= (1 << type_.width):
                         raise SemanticError(
                             f"reset value for CSR field '{field_decl.name}' does not "
-                            f"fit {type_}"
+                            f"fit {type_}",
+                            primary=field_origin,
                         )
                     access = ir_csr.CsrAccess(field_decl.access.value)
                     if (
@@ -239,11 +309,13 @@ class CsrAnalyzer:
                     ):
                         raise SemanticError(
                             f"reserved CSR field '{field_decl.name}' must not have a "
-                            "reset value"
+                            "reset value",
+                            primary=field_origin,
                         )
                     if access is ir_csr.CsrAccess.PULSE and reset != 0:
                         raise SemanticError(
-                            f"pulse CSR field '{field_decl.name}' must reset to zero"
+                            f"pulse CSR field '{field_decl.name}' must reset to zero",
+                            primary=field_origin,
                         )
                     binding = self._bindings.resolve(
                         field_decl,
@@ -296,15 +368,23 @@ class CsrAnalyzer:
                 for event_ordinal, event_decl in enumerate(register.events):
                     if event_decl.name in event_names or event_decl.name in field_names:
                         raise SemanticError(
-                            f"duplicate field/event '{event_decl.name}' in CSR register "
-                            f"'{register.name}'"
+                            f"duplicate field/event '{event_decl.name}' in CSR register '{register.name}'",
+                            primary=SourceOrigin(
+                                event_decl.origin, "CSR declaration", source_unit, source_digest
+                            )
+                            if event_decl.origin is not None
+                            else None,
                         )
                     event_names.add(event_decl.name)
                     event_type = type_resolver.resolve(event_decl.type_name)
                     if not isinstance(event_type, (BitType, UIntType, BitsType)):
                         raise SemanticError(
-                            f"CSR event '{event_decl.name}' requires bit, unsigned, "
-                            "or bits type"
+                            f"CSR event '{event_decl.name}' requires bit, unsigned, or bits type",
+                            primary=SourceOrigin(
+                                event_decl.origin, "CSR declaration", source_unit, source_digest
+                            )
+                            if event_decl.origin is not None
+                            else None,
                         )
                     if event_decl.msb is None:
                         event_lsb = 0
@@ -314,22 +394,36 @@ class CsrAnalyzer:
                         event_lsb = event_decl.lsb
                         if event_lsb is None or event_msb < event_lsb:
                             raise SemanticError(
-                                f"CSR event '{event_decl.name}' bit range must be msb:lsb"
+                                f"CSR event '{event_decl.name}' bit range must be msb:lsb",
+                                primary=SourceOrigin(
+                                    event_decl.origin, "CSR declaration", source_unit, source_digest
+                                )
+                                if event_decl.origin is not None
+                                else None,
                             )
                     if (
                         event_msb >= 32
                         or event_msb - event_lsb + 1 != event_type.width
                     ):
                         raise SemanticError(
-                            f"CSR event '{event_decl.name}' range must fit its exact "
-                            "type in 32 bits"
+                            f"CSR event '{event_decl.name}' range must fit its exact type in 32 bits",
+                            primary=SourceOrigin(
+                                event_decl.origin, "CSR declaration", source_unit, source_digest
+                            )
+                            if event_decl.origin is not None
+                            else None,
                         )
                     if (
                         event_decl.kind is ast.CsrEventKind.READ
                         and not isinstance(event_type, BitType)
                     ):
                         raise SemanticError(
-                            f"on_read CSR event '{event_decl.name}' must have type bit"
+                            f"on_read CSR event '{event_decl.name}' must have type bit",
+                            primary=SourceOrigin(
+                                event_decl.origin, "CSR declaration", source_unit, source_digest
+                            )
+                            if event_decl.origin is not None
+                            else None,
                         )
                     output = symbols.get(event_decl.signal)
                     if (
@@ -337,8 +431,12 @@ class CsrAnalyzer:
                         or output.direction is not ir_module.PortDirection.OUTPUT
                     ):
                         raise SemanticError(
-                            f"CSR event '{event_decl.name}' target "
-                            f"'{event_decl.signal}' must be an output"
+                            f"CSR event '{event_decl.name}' target '{event_decl.signal}' must be an output",
+                            primary=SourceOrigin(
+                                event_decl.origin, "CSR declaration", source_unit, source_digest
+                            )
+                            if event_decl.origin is not None
+                            else None,
                         )
                     if (
                         output.protocol is not InterfaceProtocol.WIRE
@@ -347,12 +445,21 @@ class CsrAnalyzer:
                         raise SemanticError(
                             f"CSR event '{event_decl.name}' target "
                             f"'{event_decl.signal}' must be a wire output of exact "
-                            f"type {event_type}"
+                            f"type {event_type}",
+                            primary=SourceOrigin(
+                                event_decl.origin, "CSR declaration", source_unit, source_digest
+                            )
+                            if event_decl.origin is not None
+                            else None,
                         )
                     if output.name in bound_command_outputs:
                         raise SemanticError(
-                            f"CSR command/event output '{output.name}' is bound more "
-                            "than once"
+                            f"CSR command/event output '{output.name}' is bound more than once",
+                            primary=SourceOrigin(
+                                event_decl.origin, "CSR declaration", source_unit, source_digest
+                            )
+                            if event_decl.origin is not None
+                            else None,
                         )
                     bound_command_outputs.add(output.name)
                     event_binding = (
@@ -397,7 +504,14 @@ class CsrAnalyzer:
                     )
                 )
             if not registers:
-                raise SemanticError(f"CSR block '{declaration.name}' has no registers")
+                raise SemanticError(
+                    f"CSR block '{declaration.name}' has no registers",
+                    primary=SourceOrigin(
+                        declaration.origin, "CSR declaration", source_unit, source_digest
+                    )
+                    if declaration.origin is not None
+                    else None,
+                )
             split_views: list[ir_csr.CsrSplitView] = []
             register_by_name = {item.name: item for item in registers}
             for split in declaration.split_registers:

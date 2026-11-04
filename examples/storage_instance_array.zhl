@@ -88,7 +88,7 @@ module RomLane {
 
     rom table : rom<u8,2> {
         read_latency 1
-        init generate(i in 0..2) truncate<8>(extend<8>(i) + 10)
+        init generate(i in 0..2) extend<8>(i + 10)
     }
     table.read_address = address
     data = table.read_data

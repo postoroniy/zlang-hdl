@@ -102,7 +102,11 @@ EXPECTED = {
     # Replacing ONLY those physical-input bytes with their previous values
     # reproduces the complete previous digest; all other eager-result fields
     # are unchanged. Two fresh processes reproduce the new value.
-    "wifi": "f145b7645775e929bcf4884fb837041f3ff5c25321107ec66d1d0ce16acc940e",
+    # The exact-width example cleanup changes the retained arithmetic graph,
+    # origins and controller source bytes. The public ABI and behavior were
+    # checked against the committed public reference with actual-RTL proof.
+    # Two fresh processes reproduced this complete eager-result snapshot.
+    "wifi": "ed670f209bdc7fcb899a39b3033728773642f157279d9dc36bab24b74c8806ec",
 }
 
 

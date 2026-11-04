@@ -20,12 +20,12 @@ import xml.etree.ElementTree as ET
 try:
     from tools.audit_native_editor import NativeEditorAuditError, audit_native_editor
     from tools.documentation_manifest import MANIFEST, DocumentationError, load_manuals
-    from tools.documentation_sources import assert_public, entrypoint_markdown, validate_markdown_links
+    from tools.documentation_sources import assert_public, entrypoint_markdown, source_link_paths, validate_markdown_links
     from tools.documentation_pdf import validate_text_layout, verify_pdf_links
 except ModuleNotFoundError:  # Direct ``python tools/release_status.py`` execution.
     from audit_native_editor import NativeEditorAuditError, audit_native_editor
     from documentation_manifest import MANIFEST, DocumentationError, load_manuals
-    from documentation_sources import assert_public, entrypoint_markdown, validate_markdown_links
+    from documentation_sources import assert_public, entrypoint_markdown, source_link_paths, validate_markdown_links
     from documentation_pdf import validate_text_layout, verify_pdf_links
 
 
@@ -260,10 +260,17 @@ def _check_manual(root: Path, documentation: object, manual, version: str) -> No
             "documentation cover_height does not match the reviewed PDF cover"
         )
     sources = documentation.get("sources")
-    expected_sources = {path.as_posix() for path in (manual.entrypoint, *manual.sources)}
+    # The status cannot hash itself; its complete bytes are bound by the signed
+    # release tree. Every other linked source file participates in freshness.
+    try:
+        source_inputs = (manual.entrypoint, *manual.sources,
+                         *(p for p in source_link_paths(root, manual) if p != DEFAULT_STATUS))
+    except DocumentationError as exc:
+        raise StatusError(str(exc)) from exc
+    expected_sources = {path.as_posix() for path in source_inputs}
     if not isinstance(sources, dict) or set(sources) != expected_sources:
         raise StatusError("documentation sources must match the public PDF projection")
-    for source in (manual.entrypoint, *manual.sources):
+    for source in source_inputs:
         if sources[source.as_posix()] != _sha256(root / source):
             raise StatusError(f"documentation source digest is stale: {source}")
 
@@ -317,7 +324,7 @@ def _check_documentation(root: Path, documentation: object, version: str | None 
     if (root / "docs/stdlib-api.md").read_text(encoding="utf-8") != api_markdown(root):
         raise StatusError("compiler-derived stdlib API inventory is stale")
     try:
-        verify_pdf_links({manual.pdf.name: root / manual.pdf for manual in manuals}, _run_pdf_tool)
+        verify_pdf_links({manual.pdf.name: root / manual.pdf for manual in manuals}, _run_pdf_tool, root=root)
         for manual in manuals:
             validate_text_layout(_run_pdf_tool(("pdftotext", "-layout", str(root / manual.pdf), "-")))
     except DocumentationError as exc:
@@ -598,11 +605,19 @@ def _check_tools(expected: dict[str, str]) -> None:
 
 def _check_solver_pin(pyproject: dict, tools: dict) -> None:
     """The installed Python solver also supplies the CLI used by formal lanes."""
-    dependencies = pyproject.get("project", {}).get("optional-dependencies", {}).get("test", ())
-    pins = [item for item in dependencies if re.match(r"z3[-_]solver\b", item, re.I)]
-    match = re.fullmatch(r"z3-solver==([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+", pins[0]) if len(pins) == 1 else None
-    if match is None or match[1] != tools.get("z3"):
-        raise StatusError("pyproject test z3-solver pin must match eda_toolchain.z3")
+    extras = pyproject.get("project", {}).get("optional-dependencies", {})
+    checked = {}
+    for group in ("test", "formal"):
+        # Historical release fixtures predate the optional formal extra.
+        if group == "formal" and group not in extras:
+            continue
+        pins = [item for item in extras.get(group, ()) if re.match(r"z3[-_]solver\b", item, re.I)]
+        match = re.fullmatch(r"z3-solver==([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+", pins[0]) if len(pins) == 1 else None
+        if match is None or match[1] != tools.get("z3"):
+            raise StatusError(f"pyproject {group} z3-solver pin must match eda_toolchain.z3")
+        checked[group] = pins[0]
+    if "formal" in checked and checked["formal"] != checked["test"]:
+        raise StatusError("pyproject formal z3-solver pin must match the complete test package pin")
 
 
 def validate(

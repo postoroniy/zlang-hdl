@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import replace
 
+from zlang.diagnostics import diagnostic_source
+from zlang.source import SourceOrigin
 from zlang.ast import nodes as ast
 from zlang.ir import expressions as ir_expr
 from zlang.ir import module as ir_module
@@ -53,23 +55,33 @@ def _resolved_module_value_parameters(
     values: dict[str, int] = {}
     unresolved: set[str] = set()
     for parameter in module.parameters:
-        if parameter.kind != "value":
-            continue
-        if parameter.default is None:
-            unresolved.add(parameter.name)
-            continue
-        if isinstance(parameter.default, int):
-            value = parameter.default
-        else:
-            value = resolver._eval_constant_integer(
-                str(parameter.default),
-                description=f"value parameter '{parameter.name}'",
-                allow_zero=True,
-                allow_negative=True,
-                unspecialized_parameters=frozenset(unresolved),
+        with diagnostic_source(
+            SourceOrigin(
+                parameter.origin,
+                f"parameter {parameter.name}",
+                module.source_identity,
+                module.source_hash,
             )
-        values[parameter.name] = value
-        resolver._parameter_values[parameter.name] = value
+            if parameter.origin is not None
+            else None
+        ):
+            if parameter.kind != "value":
+                continue
+            if parameter.default is None:
+                unresolved.add(parameter.name)
+                continue
+            if isinstance(parameter.default, int):
+                value = parameter.default
+            else:
+                value = resolver._eval_constant_integer(
+                    str(parameter.default),
+                    description=f"value parameter '{parameter.name}'",
+                    allow_zero=True,
+                    allow_negative=True,
+                    unspecialized_parameters=frozenset(unresolved),
+                )
+            values[parameter.name] = value
+            resolver._parameter_values[parameter.name] = value
     return values, frozenset(unresolved)
 
 
@@ -213,9 +225,9 @@ class DeclarationAndCallablePreparer:
         effective_source_unit = import_product.source_unit
         effective_source_digest = import_product.source_digest
         enum_identity_namespace = import_product.enum_identity_namespace
-        module = semantic_module_interfaces.NamedInterfaceAnalyzer().analyze(module)
+        module = semantic_module_interfaces.NamedInterfaceAnalyzer().analyze(module, source_digests=source_digests)
 
-        module_validation.validate_compile_time_parameter_declarations(module)
+        module_validation.validate_compile_time_parameter_declarations(module, source_digests=source_digests)
         protocol_schemas: list[ir_module.ProtocolSchema] = []
         type_resolver = type_resolution.TypeResolver(
             module.type_aliases,
@@ -291,10 +303,34 @@ class DeclarationAndCallablePreparer:
         schema_names = {schema.name for schema in protocol_schemas}
         for declaration in module.protocols:
             if declaration.name in schema_names:
-                raise SemanticError(f"protocol name conflict '{declaration.name}'")
+                raise SemanticError(
+                    f"protocol name conflict '{declaration.name}'",
+                    primary=SourceOrigin(
+                        declaration.name_origin or declaration.origin,
+                        "declaration",
+                        getattr(declaration, "source_identity", None) or effective_source_unit,
+                        source_digests.get(
+                            getattr(declaration, "source_identity", None) or effective_source_unit
+                        ),
+                    )
+                    if declaration.origin is not None
+                    else None,
+                )
             roles = tuple(dict.fromkeys(declaration.roles))
             if len(roles) != len(declaration.roles) or len(roles) < 2:
-                raise SemanticError(f"protocol '{declaration.name}' must declare at least two distinct roles")
+                raise SemanticError(
+                    f"protocol '{declaration.name}' must declare at least two distinct roles",
+                    primary=SourceOrigin(
+                        declaration.name_origin or declaration.origin,
+                        "declaration",
+                        getattr(declaration, "source_identity", None) or effective_source_unit,
+                        source_digests.get(
+                            getattr(declaration, "source_identity", None) or effective_source_unit
+                        ),
+                    )
+                    if declaration.origin is not None
+                    else None,
+                )
             members: list[ir_module.ProtocolMember] = []
             member_names: set[str] = set()
             protocol_type_resolver = type_resolution.TypeResolver(
@@ -317,9 +353,33 @@ class DeclarationAndCallablePreparer:
             )
             for channel in declaration.channels:
                 if channel.name in member_names:
-                    raise SemanticError(f"duplicate protocol channel '{channel.name}'")
+                    raise SemanticError(
+                        f"duplicate protocol channel '{channel.name}'",
+                        primary=SourceOrigin(
+                            declaration.name_origin or declaration.origin,
+                            "declaration",
+                            getattr(declaration, "source_identity", None) or effective_source_unit,
+                            source_digests.get(
+                                getattr(declaration, "source_identity", None) or effective_source_unit
+                            ),
+                        )
+                        if declaration.origin is not None
+                        else None,
+                    )
                 if channel.source_role not in roles or channel.sink_role not in roles or channel.source_role == channel.sink_role:
-                    raise SemanticError(f"invalid ownership for protocol channel '{channel.name}'")
+                    raise SemanticError(
+                        f"invalid ownership for protocol channel '{channel.name}'",
+                        primary=SourceOrigin(
+                            declaration.name_origin or declaration.origin,
+                            "declaration",
+                            getattr(declaration, "source_identity", None) or effective_source_unit,
+                            source_digests.get(
+                                getattr(declaration, "source_identity", None) or effective_source_unit
+                            ),
+                        )
+                        if declaration.origin is not None
+                        else None,
+                    )
                 if isinstance(channel.type_name, ast.InterfaceTypeName):
                     protocol = semantic_module_interfaces.interface_protocol(
                         channel.type_name.kind
@@ -360,7 +420,7 @@ class DeclarationAndCallablePreparer:
             )
             schema_names.add(declaration.name)
         struct_types = type_resolver.resolve_all()
-        expression_operators.validate_operator_declarations(module.operators, module.structs)
+        expression_operators.validate_operator_declarations(module.operators, module.structs, source_digests=source_digests)
         reserved_intrinsics = {
             "length", "floor_log2", "ceil_log2", "index_width", "is_power_of_two",
             "pi", "sin", "cos", "log2", "log", "exp", "sqrt", "parity",
@@ -369,19 +429,51 @@ class DeclarationAndCallablePreparer:
         for declaration in module.functions:
             if declaration.name in reserved_intrinsics:
                 raise SemanticError(
-                    f"function name '{declaration.name}' is reserved for a compiler intrinsic"
+                    f"function name '{declaration.name}' is reserved for a compiler intrinsic",
+                    primary=SourceOrigin(
+                        declaration.name_origin or declaration.origin,
+                        "declaration",
+                        getattr(declaration, "source_identity", None) or effective_source_unit,
+                        source_digests.get(
+                            getattr(declaration, "source_identity", None) or effective_source_unit
+                        ),
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
         for declaration in module.operators:
             if declaration.operator in reserved_intrinsics:
                 raise SemanticError(
-                    f"operator name '{declaration.operator}' conflicts with a compiler intrinsic"
+                    f"operator name '{declaration.operator}' conflicts with a compiler intrinsic",
+                    primary=SourceOrigin(
+                        declaration.name_origin or declaration.origin,
+                        "declaration",
+                        getattr(declaration, "source_identity", None) or effective_source_unit,
+                        source_digests.get(
+                            getattr(declaration, "source_identity", None) or effective_source_unit
+                        ),
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
         function_signatures: dict[str, semantic_callables.FunctionSignature] = {}
         function_prototypes: dict[str, semantic_callables.FunctionPrototype] = {}
         generic_functions: dict[str, ast.FunctionDecl] = {}
         for declaration in module.functions:
             if declaration.name in function_prototypes or declaration.name in generic_functions:
-                raise SemanticError(f"duplicate function '{declaration.name}'")
+                raise SemanticError(
+                    f"duplicate function '{declaration.name}'",
+                    primary=SourceOrigin(
+                        declaration.name_origin or declaration.origin,
+                        "declaration",
+                        getattr(declaration, "source_identity", None) or effective_source_unit,
+                        source_digests.get(
+                            getattr(declaration, "source_identity", None) or effective_source_unit
+                        ),
+                    )
+                    if declaration.origin is not None
+                    else None,
+                )
             if declaration.generic_parameters:
                 generic_functions[declaration.name] = declaration
                 continue
@@ -390,8 +482,17 @@ class DeclarationAndCallablePreparer:
             for parameter in declaration.parameters:
                 if parameter.name in parameter_names:
                     raise SemanticError(
-                        f"duplicate parameter '{parameter.name}' in function "
-                        f"'{declaration.name}'"
+                        f"duplicate parameter '{parameter.name}' in function '{declaration.name}'",
+                        primary=SourceOrigin(
+                            declaration.name_origin or declaration.origin,
+                            "declaration",
+                            getattr(declaration, "source_identity", None) or effective_source_unit,
+                            source_digests.get(
+                                getattr(declaration, "source_identity", None) or effective_source_unit
+                            ),
+                        )
+                        if declaration.origin is not None
+                        else None,
                     )
                 parameter_names.add(parameter.name)
                 parameters.append(
@@ -589,10 +690,18 @@ class DeclarationAndCallablePreparer:
                 child_context = semantic_callables._context_for_source_declaration(
                     pure_context, child.source_identity
                 )
-                for port in child.ports:
+                shadowed = frozenset(parameter.name for parameter in child.parameters)
+                annotations = (
+                    *(item.type_name for item in (*child.ports, *child.registers)),
+                    *(item.element_type for item in (*child.fifos, *child.memories, *child.roms)),
+                )
+                for annotation in annotations:
                     type_resolution.record_type_syntax_definitions(
-                        child_context, port.type_name, type_resolver
+                        child_context, annotation, type_resolver, shadowed_names=shadowed
                     )
+                callable_bodies.record_deferred_module_definitions(
+                    child, function_declarations, child_context
+                )
         function_catalog.context = pure_context
         for function_name in sorted(function_prototypes):
             function_catalog.resolve(function_name)
@@ -635,7 +744,17 @@ class DeclarationAndCallablePreparer:
             if body.type != signature.return_type:
                 raise SemanticError(
                     f"function '{signature.declaration.name}' returns {body.type}, "
-                    f"expected {signature.return_type}"
+                    f"expected {signature.return_type}",
+                    primary=SourceOrigin(
+                        declaration.name_origin or declaration.origin,
+                        "declaration",
+                        getattr(declaration, "source_identity", None) or effective_source_unit,
+                        source_digests.get(
+                            getattr(declaration, "source_identity", None) or effective_source_unit
+                        ),
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
             functions.append(
                 ir_module.Function(
@@ -658,7 +777,8 @@ class DeclarationAndCallablePreparer:
                     *functions,
                     *pure_context.services.callables.callable_definitions.values(),
                 )
-            )
+            ),
+            source_origins={item.name: SourceOrigin(item.name_origin or item.origin, f"function {item.name}", item.source_identity or effective_source_unit, source_digests.get(item.source_identity or effective_source_unit)) if item.origin is not None else None for item in module.functions},
         )
         pure_context.services.callables.function_definitions.update(
             (function.name, function) for function in functions

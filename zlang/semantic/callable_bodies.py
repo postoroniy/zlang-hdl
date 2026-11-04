@@ -35,8 +35,6 @@ def record_deferred_body_definitions(
     resolver = context.environment.type_resolver
     if resolver is None or context.services.tooling.definition_resolutions is None:
         return
-    from .expression_calls import CALL_INTRINSIC_NAMES
-
     type_parameters = frozenset(item.name for item in declaration.generic_parameters)
     bound = type_parameters | frozenset(item.name for item in declaration.parameters)
     roots = []
@@ -45,6 +43,36 @@ def record_deferred_body_definitions(
         names = binding.names if isinstance(binding, ast.TupleDestructureDecl) else (binding.target,)
         bound = bound | frozenset(names)
     roots.append((declaration.body, bound))
+    _record_deferred_definitions(roots, functions, context, type_parameters)
+
+
+def record_deferred_module_definitions(
+    module: ast.Module,
+    functions: dict[str, ast.FunctionDecl],
+    context: ExpressionContext,
+) -> None:
+    """Observe static call/type heads in an inactive module, not value bindings."""
+
+    shadowed = frozenset(item.name for item in module.parameters)
+    bound = shadowed | frozenset(
+        name for item in module.ports for name in (item.names or (item.name,))
+    ) | frozenset(item.name for item in module.registers) | frozenset(
+        item.target for item in module.assignments if isinstance(item.target, str)
+    )
+    _record_deferred_definitions([(module.ordered_items, bound)], functions, context, shadowed)
+
+
+def _record_deferred_definitions(
+    roots: list[tuple[object, frozenset[str]]],
+    functions: dict[str, ast.FunctionDecl],
+    context: ExpressionContext,
+    type_parameters: frozenset[str],
+) -> None:
+    resolver = context.environment.type_resolver
+    if resolver is None or context.services.tooling.definition_resolutions is None:
+        return
+    from .expression_calls import CALL_INTRINSIC_NAMES
+
     stack = list(reversed(roots))
     while stack:
         node, bound = stack.pop()

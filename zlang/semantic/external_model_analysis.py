@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from zlang.source import SourceOrigin
 from zlang.ast import nodes as ast
 from zlang.ir import module as ir_module
 from zlang.ir import types as ir_types
@@ -36,6 +37,14 @@ def resolve_external_model_function(
             f"external module '{module.name}' port '{aggregate_port.name}' "
             "must be a scalar wire in this first slice",
             code="ZL-EXTERN-UNSUPPORTED",
+            primary=SourceOrigin(
+                module.external_origin or module.name_origin,
+                f"external model {module.name}",
+                module.source_identity,
+                module.source_hash,
+            )
+            if module.external_origin is not None or module.name_origin is not None
+            else None,
         )
     model = next(
         (item for item in functions if item.name == module.external_model),
@@ -48,9 +57,16 @@ def resolve_external_model_function(
             else "does not name an existing function"
         )
         raise SemanticError(
-            f"external module '{module.name}' model '{module.external_model}' "
-            f"{detail}",
+            f"external module '{module.name}' model '{module.external_model}' {detail}",
             code="ZL-EXTERN-MODEL",
+            primary=SourceOrigin(
+                module.external_origin or module.name_origin,
+                f"external model {module.name}",
+                module.source_identity,
+                module.source_hash,
+            )
+            if module.external_origin is not None or module.name_origin is not None
+            else None,
         )
     inputs = tuple(
         port for port in source_ports
@@ -69,12 +85,28 @@ def resolve_external_model_function(
             f"external module '{module.name}' model parameters must exactly "
             f"match inputs {expected_parameters}, got {actual_parameters}",
             code="ZL-EXTERN-MODEL",
+            primary=SourceOrigin(
+                module.external_origin or module.name_origin,
+                f"external model {module.name}",
+                module.source_identity,
+                module.source_hash,
+            )
+            if module.external_origin is not None or module.name_origin is not None
+            else None,
         )
     if model.return_type != outputs[0].type:
         raise SemanticError(
             f"external module '{module.name}' model returns {model.return_type}, "
             f"expected {outputs[0].type}",
             code="ZL-EXTERN-MODEL",
+            primary=SourceOrigin(
+                module.external_origin or module.name_origin,
+                f"external model {module.name}",
+                module.source_identity,
+                module.source_hash,
+            )
+            if module.external_origin is not None or module.name_origin is not None
+            else None,
         )
     return model
 

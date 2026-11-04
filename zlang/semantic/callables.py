@@ -9,6 +9,7 @@ retained-call-graph utilities.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -121,7 +122,10 @@ class CallableRepository:
 class CallableDependencyValidator:
     """Reject recursion in the retained typed callable graph."""
 
-    def validate(self, functions: tuple[ir_module.Function, ...]) -> None:
+    def validate(
+        self, functions: tuple[ir_module.Function, ...],
+        *, source_origins: Mapping[str, SourceOrigin | None] | None = None,
+    ) -> None:
         dependencies = {
             function.name: {
                 use.function
@@ -129,6 +133,7 @@ class CallableDependencyValidator:
             }
             for function in functions
         }
+        by_name = {function.name: function for function in functions}
         visited: set[str] = set()
         active: list[str] = []
 
@@ -138,7 +143,12 @@ class CallableDependencyValidator:
             if name in active:
                 start = active.index(name)
                 cycle = " -> ".join((*active[start:], name))
-                raise SemanticError(f"recursive function call: {cycle}")
+                caller = by_name[active[-1]]
+                source_name = caller.metadata.source_name if caller.metadata is not None else caller.name
+                raise SemanticError(
+                    f"recursive function call: {cycle}",
+                    primary=caller.body.origin or (source_origins or {}).get(source_name),
+                )
             active.append(name)
             for dependency in dependencies[name]:
                 # Name/type resolution owns the unknown-function diagnostic.  The
@@ -411,12 +421,14 @@ def _validate_tuple_destructure_assignment(
         return
     if not isinstance(value.type, ir_types.TupleType):
         raise SemanticError(
-            f"tuple destructuring requires a tuple value, got {value.type}"
+            f"tuple destructuring requires a tuple value, got {value.type}",
+            primary=value.origin,
         )
     if len(value.type.elements) != arity:
         raise SemanticError(
             f"tuple destructuring has {arity} bindings, but {value.type} has "
-            f"{len(value.type.elements)} components"
+            f"{len(value.type.elements)} components",
+            primary=value.origin,
         )
 
 

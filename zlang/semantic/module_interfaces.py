@@ -865,13 +865,23 @@ def named_module_signature(
 class NamedInterfaceAnalyzer:
     """Validate named interfaces and apply one selected public surface."""
 
-    def analyze(self, module: ast.Module) -> ast.Module:
+    def analyze(self, module: ast.Module, *, source_digests: dict[str, str] | None = None) -> ast.Module:
         names: set[str] = set()
         for declaration in module.module_interfaces:
             if declaration.name in names:
                 raise SemanticError(
                     f"duplicate module interface declaration '{declaration.name}'",
                     code="ZL-INTERFACE-DUPLICATE",
+                    primary=SourceOrigin(
+                        declaration.origin,
+                        f"module interface {declaration.name}",
+                        declaration.source_identity or module.source_identity,
+                        (source_digests or {}).get(
+                            declaration.source_identity or module.source_identity
+                        ),
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
             names.add(declaration.name)
             initialized = next(
@@ -882,6 +892,16 @@ class NamedInterfaceAnalyzer:
                 raise SemanticError(
                     f"module interface port '{initialized}' cannot have an initializer",
                     code="ZL-INTERFACE-CONFORMANCE",
+                    primary=SourceOrigin(
+                        declaration.origin,
+                        f"module interface {declaration.name}",
+                        declaration.source_identity or module.source_identity,
+                        (source_digests or {}).get(
+                            declaration.source_identity or module.source_identity
+                        ),
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
             if declaration.request_responses:
                 raise SemanticError(
@@ -889,6 +909,16 @@ class NamedInterfaceAnalyzer:
                     "members because the requester/responder role is inferred "
                     "from behavior",
                     code="ZL-INTERFACE-UNSUPPORTED",
+                    primary=SourceOrigin(
+                        declaration.origin,
+                        f"module interface {declaration.name}",
+                        declaration.source_identity or module.source_identity,
+                        (source_digests or {}).get(
+                            declaration.source_identity or module.source_identity
+                        ),
+                    )
+                    if declaration.origin is not None
+                    else None,
                 )
             semantic_hierarchy.interface_clock_domains(declaration)
         if module.conforms_to is None:
@@ -904,6 +934,14 @@ class NamedInterfaceAnalyzer:
             raise SemanticError(
                 f"unknown module interface '{module.conforms_to.name}'",
                 code="ZL-INTERFACE-UNKNOWN",
+                primary=SourceOrigin(
+                    module.conforms_to.origin,
+                    "module interface conformance",
+                    module.source_identity,
+                    module.source_hash,
+                )
+                if module.conforms_to is not None and module.conforms_to.origin is not None
+                else None,
             )
         module = inherit_applied_interface_surface(module, active)
         if module.external_model is None:
@@ -913,12 +951,27 @@ class NamedInterfaceAnalyzer:
                 f"external module '{module.name}' requires a non-parameterized "
                 "named interface in this first slice",
                 code="ZL-EXTERN-UNSUPPORTED",
+                primary=SourceOrigin(
+                    module.conforms_to.origin,
+                    "module interface conformance",
+                    module.source_identity,
+                    module.source_hash,
+                )
+                if module.conforms_to is not None and module.conforms_to.origin is not None
+                else None,
             )
         if active.clocks or active.resets:
             raise SemanticError(
-                f"external module '{module.name}' cannot expose clock/reset "
-                "in this first slice",
+                f"external module '{module.name}' cannot expose clock/reset in this first slice",
                 code="ZL-EXTERN-UNSUPPORTED",
+                primary=SourceOrigin(
+                    module.conforms_to.origin,
+                    "module interface conformance",
+                    module.source_identity,
+                    module.source_hash,
+                )
+                if module.conforms_to is not None and module.conforms_to.origin is not None
+                else None,
             )
         non_scalar = (
             active.request_responses
@@ -933,6 +986,14 @@ class NamedInterfaceAnalyzer:
             raise SemanticError(
                 f"external module '{module.name}' supports scalar wire ports only",
                 code="ZL-EXTERN-UNSUPPORTED",
+                primary=SourceOrigin(
+                    module.conforms_to.origin,
+                    "module interface conformance",
+                    module.source_identity,
+                    module.source_hash,
+                )
+                if module.conforms_to is not None and module.conforms_to.origin is not None
+                else None,
             )
         timing = active.timing
         if timing is not None and (
@@ -941,6 +1002,14 @@ class NamedInterfaceAnalyzer:
             raise SemanticError(
                 f"external module '{module.name}' requires timing latency 0 ii 1",
                 code="ZL-EXTERN-UNSUPPORTED",
+                primary=SourceOrigin(
+                    module.conforms_to.origin,
+                    "module interface conformance",
+                    module.source_identity,
+                    module.source_hash,
+                )
+                if module.conforms_to is not None and module.conforms_to.origin is not None
+                else None,
             )
         inputs = tuple(
             port for port in module.ports if port.direction is ast.Direction.INPUT
@@ -953,6 +1022,14 @@ class NamedInterfaceAnalyzer:
                 f"external module '{module.name}' requires one or more inputs "
                 "and exactly one output",
                 code="ZL-EXTERN-SIGNATURE",
+                primary=SourceOrigin(
+                    module.conforms_to.origin,
+                    "module interface conformance",
+                    module.source_identity,
+                    module.source_hash,
+                )
+                if module.conforms_to is not None and module.conforms_to.origin is not None
+                else None,
             )
         model_call = ast.CallExpr(
             module.external_model,

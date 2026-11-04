@@ -197,3 +197,46 @@ def test_non_bmp_comment_does_not_shift_type_diagnostic_utf16_column(tmp_path: P
         "start": {"line": 1, "character": column},
         "end": {"line": 1, "character": column + len("Missing")},
     }
+
+
+@pytest.mark.parametrize("registered_output", (False, True))
+@pytest.mark.parametrize("indexed", (False, True))
+@pytest.mark.parametrize("rule_header", ("when enable", "rule accumulate when enable"))
+def test_mixed_register_writers_keep_action_location_after_edits(
+    tmp_path, registered_output, indexed, rule_header,
+):
+    declaration = "out reg" if registered_output else "reg"
+    type_text = "vec<2,u8>" if indexed else "u9"
+    initial = "generate(i in 0..2) 0" if indexed else "0"
+    target = "total[0]" if indexed else "total"
+    expression = "value" if indexed else "truncate<9>(total + value)"
+    update = f"{target} <- {expression}"
+    global_update = f"    total <- {initial}\n"
+    source = (
+        "module Accumulator {\n"
+        "    clock clk\n"
+        "    async reset rst @clk { release externally_synchronized }\n"
+        "    in enable : bit\n"
+        "    in value : u8\n"
+        f"    {declaration} total : {type_text} = {initial}\n\n"
+        + global_update
+        + f"    {rule_header} {{\n        {update}\n    }}\n}}\n"
+    )
+    path = tmp_path / "state_conflict.zhl"
+    path.write_text(source)
+    with pytest.raises(SemanticError) as raised:
+        compile_file(path)
+    assert raised.value.primary is not None
+    assert raised.value.primary.span.start_line == 10
+    server = LspServer()
+    for version, text in enumerate((source, "// shifted\r\n\r\n" + source), 1):
+        diagnostic, = _publish(server, path, text, version=version)
+        line = text.splitlines().index("        " + update)
+        assert "both a rule action and next-state assignment" in diagnostic["message"]
+        assert diagnostic["range"] == {
+            "start": {"line": line, "character": 8},
+            "end": {"line": line, "character": 13},
+        }
+        assert diagnostic["data"]["source_unit"] == path.name
+    assert _publish(server, path, source.replace(global_update, "", 1), version=3) == []
+    assert path.read_text() == source

@@ -11,6 +11,33 @@ For an unfamiliar construct, consult the detailed language chapter and
 [known limitations](language-reference.md#reference-known-limitations). For
 exact width tables and supported forms, follow the linked topic guide.
 
+## Checkout setup
+
+```sh
+make install
+source .venv/bin/activate
+```
+
+This installs the compiler, matching native runtime and LSP, and refreshes the
+editor when available. Use `INSTALL_EDITOR=0` to leave the editor unchanged.
+For compiler tests, select the development profile:
+
+```sh
+make venv PYTHON_PROFILE=dev
+```
+
+`make venv` selects the full `release` profile. Profiles add dependencies
+without removing existing ones. For optional Python Z3 bindings after runtime
+setup, activate the environment and run:
+
+```sh
+python -m pip install -e '.[formal]'
+```
+
+This extra does not install test/release tools. External EDA tools are separate.
+See [installation profiles](installing-toolchain.md#reference-installing-toolchain-python-dependency-profiles)
+for prerequisites and exact workflow boundaries.
+
 ## Non-negotiable rules
 
 - Source files use `.zhl`. The old `.zl` suffix is rejected.
@@ -54,6 +81,12 @@ For [vectoring CORDIC](stdlib-multirate-coding.md#vectoring-atan2-and-magnitude)
 and [atomic FIR reload and one-MAC folded FIR](stdlib-reloadable-fir.md), use
 their separate numerical, coefficient-epoch and latency/II contracts.
 
+The [peripheral guide](stdlib-peripherals.md) covers UART, SPI, I²C,
+GPIO, timer, PWM and edge capture, including RegBus32 wrappers for all seven.
+Read its exact configuration, register-map, byte-strobe, response and pin/CDC
+contracts; supported options differ by distribution. The
+[API catalog](stdlib-api.md) owns the declaration signatures.
+
 Additional source-authored modules:
 
 - [SECDED](stdlib-secded.md): K=1…64, single-bit correction, double-bit
@@ -88,7 +121,7 @@ module Accumulator {
 
     reg state : u9 = 0
     update: when enable {
-        state <- truncate<9>(state + extend<9>(value))
+        state <- truncate<9>(state + value)
     }
     total = state
 }
@@ -364,6 +397,13 @@ Run it with `--events events.jsonl`; add `--trace build/run.fst` and repeated
 events against generated Direct-SV. Any mismatch, unresolved RTL output, tool
 failure, or timeout is an error, not a warning.
 
+The [complete native/Icarus/Verilator example](native-jit-simulation.md#compare-native-and-rtl-from-one-command)
+uses the checked-in Counter schedule through `zlang sim`, including automatic
+RTL/testbench generation and per-event comparison. It records 21 events and
+finishes at `y=20`. Use a fresh `--compare-artifacts` directory to retain RTL,
+stimulus, logs and the comparison record. Icarus or Verilator and its required
+build tools must be available on `PATH`.
+
 Ordinary native simulation retains its deterministic two-state zero seed.
 `--logic-state` enables per-bit `0`/`1`/`U`/`X`: unreset state starts as `U`,
 an accepted unresolved write becomes `X`, and controlling values such as
@@ -381,3 +421,11 @@ controls, not every syntactic operand in the original expression. Traces and
 Neither mode models `Z`, electrical resolution, or Verilog event regions.
 CLI FST/VCD output is an event-index visualization: physical clock/reset levels
 match each compiled domain, but the JSONL schedule does not define analog time.
+
+## Simulation-only I/O
+
+Use [simulation-only source I/O](simulation-io.md) for conditional typed JSONL reads,
+pre-edge structured logs and explicit EOF behavior. Activation requires a named
+`simulation` block and channel bindings; inactive blocks do not alter hardware.
+The runnable `examples/simulation_io.zhl` includes reset, stalls and drain;
+VS Code provides **Debug simulation I/O**. Use fresh file outputs or console `-`.

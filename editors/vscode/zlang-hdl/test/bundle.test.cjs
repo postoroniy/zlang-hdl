@@ -3,8 +3,9 @@
 
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
 const vm = require('node:vm');
-const { buildBundle, runtimePackages, sha256, thirdPartyNotices } = require('./bundle.cjs');
+const { assertToolchain, buildBundle, runtimePackages, sha256, thirdPartyNotices } = require('./bundle.cjs');
 const {
   extensionInstallArguments,
   hostLaunchArguments,
@@ -33,6 +34,20 @@ async function main() {
   assert.equal(text.includes('sourceMappingURL='), false);
   assert.equal(text.includes('/home/'), false);
   assert.equal(text.includes('vendor/node_modules'), false);
+  const readFile = fs.readFileSync;
+  try {
+    fs.readFileSync = (file, ...arguments_) => {
+      const contents = readFile(file, ...arguments_);
+      if (String(file).endsWith('/node_modules/@vscode/vsce/package.json')) {
+        const altered = JSON.parse(String(contents));
+        altered.version = '0.0.0';
+        return JSON.stringify(altered);
+      }
+      return contents;
+    };
+    assert.throws(() => assertToolchain(), {code: 'ERR_ASSERTION'},
+      'the installed VSCE must match the reviewed pin, even with an unchanged manifest/lock');
+  } finally { fs.readFileSync = readFile; }
   const packages = runtimePackages();
   assert.ok(packages.length > 0, 'runtime closure must not be empty');
   const notices = thirdPartyNotices(packages);

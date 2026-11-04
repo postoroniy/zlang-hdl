@@ -97,7 +97,9 @@ def test_three_and_four_products_match_exact_signed_arithmetic(top) -> None:
         assert sample == {"product": {"re": ar * br - ai * bi, "im": ar * bi + ai * br}}
 
 
-@pytest.mark.parametrize(("top", "expected_dsp"), zip(TOPS, (3, 4), strict=True))
+@pytest.mark.parametrize(
+    ("top", "expected_dsp"), tuple(zip(TOPS, (3, 4), strict=True))
+)
 @pytest.mark.parametrize("explicit_target", (False, True))
 def test_xilinx_synthesis_uses_exactly_three_or_four_dsp48e1(
     tmp_path,

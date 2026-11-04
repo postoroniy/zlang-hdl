@@ -1,0 +1,69 @@
+import std.peripheral.regbus
+
+// One edge-aligned channel; period and duty are immutable specialization values.
+module Pwm16<PERIOD=256,DUTY=128>
+where PERIOD >= 1 && PERIOD <= 65535 && DUTY >= 0 && DUTY <= PERIOD {
+    clock clk reset rst
+    in reset_active,enable : bit
+    out pin : bit
+    out phase : u16
+    reg count : u16 = 0
+    boundary = count == PERIOD-1
+    pin = ~reset_active & enable & (count < DUTY)
+    phase = count
+    count <- (~enable | boundary) ? 0 : truncate<16>(count+1)
+}
+
+// Register declarations own read data, reset storage and command events.
+module Pwm16BasicRegisters<PERIOD=256,DUTY=128> {
+    clock clk reset rst
+    in phase:u32
+    in cfg_duty:u32
+    in cfg_period:u32
+
+    csr registers @0 {
+        PHASE @0 { value u32 @31:0 ro <- phase }
+        CONTROL @4 { value u32 @31:0 rw=0 }
+        PERIOD @8 { value u32 @31:0 ro <- cfg_period }
+        DUTY @12 { value u32 @31:0 ro <- cfg_duty }
+    }
+}
+
+module Pwm16RegBus32<PERIOD=256,DUTY=128> {
+    clock clk reset rst
+    in reset_active : bit
+    interface regbus : RegBus<32,32>.responder
+    out pin:bit
+
+    port : BasicPeripheralTarget32 {reset_active}
+    port.request.payload=regbus.request.payload
+    port.request.valid=regbus.request.valid
+    regbus.request.ready=port.request.ready
+    regbus.response.payload=port.response.payload
+    regbus.response.valid=port.response.valid
+    port.response.ready=regbus.response.ready
+    writing=regbus.request.payload.write
+    strobes=regbus.request.payload.wstrb
+    address=regbus.request.payload.addr
+    effective=strobes!=0
+    port.read_value=bank.rdata
+    port.error=invalid
+
+    // Named CSR read-hit views decode presence and access without write feedback.
+    // CSR ready includes its write enable; it is not a permission predicate.
+    read_only=bank.registers.events.PHASE.value.read_hit | bank.registers.events.PERIOD.value.read_hit | bank.registers.events.DUTY.value.read_hit
+    present=read_only | bank.registers.events.CONTROL.value.read_hit
+    invalid=~present | (writing & read_only) | (0)
+    old_word=bank.registers.events.CONTROL.value.read_hit ? bitcast<bits<32>>(bank.registers.state.CONTROL.value) : (zeros<32>)
+    bank : Pwm16BasicRegisters<PERIOD=PERIOD,DUTY=DUTY> {
+        addr=address read=1
+        write=port.accept & writing & ~invalid & (effective)
+        wdata=bitcast<u32>(basic_peripheral_merge(old_word,
+            bitcast<bits<32>>(regbus.request.payload.wdata),strobes))
+    }
+    bank.cfg_period=extend<32>(PERIOD)
+    bank.cfg_duty=extend<32>(DUTY)
+    bank.phase=extend<32>(core.phase)
+    core:Pwm16<PERIOD=PERIOD,DUTY=DUTY> {reset_active enable=bitcast<bits<32>>(bank.registers.state.CONTROL.value)[0]}
+    pin=core.pin
+}

@@ -23,7 +23,7 @@ the pending result and partial reload. Commit preserves sample history.
 Unstalled sample latency is one edge, II=1; output backpressure stalls input
 acceptance and history. There is one pending result, not an unbounded queue.
 
-Run the example from the repository root after `make venv`:
+Run the example from the repository root after `make install`:
 
 ```bash
 .venv/bin/zlang sim examples/fir_reload.zhl --top ReloadableFir \
@@ -54,8 +54,10 @@ Output width/scaling is the same exact format as the parallel FIR. Optional
 `RvFirFoldedNearestEvenSaturate` and
 `RvFirFoldedReloadableNearestEvenSaturate` add `OW,OF` and one final conversion,
 without another register stage. The serial accumulator never rounds products.
-One logical multiplier is not a universal one-DSP guarantee: the qualified
-s16×s16 Series-7 instances use one DSP48E1; other widths require measurement.
+One logical multiplier does not establish a physical DSP count. Measure the
+actual specialization and target mapping; widths, controls and accumulator
+binding all affect synthesis. No generic one-DSP or routed-timing guarantee
+follows from this source architecture.
 
 ```bash
 .venv/bin/zlang sim examples/fir_folded.zhl --top FoldedFir \

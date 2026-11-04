@@ -472,6 +472,35 @@
       "stopOnEntry": true,
       "project": "${workspaceFolder}/examples/projects/80211a_transmitter/zlang.toml",
       "profile": "portable"
+    },
+    {
+      "type": "zlang-hdl",
+      "request": "launch",
+      "name": "Debug simulation I/O",
+      "program": "${workspaceFolder}/examples/simulation_io.zhl",
+      "top": "SimulationIoExample",
+      "events": "${workspaceFolder}/examples/simulation_io.events.jsonl",
+      "simulation": "vectors",
+      "simulationInputs": {
+        "stimulus": "${workspaceFolder}/examples/simulation_io.vectors.jsonl"
+      },
+      "simulationOutputs": {
+        "results": "-"
+      },
+      "logicState": true,
+      "strictUninitialized": false,
+      "initialRegisters": {},
+      "traceSignals": [
+        "clk",
+        "rst",
+        "input.payload",
+        "input.valid",
+        "input.ready",
+        "output.payload",
+        "output.valid",
+        "output.ready"
+      ],
+      "stopOnEntry": true
     }
   ]
 }

@@ -70,7 +70,8 @@ class ProtocolAndCsrRules:
             int(str(items[1])),
         )
 
-    def interface_decl(self, items: list[object]) -> ast_nodes.RequestResponseDecl:
+    @v_args(meta=True)
+    def interface_decl(self, meta: object, items: list[object]) -> ast_nodes.RequestResponseDecl:
         name = str(items[0])
         request_type = items[1]
         response_type = items[2]
@@ -84,6 +85,7 @@ class ProtocolAndCsrRules:
             max_outstanding,
             ordering,
             str(match_by) if match_by is not None else None,
+            origin=self._span(meta),
         )
 
     request_response_interface_decl = interface_decl
@@ -112,7 +114,8 @@ class ProtocolAndCsrRules:
     def connection_transform(self, items: list[object]) -> tuple[str, object]:
         return ("transform", items[0])
 
-    def connect_decl(self, items: list[object]) -> ast_nodes.ConnectionDecl:
+    @v_args(meta=True)
+    def connect_decl(self, meta: object, items: list[object]) -> ast_nodes.ConnectionDecl:
         options = dict(item for item in items[2:] if item is not None)
         source = items[0]
         destination = items[1]
@@ -129,6 +132,7 @@ class ProtocolAndCsrRules:
             options.get("transform"),
             source.name_origins,
             destination.name_origins,
+            origin=self._span(meta),
         )
 
     bare_connect_decl = connect_decl
@@ -173,21 +177,25 @@ class ProtocolAndCsrRules:
     def arbiter_sources(self, items: list[object]) -> tuple[str, ...]:
         return tuple(str(item) for item in items)
 
-    def arbiter_decl(self, items: list[object]) -> ast_nodes.ArbiterDecl:
+    @v_args(meta=True)
+    def arbiter_decl(self, meta: object, items: list[object]) -> ast_nodes.ArbiterDecl:
         return ast_nodes.ArbiterDecl(
             items[0],
             str(items[1]),
             ast_nodes.ArbitrationPolicy(str(items[2])),
             ast_nodes.GrantScope(str(items[3])),
+            origin=self._span(meta),
         )
 
-    def contract_decl(self, items: list[object]) -> ast_nodes.ContractDecl:
+    @v_args(meta=True)
+    def contract_decl(self, meta: object, items: list[object]) -> ast_nodes.ContractDecl:
         return ast_nodes.ContractDecl(
             ast_nodes.ContractKind(str(items[0])),
             str(items[1]),
             str(items[2]),
             str(items[3]),
             items[4],
+            origin=self._span(meta),
         )
 
     @v_args(meta=True)

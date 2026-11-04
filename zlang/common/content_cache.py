@@ -22,6 +22,8 @@ def load_json_object(path: Path) -> tuple[Mapping[str, object] | None, str | Non
         text = Path(path).read_text(encoding="utf-8")
     except FileNotFoundError:
         return None, None
+    except UnicodeDecodeError as error:
+        return None, f"invalid UTF-8 at byte {error.start}"
     except OSError as error:
         return None, f"cannot read cache entry: {error}"
     try:

@@ -375,7 +375,7 @@ def _semantic_equivalence_execution_recipe(
     from zlang.formal_joint_value import rtl_arithmetic_policy
     arithmetic_policy = rtl_arithmetic_policy(prepared.implementation_artifact.implementation, config.solver)
     return {
-        "schema": "zlang-candidate-semantic_equivalence-execution-v4",
+        "schema": "zlang-candidate-semantic_equivalence-execution-v5",
         "equivalence_preparation": EQUIVALENCE_PREPARATION_SCHEMA,
         "replay_integrity": REPLAY_INTEGRITY_SCHEMA,
         "source_hash": artifact_hash(prepared.source),
@@ -390,6 +390,7 @@ def _semantic_equivalence_execution_recipe(
         "backend_identity": prepared.backend_identity,
         "formal_tool_versions": [list(item) for item in toolchain.versions],
         "formal_tools_missing": list(toolchain.missing),
+        "formal_execution_tools": toolchain.execution_identity,
         "mode": mode.value,
         "depth": config.bmc_depth,
         "timeout_seconds": config.timeout_seconds,

@@ -52,6 +52,6 @@ or another RS profile. Keep frame markers explicit; do not infer them from data.
 
 From a prepared checkout, check a linked source, select the documented concrete
 top, generate Direct-SV and run the accompanying event schedule. The [User Guide](user-guide.md)
-explains `make venv`, JSONL event units, native simulation and waveform viewing.
+explains `make install`, JSONL event units, native simulation and waveform viewing.
 The [Language Reference](language-reference.md) owns the common ready/valid,
 exact-width and clock/reset semantics; component chapters add only their own contracts.

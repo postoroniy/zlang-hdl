@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Mapping
 
 from zlang.common.tool_inventory import ToolInventory, discover_tool_inventory
 from zlang.common.subprocess import run_bounded_process, subprocess_text
+from zlang.formal_execution_tools import FormalToolBinding, binding_identity, execution_environment
 from zlang.formal_trace import TraceBinding, decode_vcd_trace
 from zlang.ir.comparison_window import ComparisonWindow
 from zlang.ir.formal import (
@@ -194,11 +195,18 @@ class FormalToolchainContext:
     solver: str
     inventory: ToolInventory
     route: str = "smtbmc"
+    execution_binding: FormalToolBinding | None = None
 
     def __post_init__(self) -> None:
         if not self.engine or not self.solver:
             raise FormalError("formal engine and solver must be non-empty tokens")
         formal_engine_route(self.route)
+        if self.execution_binding is None and self.inventory.has(self.solver):
+            object.__setattr__(self, "execution_binding", FormalToolBinding.discover(self.solver))
+
+    @property
+    def execution_identity(self) -> dict:
+        return binding_identity(self.execution_binding)
 
     @property
     def versions(self) -> tuple[tuple[str, str], ...]:
@@ -453,9 +461,10 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
             *auxiliary_names, "",
         )))
         try:
-            completed = run_bounded_process(("sby", "-f", config.name), cwd=root,
-                                       capture_output=True, text=True,
-                                       timeout=timeout_seconds)
+            with execution_environment(context.execution_binding) as environment:
+                completed = run_bounded_process(("sby", "-f", config.name), cwd=root,
+                                           capture_output=True, text=True,
+                                           timeout=timeout_seconds, env=environment)
         except subprocess.TimeoutExpired as error:
             # Python may retain TimeoutExpired partial streams as bytes even
             # when subprocess.run was requested with text=True.  Normalize
@@ -626,13 +635,15 @@ def run_verilog_cover(
             *auxiliary_names, "",
         )))
         try:
-            completed = run_bounded_process(
-                ("sby", "-f", config.name),
-                cwd=root,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-            )
+            with execution_environment(context.execution_binding) as environment:
+                completed = run_bounded_process(
+                    ("sby", "-f", config.name),
+                    cwd=root,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds,
+                    env=environment,
+                )
         except subprocess.TimeoutExpired as error:
             partial = subprocess_text(error.stdout) + subprocess_text(error.stderr)
             if work_directory is not None:

@@ -1,0 +1,138 @@
+import std.peripheral.regbus
+
+struct I2cWriteRequest { address:u7 data:bits<8> }
+
+// Atomic START + 7-bit write address + one byte + STOP. No read/repeated START.
+// Open-drain low-drive enables; pin sampling and pull-ups are caller-owned.
+// Status: 0 success, 1 address NACK, 2 data NACK, 3 stretch timeout, 4 bus fault.
+module I2cWriteByte<HALF_PERIOD=4>
+where HALF_PERIOD >= 1 && HALF_PERIOD <= 65535 {
+    clock clk reset rst
+    in reset_active,scl_sampled,sda_sampled : bit
+    in input : rv<I2cWriteRequest>
+    out output : rv<u3>
+    out scl_low,sda_low,busy : bit
+    reg state : u3 = 0
+    reg timer : u16 = 0
+    reg stretch : u11 = 0
+    reg current : bits<8> = 0
+    reg data : bits<8> = 0
+    reg remaining : u4 = 0
+    reg second : bit = 0
+    reg error : u3 = 0
+    reg status : u3 = 0
+    reg pending : bit = 0
+    input.ready = ~reset_active & (state == 0) & (~pending | output.transfer)
+    output.valid = ~reset_active & pending
+    output.payload = status
+    busy = state != 0
+    scl_low = ~reset_active & ((state == 2) | (state == 4))
+    sda_low = ~reset_active & ((state == 1) | (state == 4) | (state == 5) |
+        (((state == 2) | (state == 3)) & (remaining != 0) & ~current[7]))
+    waiting = (state == 3) | (state == 5)
+    timed_out = waiting & ~scl_sampled & (stretch == 1023)
+    arbitration = (state == 3) & scl_sampled & (timer == 0) &
+        (remaining != 0) & current[7] & ~sda_sampled
+    occupied = input.transfer & (~scl_sampled | ~sda_sampled)
+    complete = (state == 6) & (timer == 0)
+    finish = timed_out | arbitration | occupied | complete
+    pending <- finish ? 1 : (output.transfer ? 0 : pending)
+    when timed_out { status <- 3 }
+    else when arbitration | occupied { status <- 4 }
+    else when complete { status <- error }
+    when timed_out | arbitration | occupied { state <- 0 }
+    else when input.transfer {
+        state <- 1 timer <- extend<16>(HALF_PERIOD-1) stretch <- 0
+        current <- concat(bitcast<bits<7>>(input.payload.address),bitcast<bits<1>>(0))
+        data <- input.payload.data remaining <- 8 second <- 0 error <- 0
+    } else when (state == 1) | (state == 2) | (state == 4) | (state == 6) {
+        when timer != 0 { timer <- truncate<16>(timer-1) }
+        else {
+            timer <- extend<16>(HALF_PERIOD-1)
+            when state == 1 { state <- 2 }
+            else when state == 2 { state <- 3 stretch <- 0 }
+            else when state == 4 { state <- 5 stretch <- 0 }
+            else { state <- 0 }
+        }
+    } else when waiting {
+        when ~scl_sampled { stretch <- truncate<11>(stretch+1) }
+        else {
+            stretch <- 0
+            when timer != 0 { timer <- truncate<16>(timer-1) }
+            else {
+                timer <- extend<16>(HALF_PERIOD-1)
+                when state == 5 { state <- 6 }
+                else when remaining != 0 {
+                    current <- current<<1
+                    remaining <- truncate<4>(remaining-1)
+                    state <- 2
+                } else when sda_sampled {
+                    error <- second ? 2 : 1
+                    state <- 4
+                } else when ~second {
+                    second <- 1 current <- data remaining <- 8 state <- 2
+                } else { state <- 4 }
+            }
+        }
+    }
+}
+
+// Register declarations own read data, reset storage and command events.
+module I2cWriteBasicRegisters<HALF_PERIOD=4> {
+    clock clk reset rst
+    in status,result:u32
+    in cfg_half_period:u32
+    out request_word,pop:bits<32>
+    csr registers @0 {
+        STATUS @0 { value u32 @31:0 ro <- status }
+        REQUEST @4 { value u32 @31:0 ro=0
+            command bits<32> @31:0 on_write -> request_word }
+        RESULT @8 { value u32 @31:0 ro <- result }
+        POP @12 { value u32 @31:0 ro=0
+            command bits<32> @31:0 on_write -> pop }
+        HALF_PERIOD @16 { value u32 @31:0 ro <- cfg_half_period }
+        STRETCH_LIMIT @20 { value u32 @31:0 ro=1024 }
+    }
+}
+
+module I2cWriteByteRegBus32<HALF_PERIOD=4> {
+    clock clk reset rst
+    in reset_active : bit
+    interface regbus : RegBus<32,32>.responder
+    in scl_sampled,sda_sampled:bit out scl_low,sda_low:bit
+
+    port : BasicPeripheralTarget32 {reset_active}
+    port.request.payload=regbus.request.payload
+    port.request.valid=regbus.request.valid
+    regbus.request.ready=port.request.ready
+    regbus.response.payload=port.response.payload
+    regbus.response.valid=port.response.valid
+    port.response.ready=regbus.response.ready
+    writing=regbus.request.payload.write
+    strobes=regbus.request.payload.wstrb
+    address=regbus.request.payload.addr
+    effective=strobes!=0
+    port.read_value=bank.rdata
+    port.error=invalid
+
+    // Named CSR read-hit views decode presence and access without write feedback.
+    // CSR ready includes its write enable; it is not a permission predicate.
+    read_only=bank.registers.events.STATUS.value.read_hit | bank.registers.events.RESULT.value.read_hit | bank.registers.events.HALF_PERIOD.value.read_hit | bank.registers.events.STRETCH_LIMIT.value.read_hit
+    present=read_only | bank.registers.events.REQUEST.value.read_hit | bank.registers.events.POP.value.read_hit
+    invalid=~present | (writing & read_only) | (writing & (((bank.registers.events.REQUEST.value.read_hit) & effective & ((strobes[1:0]!=0b11) | (core.busy | core.output.valid))) | ((bank.registers.events.POP.value.read_hit) & strobes[0] & regbus.request.payload.wdata[0] & ~core.output.valid)))
+    old_word=zeros<32>
+    bank : I2cWriteBasicRegisters<HALF_PERIOD=HALF_PERIOD> {
+        addr=address read=1
+        write=port.accept & writing & ~invalid & (effective & (~(bank.registers.events.POP.value.read_hit) | strobes[0]))
+        wdata=bitcast<u32>(basic_peripheral_merge(old_word,
+            bitcast<bits<32>>(regbus.request.payload.wdata),strobes))
+    }
+    bank.cfg_half_period=extend<32>(HALF_PERIOD)
+    bank.status=bitcast<u32>(concat(zeros<26>,bitcast<bits<3>>(core.output.payload),bitcast<bits<1>>(core.busy),bitcast<bits<1>>(core.output.valid),bitcast<bits<1>>(core.input.ready)))
+    bank.result=extend<32>(core.output.payload)
+    core:I2cWriteByte<HALF_PERIOD=HALF_PERIOD> {reset_active scl_sampled sda_sampled}
+    core.input.valid=bank.registers.events.REQUEST.value.write_hit
+    core.input.payload=I2cWriteRequest {address=bitcast<u7>(bank.request_word[14:8]) data=bank.request_word[7:0]}
+    core.output.ready=bank.pop[0]
+    scl_low=core.scl_low sda_low=core.sda_low
+}

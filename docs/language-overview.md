@@ -67,7 +67,7 @@ module RunningSum {
     }
 
     accumulate: when enable {
-        total <- truncate<10>(total + extend<10>(a + b))
+        total <- truncate<10>(total + a + b)
     }
 
     assert pair_sum_is_exact @ clk {
@@ -76,7 +76,7 @@ module RunningSum {
 }
 ```
 
-In `pair_sum = ...`, the `=` assignment defines a combinational connection; it does not update a register. Addition produces its exact result width, so two `u8` operands produce `u9`. The state update explicitly extends the sum and truncates the accumulated result to ten bits: `total` wraps modulo 1024 rather than reporting overflow. The `<-` update schedules the register's next value at the active clock edge. The rule reads one pre-edge snapshot and commits atomically. The `out reg` declaration creates architectural storage that holds its value when no update occurs.
+In `pair_sum = ...`, the `=` assignment defines a combinational connection; it does not update a register. Addition produces its exact result width, so two `u8` operands produce `u9`. In the state update, `total + a` produces `u11` and adding `b` produces `u12`. The final `truncate<10>` keeps the low ten bits, so `total` wraps modulo 1024. The `<-` update schedules the register's next value at the active clock edge. The rule reads one pre-edge snapshot and commits atomically. The `out reg` declaration creates architectural storage that holds its value when no update occurs.
 
 The expression inside `implement` defines the required value. Its `intent` constrains legal implementations without changing that value. Here the result is combinational (`latency == 0`) with initiation interval one (`ii == 1`). The assertion checks the selected `pair_sum` against an independently widened addition; it is not an overflow check on the wrapping accumulator.
 

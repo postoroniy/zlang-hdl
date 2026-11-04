@@ -9,7 +9,7 @@ See [installation](installing-toolchain.md) for wheel-only and WSL2 alternatives
 From the root of a Git checkout:
 
 ```sh
-make venv
+make install
 source .venv/bin/activate
 zlang examples/counter.zhl --top Counter --check
 zlang sim examples/counter.zhl --top Counter --events examples/counter.events.jsonl --trace build/counter.fst
@@ -30,7 +30,7 @@ External VCD/FST retains its genuine declared timescale.
 
 ## RuleAction: F9, Continue, highlighted source and live signals
 
-1. Open the checkout folder in VS Code; run `make venv` and reload the window
+1. Open the checkout folder in VS Code; run `make install` and reload the window
    after installing the matching Linux-x64 extension.
 2. Open [`examples/rule_action.zhl`](../examples/rule_action.zhl).
    Put the caret on the executable `count <-` rule line and press **F9**.

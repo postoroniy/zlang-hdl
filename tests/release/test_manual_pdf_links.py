@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+import re
+import subprocess
+import xml.etree.ElementTree as ET
+
 import pytest
 
-from tools.documentation_manifest import DocumentationError
+from tools.documentation_manifest import DocumentationError, load_manuals
 from tools.documentation_pdf import validate_actions, validate_text_layout
 
 
 NAMES = {"ZLang-HDL-Language-Reference.pdf": {"language", "typed-values"},
          "ZLang-HDL-User-Guide.pdf": {"user", "debugger"}}
 CURRENT = "ZLang-HDL-Language-Reference.pdf"
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_standard_local_and_remote_named_actions_are_allowed() -> None:
@@ -55,3 +62,66 @@ def test_rendered_manual_allows_member_access_paths_and_ellipsis() -> None:
         "../examples/counter.zhl\n.venv/bin/python\n... remains a syntax placeholder.\n"
         "Use --formal-policy required_proven.\nThe bound is 0 <= r < D.\n"
     )
+
+
+SOURCE = "https://github.com/postoroniy/zlang-hdl/blob/v0.1.0a24/examples/counter.zhl"
+
+
+def test_pdf_source_actions_match_exact_release_bound_inventory() -> None:
+    from tools.documentation_pdf import validate_source_actions
+    data = {"objects": [{"/S": "/URI", "/URI": "u:" + SOURCE}]}
+    validate_source_actions(data, {SOURCE})
+
+
+@pytest.mark.parametrize("uri", [
+    SOURCE.replace("v0.1.0a24", "3b083ca"),
+    SOURCE.replace("v0.1.0a24", "main"),
+    SOURCE.replace("counter.zhl", "other.zhl"),
+    SOURCE.replace("postoroniy/zlang-hdl", "other/repo"),
+    None,
+])
+def test_pdf_stale_altered_or_missing_source_url_is_rejected(uri) -> None:
+    from tools.documentation_pdf import validate_source_actions
+    data = {"objects": [] if uri is None else [{"/S": "/URI", "/URI": "u:" + uri}]}
+    with pytest.raises(DocumentationError, match="source links differ"):
+        validate_source_actions(data, {SOURCE})
+
+
+@pytest.mark.parametrize("manual", load_manuals(ROOT), ids=lambda manual: manual.identity)
+def test_major_chapters_start_new_pages_without_forcing_subchapter_breaks(manual) -> None:
+    pdf = ROOT / manual.pdf
+    outlines = json.loads(subprocess.run(
+        ["qpdf", "--json", "--json-key=outlines", str(pdf)],
+        check=True, capture_output=True, text=True, timeout=30,
+    ).stdout)["outlines"]
+    assert outlines[-1]["title"] == "Font license notice"
+    chapters = outlines[:-1]
+    assert chapters
+    chapter_pages = [chapter["destpageposfrom1"] for chapter in chapters]
+    assert chapter_pages == sorted(set(chapter_pages))
+    destinations = subprocess.run(
+        ["pdfinfo", "-dests", str(pdf)],
+        check=True, capture_output=True, text=True, timeout=30,
+    ).stdout
+    book_destination = re.search(
+        rf'(?m)^\s*(\d+)\s+\[.*\]\s+"{re.escape(manual.identity)}"$', destinations,
+    )
+    assert book_destination and int(book_destination.group(1)) == chapter_pages[0]
+    document = ET.fromstring(subprocess.run(
+        ["pdftotext", "-bbox-layout", str(pdf), "-"],
+        check=True, capture_output=True, text=True, timeout=30,
+    ).stdout)
+    namespace = {"x": "http://www.w3.org/1999/xhtml"}
+    pages = document.findall(".//x:page", namespace)
+    for number, chapter in enumerate(chapters, 1):
+        page = pages[chapter["destpageposfrom1"] - 1]
+        # Exclude the shared running header and page-number footer.
+        lines = [line for line in page.findall(".//x:line", namespace)
+                 if 50 <= float(line.attrib["yMin"]) < float(page.attrib["height"]) - 35]
+        first = lines[0]
+        words = first.findall("x:word", namespace)
+        assert float(first.attrib["yMin"]) < 100, chapter["title"]
+        assert words[0].text == str(number), chapter["title"]
+        assert float(page.attrib["height"]) - chapter["dest"][3] < 100, chapter["title"]
+    assert any(child["destpageposfrom1"] == chapter["destpageposfrom1"]
+               for chapter in chapters for child in chapter["kids"])

@@ -128,9 +128,11 @@ Accepted output raw values are `128,384,640,896,896,640,384,128,0`.
 When adapting events to introduce stalls, hold each valid input payload until
 its transfer; one JSONL record is a simulation event, not necessarily a transfer.
 
-Numerical/stream tests cover N=1/2/3/8/16/32. Formal evidence is attached to
-specific specializations and properties, not a blanket proof of every generic
-configuration. Synthesis cell counts are not routed timing evidence.
+Source availability and runnable examples do not establish numerical or formal
+qualification for every specialization. The [public formal coverage inventory](stdlib-formal-coverage.md)
+distinguishes available public checks from components without published
+qualification evidence. Any proof claim must identify its specialization,
+property and evidence. Synthesis cell counts are not routed timing evidence.
 
 ## Community hardware observation boundary
 

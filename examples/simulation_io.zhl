@@ -1,0 +1,28 @@
+// Simulation-only typed file input and pre-edge transaction logging.
+module SimulationIoExample {
+    clock clk reset rst
+    in input : rv<fixed<16,14>>
+    out output : rv<fixed<16,14>>
+    reg pending : bit = 0
+    reg result : fixed<16,14> = 0
+    available = ~pending | output.ready
+    input.ready = available
+    output.valid = pending
+    output.payload = result
+    when available { pending <- input.valid }
+    when input.transfer { result <- input.payload }
+
+    simulation vectors @ clk {
+        when ~rst & input.ready {
+            read stimulus {
+                payload -> input.payload
+                valid -> input.valid
+            } else {
+                drive input.valid = 0
+            }
+        }
+        when ~rst & output.transfer {
+            write results { sample = output.payload }
+        }
+    }
+}

@@ -8,6 +8,7 @@ from pathlib import Path
 from zlang.common import stable_digest
 from zlang.formal import FormalToolchainContext
 from zlang import verification_bundle_codec as bundle_codec
+from zlang import verification_bundle_io as bundle_io
 from zlang import verification_bundle_report as bundle_report
 from zlang import verification_codec_support as codec_support
 
@@ -52,6 +53,15 @@ def prepare_execution_context(
 ) -> VerificationExecutionContext:
     """Validate replay roots, selected jobs, and exact toolchain attribution."""
 
+    # Loaded bundles retain identities, not ownership of immutable filesystem
+    # bytes. Recheck the full inventory before cache admission, independently
+    # of optional diagnostic maps or whether a solver will be invoked.
+    current = bundle_io.load_verification_bundle(loaded.directory)
+    if current.manifest != loaded.manifest or current.verification_ir != loaded.verification_ir:
+        raise codec_support.VerificationBundleError(
+            "verification bundle changed since it was loaded"
+        )
+    loaded = current
     bundle_root = loaded.directory.resolve(strict=False)
     execution_parent = _external_directory(
         work_directory, bundle_root, purpose="work"

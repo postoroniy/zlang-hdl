@@ -11,7 +11,29 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a24 — 2026-11-07
+
+Alpha update consolidating native simulation ownership in the audited Rust
+runtime, extending nominal enum backing/value declarations, and publishing a
+complete reproducible simulation workflow. Native runtime ABI v13 replaces the
+previous runtime contract;
+the SimulationPlan hardware schema and Direct-SystemVerilog semantics remain
+unchanged.
+
 ### Added
+
+- Add basic GPIO/timer/PWM/capture/UART/SPI/I²C cores with fixed widths and
+  compile-time timing parameters and small CSR-backed RegBus32 wrappers for all
+  seven families. No IRQ/DMA, vendor register compatibility or software drivers.
+
+- Simulation-only typed JSONL channels with explicit activation/EOF, pre-edge
+  logging, native/Direct-SV differential execution and plan-bound debugger
+  recipes. Inactive directives preserve the synthesized DUT and native ABI v13.
+
+- Add a simple `make install` runtime setup, runtime/development/release Python
+  bootstrap profiles, and a separate pinned `formal` extra. `make venv` keeps
+  the full release setup as its default.
+  Profiles preserve existing packages and all test/security/release gates.
 
 - Passive typed `Tee`/`RvTee` stream taps with explicit debug outputs and
   external-wrapper examples for Vivado ILA and Quartus Signal Tap. No storage,
@@ -27,74 +49,6 @@ incompatible input explicitly.
   and User Guide. Canonical Markdown chapters also build the PDFs; schema-3
   documentation metadata, portable inter-book navigation and whole-set release
   checks replace independently maintained condensed reference chapters.
-
-### Fixed
-
-- Hosted EDA and release regression concurrency matches the qualified four-worker
-  full CI lane; LSP deadlines and test coverage remain unchanged. EDA JUnit
-  reports are retained even when the regression fails (CI-004).
-
-- Hosted ancestry-gated CI lanes fetch complete Git history. Community history
-  validation rejects shallow repositories even when the public baseline is
-  visible, preserving detection of older denied ancestors.
-
-- Every supplied runnable JSONL example has a named debug launch. The live
-  waveform can switch examples with automatic session termination and correct
-  top/stimulus selection, including multi-root workspace paths.
-
-- Typed signed/ready-valid JSONL now launches in the native debugger. The
-  checked-in CORDIC launch and live waveform session switching replace stale
-  RuleAction rows and identify the active module in the live tab.
-
-- Retain nominal enum and aggregate type facts in generic module
-  specialization (ZL-070); compare tagged-union wire outputs through the
-  native packed wire/protocol ABI instead of invalid DTO repacking (SIM-006).
-
-- Patch locked VSIX build dependencies for MSAL and qs security advisories, and
-  keep language-client and setuptools upgrades aligned with their toolchain pins.
-
-- Invalid callable bodies and empty vector literals report source-positioned
-  diagnostics instead of Python tracebacks, including `--check` and LSP edits
-  (ZL-069). Empty vectors remain unsupported; valid callable semantics are unchanged.
-- Go to Definition resolves declaration names and type/constructor/direct-call
-  references in deferred generic function and operator bodies. Lookup preserves
-  lexical shadowing and exact imported origins; stale symbol shards are invalidated.
-- Failed incremental SDK validation cannot retain cached typed products or
-  replace a project lock with an incompatible compiler/runtime/stdlib inventory.
-- Compile-time packed slices preserve arithmetic grouping and lexical generate
-  indices. Packed-vector offset scaling preserves a conditional index's exact
-  width, and native/RTL comparison gathers strided aggregate ABI fields.
-- Native plan lowering keeps capture-dependent memoization local to each pure
-  function invocation, including repeated and nested calls.
-- Formal deadlines terminate owned descendant processes as well as their
-  wrappers, without changing solver limits or proof-status requirements.
-- Standalone navigation isolates imported source spans; indexed standard-library
-  resolution avoids repeated dependency-closure parsing and reuses retained
-  source paths. SystemVerilog physical bindings escape the `config` keyword.
-- Secret scanning distinguishes the two documentation source SHA-256 fields
-  in release metadata from API credentials. The exception is restricted to the
-  exact file and whole hash fields; default rules and full-history scanning
-  remain enabled. Redacted findings now include locations for diagnosis.
-  The synthesis cache-hash exception no longer bypasses scanning its whole file.
-- Manual PDF layout keeps sentence punctuation attached to inline code and
-  preserves CLI prefixes and multi-character operators. Release checks reject
-  detached punctuation and split tokens. Language examples now use a meaningful
-  arithmetic assertion and exhaustive union match; indexing and AXI4 limitations
-  agree with their documented bounded support.
-- Native simulation documentation consistently uses reset assertion booleans,
-  including active-low pins, and distinguishes declared initial values from
-  uninitialized U startup.
-
-## 0.1.0a24 — 2026-10-23
-
-Alpha update consolidating native simulation ownership in the audited Rust
-runtime, extending nominal enum backing/value declarations, and publishing a
-complete reproducible simulation workflow. Native runtime ABI v13 replaces the
-previous runtime contract;
-the SimulationPlan hardware schema and Direct-SystemVerilog semantics remain
-unchanged.
-
-### Added
 
 - Extended-Hamming SECDED for payload widths 1…64, with pure encode/decode
   functions and one-stage ready/valid wrappers. Result validity distinguishes
@@ -166,6 +120,101 @@ unchanged.
   replay, artifact retention, and failure semantics.
 
 ### Fixed
+
+- Escape the complete pinned SystemVerilog keyword set in generated identifiers,
+  preserving logical names and rejecting physical-name collisions (ZL-068).
+
+- Preserve compiler-owned error locations across parser callback validation,
+  semantic declarations, storage controls, CSR, rules/priorities, hierarchy,
+  callables and timing checks. LSP follows unsaved CRLF/UTF-16 edits and
+  attributes imported failures to their definition files.
+
+- Mixed module-level and rule register updates point to the conflicting action
+  in CLI and LSP diagnostics, including indexed writes and unsaved edits.
+- Direct-SV emits direct conditional branches for an isolated resettable register,
+  omitting redundant hold assignments while preserving exact arithmetic, reset
+  and unknown-control behavior.
+
+- Bind manual source links to the matching public release tag and candidate file
+  hashes, reject altered PDF source URLs, and rebuild the three-book set from
+  corrected documentation (DOC-001). Clarify final-a24 maintenance policy while
+  retaining private vulnerability reporting and existing licence grants.
+
+- Correct indexed writes to packed vector output registers without changing their
+  public ABI; revalidate loaded verification-bundle inputs before cache reuse,
+  including bundles without diagnostic maps; treat invalid UTF-8 cache entries
+  as misses. Reject ignored FIFO/ROM target segments, preserve concise typed
+  callable actuals and compact `<=` constraints, and resolve same-file names in
+  inactive generic modules without accepting unbound hardware.
+
+- Pin the patched minimatch 11.0.1 across editor packaging and LSP dependencies
+  (GHSA-g3hv-75wg-m249). A source-hash-verified client compatibility patch keeps
+  file watching and file-operation filters working with the new matcher API;
+  npm audit still requires zero findings across the complete lockfile (CI-001).
+
+- Keep dependency upgrades coherent with release checks: Z3 5.3.3 matches the
+  solver package pin, and VSCE 4.1.0 is checked against the shared editor
+  toolchain, package manifest, lockfile and installed build dependency (CI-001).
+  Formal subprocesses retain the selected Z3 across OSS CAD Suite launchers;
+  result caches now bind executable identities and reject earlier unbound
+  entries without changing DUT semantics or solver limits.
+  GitHub PR integration checkouts validate both complete source histories and
+  the exact merge tree; ordinary publication still rejects unreviewed merges.
+
+- Hosted EDA and release regression concurrency matches the qualified four-worker
+  full CI lane; LSP deadlines and test coverage remain unchanged. EDA JUnit
+  reports are retained even when the regression fails (CI-004).
+
+- Hosted ancestry-gated CI lanes fetch complete Git history. Community history
+  validation rejects shallow repositories even when the public baseline is
+  visible, preserving detection of older denied ancestors.
+
+- Every supplied runnable JSONL example has a named debug launch. The live
+  waveform can switch examples with automatic session termination and correct
+  top/stimulus selection, including multi-root workspace paths.
+
+- Typed signed/ready-valid JSONL now launches in the native debugger. The
+  checked-in CORDIC launch and live waveform session switching replace stale
+  RuleAction rows and identify the active module in the live tab.
+
+- Retain nominal enum and aggregate type facts in generic module
+  specialization (ZL-070); compare tagged-union wire outputs through the
+  native packed wire/protocol ABI instead of invalid DTO repacking (SIM-006).
+
+- Patch locked VSIX build dependencies for MSAL and qs security advisories, and
+  keep language-client and setuptools upgrades aligned with their toolchain pins.
+
+- Invalid callable bodies and empty vector literals report source-positioned
+  diagnostics instead of Python tracebacks, including `--check` and LSP edits
+  (ZL-069). Empty vectors remain unsupported; valid callable semantics are unchanged.
+- Go to Definition resolves declaration names and type/constructor/direct-call
+  references in deferred generic function and operator bodies. Lookup preserves
+  lexical shadowing and exact imported origins; stale symbol shards are invalidated.
+- Failed incremental SDK validation cannot retain cached typed products or
+  replace a project lock with an incompatible compiler/runtime/stdlib inventory.
+- Compile-time packed slices preserve arithmetic grouping and lexical generate
+  indices. Packed-vector offset scaling preserves a conditional index's exact
+  width, and native/RTL comparison gathers strided aggregate ABI fields.
+- Native plan lowering keeps capture-dependent memoization local to each pure
+  function invocation, including repeated and nested calls.
+- Formal deadlines terminate owned descendant processes as well as their
+  wrappers, without changing solver limits or proof-status requirements.
+- Standalone navigation isolates imported source spans; indexed standard-library
+  resolution avoids repeated dependency-closure parsing and reuses retained
+  source paths. SystemVerilog physical bindings escape the `config` keyword.
+- Secret scanning distinguishes the two documentation source SHA-256 fields
+  in release metadata from API credentials. The exception is restricted to the
+  exact file and whole hash fields; default rules and full-history scanning
+  remain enabled. Redacted findings now include locations for diagnosis.
+  The synthesis cache-hash exception no longer bypasses scanning its whole file.
+- Manual PDF layout keeps sentence punctuation attached to inline code and
+  preserves CLI prefixes and multi-character operators. Release checks reject
+  detached punctuation and split tokens. Language examples now use a meaningful
+  arithmetic assertion and exhaustive union match; indexing and AXI4 limitations
+  agree with their documented bounded support.
+- Native simulation documentation consistently uses reset assertion booleans,
+  including active-low pins, and distinguishes declared initial values from
+  uninitialized U startup.
 
 - Compile-time conditions evaluate the existing integer `&`, `|` and `^`
   operators. Composite callable input types resolve earlier explicit generic

@@ -1,7 +1,10 @@
 # Support
 
-ZLang HDL is an experimental open-source alpha. Community support is best-effort;
-there is no response-time or compatibility SLA.
+`0.1.0a24` is the final planned public alpha release and remains a candidate
+until publication. The repository is retained for use, reproducibility and
+historical reference. No further public feature release or ongoing support is
+committed; maintainers may review bug and security reports at their discretion.
+Existing licence grants remain unchanged.
 
 ## Where to ask
 
@@ -25,5 +28,5 @@ Before reporting a compiler problem, include:
 The [language support matrix](docs/language-reference.md#reference-syntax-support-matrix)
 and [compiler reference](docs/language-reference.md) describe supported and
 fail-closed behavior. A documented unsupported feature is not necessarily a
-bug, but a concrete real-design reproducer is useful evidence for prioritizing
-future work.
+bug. New features and experimental compiler work are outside the public
+maintenance scope; a report does not create a commitment to implement them.

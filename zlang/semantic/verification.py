@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from zlang.diagnostics import diagnostic_source
 from zlang.ast import nodes as ast
 from zlang.ir import expressions as ir_expr
 from zlang.ir import cdc as ir_cdc
@@ -919,47 +920,53 @@ class VerificationSemanticAnalyzer:
         contracts: list[ir_verification.Contract] = []
         names: set[str] = set()
         for declaration in context.module.contracts:
-            if declaration.name in names:
-                raise SemanticError(f"duplicate contract '{declaration.name}'")
-            names.add(declaration.name)
-            domain = domains_by_clock.get(declaration.clock)
-            if domain is None:
-                raise SemanticError(
-                    f"contract '{declaration.name}' references unknown clock "
-                    f"'{declaration.clock}'"
+            with diagnostic_source(self._origin(context, declaration, f"verification {declaration.name}")):
+                if declaration.name in names:
+                    raise SemanticError(
+                        f"duplicate contract '{declaration.name}'",
+                        primary=self._origin(context, declaration, f"verification {declaration.name}"),
+                    )
+                names.add(declaration.name)
+                domain = domains_by_clock.get(declaration.clock)
+                if domain is None:
+                    raise SemanticError(
+                        f"contract '{declaration.name}' references unknown clock "
+                        f"'{declaration.clock}'",
+                        primary=self._origin(context, declaration, f"verification {declaration.name}"),
+                    )
+                if declaration.reset != domain.reset:
+                    raise SemanticError(
+                        f"contract '{declaration.name}' must use reset '{domain.reset}' "
+                        f"for clock '{declaration.clock}'",
+                        primary=self._origin(context, declaration, f"verification {declaration.name}"),
+                    )
+                expression = self._check_bit(
+                    context, declaration.expression, declaration.name, "contract"
                 )
-            if declaration.reset != domain.reset:
-                raise SemanticError(
-                    f"contract '{declaration.name}' must use reset '{domain.reset}' "
-                    f"for clock '{declaration.clock}'"
+                self._predicates.validate_contract(
+                    expression, context.ports, declaration.name
                 )
-            expression = self._check_bit(
-                context, declaration.expression, declaration.name, "contract"
-            )
-            self._predicates.validate_contract(
-                expression, context.ports, declaration.name
-            )
-            if declaration.kind.value == "assume":
-                self._ownership.validate_assumption_ownership(
+                if declaration.kind.value == "assume":
+                    self._ownership.validate_assumption_ownership(
+                        expression,
+                        context.ports,
+                        context.request_responses,
+                        declaration.name,
+                    )
+                self._validate_domain(
+                    context,
                     expression,
-                    context.ports,
-                    context.request_responses,
                     declaration.name,
+                    declaration.clock,
+                    "contract",
                 )
-            self._validate_domain(
-                context,
-                expression,
-                declaration.name,
-                declaration.clock,
-                "contract",
-            )
-            contracts.append(ir_verification.Contract(
-                ir_verification.ContractKind(declaration.kind.value),
-                declaration.name,
-                declaration.clock,
-                declaration.reset,
-                expression,
-            ))
+                contracts.append(ir_verification.Contract(
+                    ir_verification.ContractKind(declaration.kind.value),
+                    declaration.name,
+                    declaration.clock,
+                    declaration.reset,
+                    expression,
+                ))
         return tuple(contracts)
 
     def analyze(
@@ -996,84 +1003,90 @@ class VerificationSemanticAnalyzer:
                 )
 
         for declaration in context.module.verification_goals:
-            domain = self._domain(
-                context, domains_by_clock, declaration.name, declaration.clock
-            )
-            builder = scopes.scope("$module", domain, None)
-            expression = self._typed_expression(
-                context,
-                declaration.expression,
-                name=declaration.name,
-                clock_name=domain.clock,
-                ownership="assert",
-            )
-            kind = ir_verification.VerificationGoalKind(declaration.kind.value)
-            scopes.add(
-                builder,
-                kind,
-                declaration.name,
-                expression,
-                self._origin(
-                    context, declaration, f"{kind.value} {declaration.name}"
-                ),
-            )
-
-        explicit_scope_names: set[str] = set()
-        for declaration in context.module.verification_scopes:
-            if declaration.name in explicit_scope_names:
-                raise SemanticError(
-                    f"duplicate verification contract '{declaration.name}'"
+            with diagnostic_source(self._origin(context, declaration, f"verification {declaration.name}")):
+                domain = self._domain(
+                    context, domains_by_clock, declaration.name, declaration.clock
                 )
-            explicit_scope_names.add(declaration.name)
-            if not declaration.goals:
-                raise SemanticError(
-                    f"verification contract '{declaration.name}' must contain at "
-                    "least one assert, ensure, or cover goal"
+                builder = scopes.scope("$module", domain, None)
+                expression = self._typed_expression(
+                    context,
+                    declaration.expression,
+                    name=declaration.name,
+                    clock_name=domain.clock,
+                    ownership="assert",
                 )
-            domain = self._domain(
-                context, domains_by_clock, declaration.name, declaration.clock
-            )
-            builder = scopes.scope(
-                declaration.name,
-                domain,
-                self._origin(
-                    context, declaration, f"contract {declaration.name}"
-                ),
-            )
-            for requirement in declaration.requirements:
-                scopes.add(
-                    builder,
-                    None,
-                    requirement.name,
-                    self._typed_expression(
-                        context,
-                        requirement.expression,
-                        name=requirement.name,
-                        clock_name=domain.clock,
-                        ownership="require",
-                    ),
-                    self._origin(
-                        context, requirement, f"require {requirement.name}"
-                    ),
-                )
-            for goal in declaration.goals:
-                kind = ir_verification.VerificationGoalKind(goal.kind.value)
+                kind = ir_verification.VerificationGoalKind(declaration.kind.value)
                 scopes.add(
                     builder,
                     kind,
-                    goal.name,
-                    self._typed_expression(
-                        context,
-                        goal.expression,
-                        name=goal.name,
-                        clock_name=domain.clock,
-                        ownership=(
-                            "ensure"
-                            if kind is ir_verification.VerificationGoalKind.ENSURE
-                            else "assert"
-                        ),
+                    declaration.name,
+                    expression,
+                    self._origin(
+                        context, declaration, f"{kind.value} {declaration.name}"
                     ),
-                    self._origin(context, goal, f"{kind.value} {goal.name}"),
                 )
+
+        explicit_scope_names: set[str] = set()
+        for declaration in context.module.verification_scopes:
+            with diagnostic_source(self._origin(context, declaration, f"verification {declaration.name}")):
+                if declaration.name in explicit_scope_names:
+                    raise SemanticError(
+                        f"duplicate verification contract '{declaration.name}'",
+                        primary=self._origin(context, declaration, f"verification {declaration.name}"),
+                    )
+                explicit_scope_names.add(declaration.name)
+                if not declaration.goals:
+                    raise SemanticError(
+                        f"verification contract '{declaration.name}' must contain at "
+                        "least one assert, ensure, or cover goal",
+                        primary=self._origin(context, declaration, f"verification {declaration.name}"),
+                    )
+                domain = self._domain(
+                    context, domains_by_clock, declaration.name, declaration.clock
+                )
+                builder = scopes.scope(
+                    declaration.name,
+                    domain,
+                    self._origin(
+                        context, declaration, f"contract {declaration.name}"
+                    ),
+                )
+                for requirement in declaration.requirements:
+                    with diagnostic_source(self._origin(context, requirement, f"verification {requirement.name}")):
+                        scopes.add(
+                            builder,
+                            None,
+                            requirement.name,
+                            self._typed_expression(
+                                context,
+                                requirement.expression,
+                                name=requirement.name,
+                                clock_name=domain.clock,
+                                ownership="require",
+                            ),
+                            self._origin(
+                                context, requirement, f"require {requirement.name}"
+                            ),
+                        )
+                for goal in declaration.goals:
+                    with diagnostic_source(self._origin(context, goal, f"verification {goal.name}")):
+                        kind = ir_verification.VerificationGoalKind(goal.kind.value)
+                        scopes.add(
+                            builder,
+                            kind,
+                            goal.name,
+                            self._typed_expression(
+                                context,
+                                goal.expression,
+                                name=goal.name,
+                                clock_name=domain.clock,
+                                ownership=(
+                                    "ensure"
+                                    if kind is ir_verification.VerificationGoalKind.ENSURE
+                                    else "assert"
+                                ),
+                            ),
+                        self._origin(context, goal, f"{kind.value} {goal.name}"),
+                    )
 
         return VerificationAnalysisProduct(contracts, scopes.freeze())

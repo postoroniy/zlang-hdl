@@ -1,0 +1,79 @@
+import std.peripheral.regbus
+
+// Rising edges only. One slot; a full slot drops the new edge. Reset clears loss.
+module RisingCapture32 {
+    clock clk reset rst
+    in reset_active,enable,level : bit
+    in timestamp : u32
+    out output : rv<u32>
+    out overflow : bit
+    reg previous : bit = 0
+    reg armed : bit = 0
+    reg pending : bit = 0
+    reg saved : u32 = 0
+    reg lost : bit = 0
+    previous <- level
+    armed <- 1
+    event = ~reset_active & enable & armed & level & ~previous
+    available = ~pending | output.transfer
+    store = event & available
+    lost <- lost | (event & ~available)
+    output.valid = ~reset_active & pending
+    output.payload = saved
+    overflow = lost
+    pending <- store ? 1 : (output.transfer ? 0 : pending)
+    when store { saved <- timestamp }
+}
+
+// Register declarations own read data, reset storage and command events.
+module Capture32BasicRegisters {
+    clock clk reset rst
+    in status,captured:u32
+    out pop:bits<32>
+    csr registers @0 {
+        STATUS @0 { value u32 @31:0 ro <- status }
+        CONTROL @4 { value u32 @31:0 rw=0 }
+        DATA @8 { value u32 @31:0 ro <- captured }
+        POP @12 { value u32 @31:0 ro=0
+            command bits<32> @31:0 on_write -> pop }
+    }
+}
+
+module RisingCapture32RegBus32 {
+    clock clk reset rst
+    in reset_active : bit
+    interface regbus : RegBus<32,32>.responder
+    in level:bit in timestamp:u32
+
+    port : BasicPeripheralTarget32 {reset_active}
+    port.request.payload=regbus.request.payload
+    port.request.valid=regbus.request.valid
+    regbus.request.ready=port.request.ready
+    regbus.response.payload=port.response.payload
+    regbus.response.valid=port.response.valid
+    port.response.ready=regbus.response.ready
+    writing=regbus.request.payload.write
+    strobes=regbus.request.payload.wstrb
+    address=regbus.request.payload.addr
+    effective=strobes!=0
+    port.read_value=bank.rdata
+    port.error=invalid
+
+    // Named CSR read-hit views decode presence and access without write feedback.
+    // CSR ready includes its write enable; it is not a permission predicate.
+    read_only=bank.registers.events.STATUS.value.read_hit | bank.registers.events.DATA.value.read_hit
+    present=read_only | bank.registers.events.CONTROL.value.read_hit | bank.registers.events.POP.value.read_hit
+    invalid=~present | (writing & read_only) | (writing & (bank.registers.events.POP.value.read_hit) & strobes[0] & regbus.request.payload.wdata[0] & ~core.output.valid)
+    old_word=bank.registers.events.CONTROL.value.read_hit ? bitcast<bits<32>>(bank.registers.state.CONTROL.value) : (zeros<32>)
+    bank : Capture32BasicRegisters {
+        addr=address read=1
+        write=port.accept & writing & ~invalid & (effective & (~(bank.registers.events.POP.value.read_hit) | strobes[0]))
+        wdata=bitcast<u32>(basic_peripheral_merge(old_word,
+            bitcast<bits<32>>(regbus.request.payload.wdata),strobes))
+    }
+
+    bank.status=bitcast<u32>(concat(zeros<30>,bitcast<bits<1>>(core.overflow),bitcast<bits<1>>(core.output.valid)))
+    bank.captured=core.output.payload
+    core:RisingCapture32 {reset_active level timestamp enable=bitcast<bits<32>>(bank.registers.state.CONTROL.value)[0]}
+    core.output.ready=bank.pop[0]
+}

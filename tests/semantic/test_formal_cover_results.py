@@ -181,6 +181,7 @@ DONE (FAIL, rc=2)
 """
     context = SimpleNamespace(
         engine="sby", route="smtbmc", solver="z3", missing=(), versions=(),
+        execution_binding=None,
     )
     trace = tmp_path / "trace.vcd"
     trace.write_text("""$scope module top $end
@@ -233,6 +234,7 @@ def test_cover_runner_rejects_pass_with_malformed_witness_vcd(
     trace.write_text("$enddefinitions $end\n")
     context = SimpleNamespace(
         engine="sby", route="smtbmc", solver="z3", missing=(), versions=(),
+        execution_binding=None,
     )
     with patch(
         "zlang.formal.FormalToolchainContext.discover", return_value=context,

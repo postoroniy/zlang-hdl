@@ -112,10 +112,12 @@ conditioner, because that compilation has a new external reset boundary.
 asynchronous event control of resettable state and emits no conditioner.
 Resetless registers use only the active clock event.
 
-The semantic simulator models each input item as one active edge. It therefore
-models immediate assertion at the sampled boundary and the exact two-edge
-release hold. Assertion between active edges is additionally checked in RTL
-simulation.
+Native simulation supports reset changes independently of clock edges:
+`reset(name, asserted=True)` or a reset-only JSONL event applies a supported
+asynchronous assertion immediately. Synchronous reset still requires the
+owning clock edge. The concise asynchronous contract retains the exact two-edge
+release hold. A clock-only stimulus does not exercise between-edge assertion;
+include explicit reset events and compare them with emitted RTL.
 
 <a id="reference-physical-clock-reset-contract-hierarchy-inheritance"></a>
 ## Hierarchy inheritance

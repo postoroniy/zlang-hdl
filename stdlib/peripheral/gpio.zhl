@@ -1,0 +1,64 @@
+import std.peripheral.regbus
+
+// Eight combinational GPIO bits. Pad sampling and reset ownership are explicit.
+module Gpio8 {
+    in reset_active : bit
+    in pins_in,data,oe : bits<8>
+    out sampled,pins_out,pins_oe : bits<8>
+    sampled = pins_in
+    pins_out = data
+    pins_oe = reset_active ? 0 : oe
+}
+
+// Register declarations own read data, reset storage and command events.
+module Gpio8BasicRegisters {
+    clock clk reset rst
+    in sampled:u32
+
+    csr registers @0 {
+        INPUT @0 { value u32 @31:0 ro <- sampled }
+        OUTPUT @4 { value u32 @31:0 rw=0 }
+        OE @8 { value u32 @31:0 rw=0 }
+    }
+}
+
+module Gpio8RegBus32 {
+    clock clk reset rst
+    in reset_active : bit
+    interface regbus : RegBus<32,32>.responder
+    in pins_in:bits<8>
+    out pins_out,pins_oe:bits<8>
+
+    port : BasicPeripheralTarget32 {reset_active}
+    port.request.payload=regbus.request.payload
+    port.request.valid=regbus.request.valid
+    regbus.request.ready=port.request.ready
+    regbus.response.payload=port.response.payload
+    regbus.response.valid=port.response.valid
+    port.response.ready=regbus.response.ready
+    writing=regbus.request.payload.write
+    strobes=regbus.request.payload.wstrb
+    address=regbus.request.payload.addr
+    effective=strobes!=0
+    port.read_value=bank.rdata
+    port.error=invalid
+
+    // Named CSR read-hit views decode presence and access without write feedback.
+    // CSR ready includes its write enable; it is not a permission predicate.
+    read_only=bank.registers.events.INPUT.value.read_hit
+    present=read_only | bank.registers.events.OUTPUT.value.read_hit | bank.registers.events.OE.value.read_hit
+    invalid=~present | (writing & read_only) | (0)
+    old_word=bank.registers.events.OUTPUT.value.read_hit ? bitcast<bits<32>>(bank.registers.state.OUTPUT.value) : (bank.registers.events.OE.value.read_hit ? bitcast<bits<32>>(bank.registers.state.OE.value) : (zeros<32>))
+    bank : Gpio8BasicRegisters {
+        addr=address read=1
+        write=port.accept & writing & ~invalid & (effective)
+        wdata=bitcast<u32>(basic_peripheral_merge(old_word,
+            bitcast<bits<32>>(regbus.request.payload.wdata),strobes))
+    }
+
+    bank.sampled=bitcast<u32>(extend<32>(core.sampled))
+    core:Gpio8 {reset_active pins_in
+        data=bitcast<bits<32>>(bank.registers.state.OUTPUT.value)[7:0]
+        oe=bitcast<bits<32>>(bank.registers.state.OE.value)[7:0]}
+    pins_out=core.pins_out pins_oe=core.pins_oe
+}

@@ -12,7 +12,7 @@ from typing import Iterator
 
 from zlang.analysis_needs import AnalysisNeeds
 from zlang.ast import nodes as ast_nodes
-from zlang.compiler import TopSelectionError
+from zlang.compiler import TopSelectionError, observe_file_declarations
 from zlang.dependencies import DependencyModelError
 from zlang.diagnostics import DiagnosticError
 from zlang.module_resolver import ModuleResolutionError
@@ -70,11 +70,16 @@ def _navigation_results_at(
     """
 
     seen: set[str | None] = set()
+    failed_semantics = False
 
     def snapshot(top: str | None) -> object | None:
+        nonlocal failed_semantics
         try:
             return tooling_queries._definition_snapshot(path, source_text, session=session, top=top)
-        except (ParseError, TopSelectionError, SemanticError, DiagnosticError):
+        except (SemanticError, DiagnosticError):
+            failed_semantics = True
+            return None
+        except (ParseError, TopSelectionError):
             return None
         except (
             ModuleResolutionError, workspace.WorkspaceError, ProjectModelError,
@@ -106,6 +111,19 @@ def _navigation_results_at(
         result = snapshot(selected_top)
         if result is not None:
             yield result
+    if failed_semantics:
+        try:
+            yield (
+                session.declaration_snapshot(path, source_text)
+                if session is not None else observe_file_declarations(path, source_text)
+            )
+        except (ParseError, SemanticError, DiagnosticError):
+            return
+        except (
+            ModuleResolutionError, workspace.WorkspaceError, ProjectModelError,
+            DependencyModelError, OSError, ValueError,
+        ) as error:
+            raise tooling_models.ToolingError(str(error)) from error
 
 def _definition_top_at(
     source_text: str,

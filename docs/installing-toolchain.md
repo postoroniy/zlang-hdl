@@ -55,32 +55,50 @@ uv pip install \
   /path/to/zlang_hdl-VERSION-py3-none-any.whl
 ```
 
-For development from a Git checkout, keep the environment local to the
-repository:
+For use from a Git checkout, install these host prerequisites first:
+
+- A glibc-based Linux x86-64 host, including WSL2. The reviewed native runtime
+  wheel requires glibc 2.28 or newer; the Linux-x64 debugger/viewer executables
+  require glibc 2.34 or newer.
+- Git, GNU Make, Bash 4 or newer, and standard shell utilities.
+- Either `uv`, which can provision CPython 3.12, or an existing CPython 3.12
+  with working `venv` and `ensurepip` support. First setup needs network access
+  for Python packages and, with managed Python, the interpreter.
+- For optional editor installation: VS Code's `code` CLI, Node.js 22, npm and
+  `readelf` from binutils. ZLang does not install these host applications.
+
+Without Node.js/npm or the VS Code CLI, compiler/native/LSP setup can complete
+without changing the editor. `INSTALL_EDITOR=0` explicitly selects that route.
+EDA tools are separate prerequisites for the flows that use them. A normal
+checkout installation uses reviewed native binaries and needs no Rust or C++
+build toolchain.
+
+Keep the environment local to the repository:
 
 ```sh
 git clone https://github.com/postoroniy/zlang-hdl.git
 cd zlang-hdl
-make venv
+make install
 source .venv/bin/activate
 zlang --version
 ```
 
-`make venv` installs the checkout compiler and its matching reviewed native
-wheel into one local environment. On a supported host with VS Code and Node.js
+`make install` installs the checkout compiler, LSP and its matching reviewed native
+wheel into one local environment, without Python test or release tools.
+No profile selection is needed. `make venv` retains the complete maintainer setup. On a supported host with VS Code and Node.js
 22, it also installs the matching extension. Use `INSTALL_EDITOR=0` to leave
 the installed extension unchanged. Installing only `.[test]` does not install
 the native runtime and is not equivalent to this complete setup.
 
-`make -n venv` prints the bootstrap recipe without installing anything. A real
+`make -n install` prints the bootstrap recipe without installing anything. A real
 bootstrap rejects an active sibling environment or an incompatible local
 interpreter before installation. Deactivate the foreign environment and retry;
 move an incompatible `.venv` aside explicitly, since bootstrap does not delete it.
 Stale checkout distribution metadata is preserved below ignored build output
 rather than allowed to shadow the installed compiler. If optional editor setup
 fails, Python/native/LSP setup may already be complete: retry `make editor-install`,
-or use `make venv INSTALL_EDITOR=0`. With missing Node.js/npm, install editor
-prerequisites separately. `KEEP_TMP=1 make venv` retains bootstrap failure logs.
+or use `make install INSTALL_EDITOR=0`. With missing Node.js/npm, install editor
+prerequisites separately. `KEEP_TMP=1 make install` retains bootstrap failure logs.
 
 To replace an old waveform/editor UI after a pull, run `make editor-install`
 with Node.js 22 and reload VS Code. Close/reopen waveform tabs: existing webviews
@@ -97,6 +115,62 @@ install`, or after activating the checkout's virtual environment with
 `source .venv/bin/activate` in a Bash/Zsh terminal. Alternatively, in the
 checkout use `uv run --no-sync zlang ...` without activating it. Open a new
 terminal and activate the environment again when returning to the checkout.
+
+<a id="reference-installing-toolchain-python-dependency-profiles"></a>
+### Checkout Python dependency profiles
+
+For ordinary use, `make install` selects runtime dependencies and refreshes the
+VS Code extension when prerequisites are available. The existing bootstrap also
+supports explicit additive profiles for development and release work:
+
+| Profile | Python dependencies | Editor default |
+| --- | --- | --- |
+| Runtime | Compiler, native runtime and LSP; no test or release tools | Unchanged |
+| Development | Runtime plus the complete test/formal dependencies and Ruff | Unchanged |
+| Release | Development plus all pinned release, license and dependency-audit tools | Refresh when prerequisites are available |
+
+For explicit profile selection:
+
+```sh
+make venv PYTHON_PROFILE=runtime
+make venv PYTHON_PROFILE=dev
+make venv PYTHON_PROFILE=release
+```
+
+All profiles retain the pinned pip/setuptools bootstrap for editable installation.
+`release` remains the default. No tests, security checks or release gates are
+removed by choosing a smaller installation. Use the release profile before
+running release and audit commands; smaller environments do not bypass missing
+prerequisites. `INSTALL_EDITOR=0` always leaves the extension unchanged;
+`INSTALL_EDITOR=1` explicitly enables its existing build/install workflow.
+
+Profiles never uninstall or synchronize packages already in an environment.
+Selecting `runtime` in an existing development environment will retain its
+existing packages. For a separate runtime environment below the same checkout:
+
+```sh
+make venv PYTHON_PROFILE=runtime VENV=.venv-runtime
+source .venv-runtime/bin/activate
+```
+
+Pass that same `VENV=.venv-runtime` to subsequent Make commands. Deactivate it
+before using another environment. Each environment remains owned by its checkout.
+
+The optional `formal` extra installs the checkout's pinned Python Z3 bindings
+without pytest or release tooling. After activating a runtime checkout environment:
+
+```sh
+python -m pip install -e '.[formal]'
+```
+
+The complete `test` extra already includes the same solver package, so development
+and release profiles retain it. External Yosys/SymbiYosys/SMT executables still
+need separate provisioning. Without Python Z3, eligible arithmetic proofs retain
+the raw SMT route; missing tools, timeouts and inconclusive results do not become
+proofs. See [formal verification](formal-verification.md).
+
+These commands configure a source checkout. Existing downloaded wheels and
+editor packages retain their original dependency metadata.
 
 <a id="reference-installing-toolchain-conventional-venv-and-pip-alternative"></a>
 ## Conventional venv and pip alternative
@@ -120,9 +194,12 @@ For an editable development checkout, replace the two-wheel installation
 command with:
 
 ```sh
-python -m pip install -e '.[test]'
+python -m pip install \
+  /path/to/zlang_native_sim-VERSION-cp312-abi3-PLATFORM.whl \
+  -e '.[test]'
 ```
 
+The native wheel must match this checkout's required version and platform.
 This fallback needs a compatible interpreter and `venv` support from the host.
 ZLang should be installed with `uv` or an isolated virtual environment, leaving
 the operating system's own Python unchanged.

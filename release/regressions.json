@@ -6,19 +6,51 @@
         ".github/dependabot.yml",
         ".github/workflows/codeql.yml",
         "editors/vscode/zlang-hdl/editor-toolchain.json",
+        "editors/vscode/zlang-hdl/package-lock.json",
+        "editors/vscode/zlang-hdl/package.json",
+        "editors/vscode/zlang-hdl/test/bundle.cjs",
+        "editors/vscode/zlang-hdl/test/bundle.test.cjs",
+        "editors/vscode/zlang-hdl/test/dependencies.test.cjs",
+        "editors/vscode/zlang-hdl/test/patch-languageclient.cjs",
+        "release/status.json",
         "tests/editor/test_vscode_package.py",
+        "tests/editor/test_vscode_surface.py",
+        "tests/integration/test_formal_tool_binding.py",
+        "tests/release/test_ci_contract.py",
+        "tests/release/test_community_boundary.py",
+        "tests/release/test_editor_vulnerability_audit.py",
+        "tests/semantic/test_equivalence_replay_integrity.py",
         "tests/semantic/test_formal_bitvector_rewrite.py",
+        "tests/semantic/test_formal_execution_tools.py",
+        "tests/semantic/test_verification_result_cache.py",
         "tools/audit_workflow_structure.py",
-        "tools/release_status.py"
+        "tools/community_boundary.py",
+        "tools/release_status.py",
+        "zlang/candidate_equivalence.py",
+        "zlang/formal.py",
+        "zlang/formal_execution_tools.py",
+        "zlang/formal_exploration.py",
+        "zlang/verification_bundle_execution.py"
       ],
       "status": "included",
-      "summary": "Dependency updates retain coherent CodeQL steps, solver/status and editor/lock pins; preparation failure tests are independent of ambient EDA discovery.",
+      "summary": "Dependency updates retain exact solver/status and manifest/lock/installed editor pins; formal children execute the selected Z3 across OSS launchers, and result caches bind executable identities; CodeQL pins and preparation-failure checks remain strict. The editor closure pins minimatch 11.0.1 in both packaging and LSP consumers; a hash-bound client compatibility patch preserves glob filtering, rejects unknown dependency bytes and retains the zero-findings npm audit gate.",
       "tests": [
+        "tests/editor/test_vscode_package.py::VSCodePackageTests::test_minimatch_override_and_entire_lock_closure_are_patched",
         "tests/editor/test_vscode_package.py::VSCodePackageTests::test_playwright_manifest_and_lock_must_match_reviewed_toolchain",
+        "tests/editor/test_vscode_package.py::VSCodePackageTests::test_vsce_manifest_and_lock_must_match_reviewed_toolchain",
+        "tests/integration/test_formal_tool_binding.py::test_actual_rtl_proof_executes_selected_solver",
         "tests/release/test_ci_contract.py::test_dependabot_groups_codeql_and_defers_incompatible_compiler_api",
         "tests/release/test_ci_contract.py::test_solver_pin_rejects_stale_missing_ranged_or_duplicate_dependencies",
         "tests/release/test_ci_contract.py::test_workflow_audit_rejects_mixed_or_unpinned_codeql",
-        "tests/semantic/test_formal_bitvector_rewrite.py::test_preparation_failure_is_unknown_not_a_proof"
+        "tests/release/test_community_boundary.py::test_exact_github_integration_checks_both_histories",
+        "tests/release/test_community_boundary.py::test_github_integration_context_fails_closed",
+        "tests/release/test_community_boundary.py::test_github_integration_preserves_source_ancestry_and_content_denials",
+        "tests/release/test_editor_vulnerability_audit.py::test_editor_findings_are_rejected_after_report_parsing",
+        "tests/semantic/test_formal_bitvector_rewrite.py::test_preparation_failure_is_unknown_not_a_proof",
+        "tests/semantic/test_formal_execution_tools.py::test_frozen_binding_rejects_changed_solver_before_launch",
+        "tests/semantic/test_formal_execution_tools.py::test_oss_child_uses_exact_selected_solver_without_changing_suite",
+        "tests/semantic/test_formal_execution_tools.py::test_same_version_binary_replacement_invalidates_selection_and_bundle_keys",
+        "tests/semantic/test_formal_execution_tools.py::test_unbindable_oss_launcher_fails_closed"
       ]
     },
     {
@@ -80,38 +112,54 @@
         "docs/expressions-functions-generics.md",
         "docs/language-overview.md",
         "docs/types-and-numerics.md",
+        "tests/release/test_manual_manifest.py",
         "tests/release/test_manual_pdf_links.py",
         "tests/release/test_release_preflight.py",
+        "tests/release/test_stage_release_pdf.py",
         "tools/documentation_pdf.py",
+        "tools/documentation_sources.py",
         "tools/release_status.py"
       ],
       "status": "included",
-      "summary": "Manual release validation rejects detached punctuation and split CLI/range tokens; the host renderer permits only internal safe breaks, and language examples and bounded-support descriptions remain consistent.",
+      "summary": "Manual release validation rejects detached punctuation and split CLI/range tokens; the host renderer permits only internal safe breaks, and language examples and bounded-support descriptions remain consistent. Source links use the matching release tag, bind linked file hashes, and reject altered PDF URLs; candidate availability is explicit.",
       "tests": [
+        "tests/release/test_manual_manifest.py::test_linked_source_missing_directory_or_symlink_fails_closed",
+        "tests/release/test_manual_manifest.py::test_source_links_follow_release_tag_and_record_complete_file_closure",
+        "tests/release/test_manual_pdf_links.py::test_pdf_stale_altered_or_missing_source_url_is_rejected",
         "tests/release/test_manual_pdf_links.py::test_rendered_manual_allows_member_access_paths_and_ellipsis",
         "tests/release/test_manual_pdf_links.py::test_rendered_manual_rejects_detached_punctuation_and_split_tokens",
         "tests/release/test_release_preflight.py::test_candidate_rejects_missing_documentation_or_security_regression",
-        "tests/release/test_release_preflight.py::test_current_candidate_binds_release_sources_native_wheel_and_git"
+        "tests/release/test_release_preflight.py::test_current_candidate_binds_release_sources_native_wheel_and_git",
+        "tests/release/test_stage_release_pdf.py::test_staging_rejects_changed_linked_source_bytes"
       ]
     },
     {
       "id": "FORMAL-001",
       "source_paths": [
         "tests/integration/test_formal_evidence_integrity.py",
+        "tests/integration/test_loaded_bundle_cache_integrity.py",
         "tests/semantic/test_equivalence_replay_integrity.py",
+        "tests/semantic/test_verification_replay_input_integrity.py",
+        "tests/test_content_cache.py",
         "zlang/candidate_equivalence.py",
+        "zlang/common/content_cache.py",
         "zlang/equivalence_replay_integrity.py",
         "zlang/formal_candidate.py",
-        "zlang/formal_joint_value.py"
+        "zlang/formal_joint_value.py",
+        "zlang/verification_execution_context.py"
       ],
       "status": "included",
-      "summary": "Frozen and cached formal evidence reconstructs the typed miter and checks exact source, top, artifacts and physical operand/output bindings before reuse.",
+      "summary": "Frozen and cached formal evidence reconstructs the typed miter and checks exact source, top, artifacts and physical operand/output bindings before reuse. Loaded verification bundles revalidate every immutable input before result-cache admission independently of source maps; invalid UTF-8 caches are misses requiring reexecution.",
       "tests": [
         "tests/integration/test_formal_evidence_integrity.py::test_result_cache_checks_current_harness_before_warm_reuse",
         "tests/integration/test_formal_evidence_integrity.py::test_warm_preparation_cannot_reuse_stale_operand_identity",
         "tests/integration/test_formal_evidence_integrity.py::test_warm_preparation_rejects_changed_actual_output",
+        "tests/integration/test_loaded_bundle_cache_integrity.py::test_real_proof_cache_rechecks_loaded_harness_before_reuse",
         "tests/semantic/test_equivalence_replay_integrity.py::test_execution_recipe_checks_in_memory_integrity",
-        "tests/semantic/test_equivalence_replay_integrity.py::test_replay_rejects_modified_source_contract"
+        "tests/semantic/test_equivalence_replay_integrity.py::test_replay_rejects_modified_source_contract",
+        "tests/semantic/test_verification_replay_input_integrity.py::test_changed_replay_inputs_reject_before_result_cache",
+        "tests/semantic/test_verification_replay_input_integrity.py::test_loaded_ir_cannot_override_validated_snapshot",
+        "tests/test_content_cache.py::test_invalid_utf8_is_a_diagnosed_cache_miss"
       ]
     },
     {
@@ -213,25 +261,42 @@
         "editors/vscode/zlang-hdl/extension.js",
         "editors/vscode/zlang-hdl/project_metadata.js",
         "editors/vscode/zlang-hdl/test/project-metadata.test.cjs",
+        "tests/integration/test_cli_diagnostics.py",
+        "tests/lsp/test_declaration_diagnostics.py",
         "tests/lsp/test_diagnostic_lifecycle.py",
+        "tests/lsp/test_semantic_diagnostic_locations.py",
+        "zlang/ast/nodes.py",
+        "zlang/diagnostics.py",
         "zlang/lsp/diagnostic_publication.py",
         "zlang/lsp/positions.py",
         "zlang/lsp/server.py",
         "zlang/module_resolver.py",
+        "zlang/parser/parser.py",
+        "zlang/parser/target_generic_rules.py",
+        "zlang/semantic/instances.py",
+        "zlang/semantic/module_validation.py",
+        "zlang/semantic/state.py",
+        "zlang/semantic/storage_validation.py",
+        "zlang/semantic/type_resolution.py",
         "zlang/stdlib.py",
         "zlang/tooling_diagnostics.py",
         "zlang/tooling_session.py",
         "zlang/tooling_symbols.py"
       ],
       "status": "included",
-      "summary": "LSP handles empty/EOF spans, binds closed-import diagnostics to exact sources, retires stale markers and rechecks manifest/lock lifecycle changes without fetching or rewriting metadata, independently of recursive workspace watcher readiness.",
+      "summary": "LSP handles empty/EOF spans, binds closed-import diagnostics to exact sources, retires stale markers and rechecks manifest/lock lifecycle changes without fetching or rewriting metadata, independently of recursive workspace watcher readiness. Mixed module-level/rule register writes retain the exact scalar/indexed action span for CLI and live editor diagnostics. Parser callback, declaration, storage/control, CSR, rule/priority, connection, callable, specialization and timing failures retain compiler-owned locations through lowering, unsaved CRLF/UTF-16 edits and closed imports.",
       "tests": [
         "tests/editor/test_vscode_surface.py::test_project_metadata_lifecycle_has_watcher_independent_host_coverage_and_failure_logs",
+        "tests/integration/test_cli_diagnostics.py::test_mixed_register_writers_include_file_line_and_column",
+        "tests/lsp/test_declaration_diagnostics.py::test_mixed_register_writers_keep_action_location_after_edits",
         "tests/lsp/test_diagnostic_lifecycle.py::test_closed_external_import_is_bound_by_the_compiler_resolver",
         "tests/lsp/test_diagnostic_lifecycle.py::test_closed_import_uses_its_own_file_and_clears_after_fix",
         "tests/lsp/test_diagnostic_lifecycle.py::test_empty_and_eof_positions_round_trip",
         "tests/lsp/test_diagnostic_lifecycle.py::test_lock_create_delete_and_manifest_changes_recheck_read_only",
-        "tests/lsp/test_diagnostic_lifecycle.py::test_stdio_empty_diagnostic_and_lock_creation_recover_without_restart"
+        "tests/lsp/test_diagnostic_lifecycle.py::test_stdio_empty_diagnostic_and_lock_creation_recover_without_restart",
+        "tests/lsp/test_semantic_diagnostic_locations.py::test_closed_import_diagnostic_belongs_to_definition_file",
+        "tests/lsp/test_semantic_diagnostic_locations.py::test_multiline_specialization_error_selects_the_supplied_argument",
+        "tests/lsp/test_semantic_diagnostic_locations.py::test_semantic_error_points_to_its_source_after_unsaved_edits"
       ]
     },
     {
@@ -259,16 +324,21 @@
       "id": "LSP-003",
       "source_paths": [
         "tests/lsp/test_generic_body_navigation.py",
+        "tests/lsp/test_generic_module_navigation.py",
+        "zlang/compilation_products.py",
+        "zlang/compilation_session.py",
+        "zlang/compiler.py",
         "zlang/semantic/callable_bodies.py",
         "zlang/semantic/expression_calls.py",
         "zlang/semantic/module_declarations.py",
         "zlang/semantic/type_resolution.py",
         "zlang/tooling_navigation.py",
         "zlang/tooling_queries.py",
+        "zlang/tooling_session.py",
         "zlang/tooling_symbol_cache.py"
       ],
       "status": "included",
-      "summary": "Go to Definition resolves exact declaration names and nominal type/direct-function references in deferred generic bodies without requiring concrete specialization. Generic parameters and intrinsics cannot bind unrelated global declarations; persisted symbol shards use a new analysis recipe.",
+      "summary": "Go to Definition resolves exact declaration names and nominal type/direct-function references in deferred generic bodies without requiring concrete specialization. Generic parameters and intrinsics cannot bind unrelated global declarations; persisted symbol shards use a new analysis recipe. Inactive generic modules expose compiler-owned same-file annotation/call definitions and references without legalizing unbound hardware; declaration facts use a bounded separate cache and invalidate old symbol shards.",
       "tests": [
         "tests/lsp/test_generic_body_navigation.py::test_deferred_body_and_declaration_definition",
         "tests/lsp/test_generic_body_navigation.py::test_deferred_operator_constructor_is_a_nominal_type_reference",
@@ -277,7 +347,11 @@
         "tests/lsp/test_generic_body_navigation.py::test_imported_constructor_survives_cache_restart_and_dependency_edit",
         "tests/lsp/test_generic_body_navigation.py::test_intrinsic_call_does_not_bind_same_named_global_function",
         "tests/lsp/test_generic_body_navigation.py::test_navigation_observations_leave_production_hardware_unchanged",
-        "tests/lsp/test_generic_body_navigation.py::test_real_fp_format_constructor_and_declaration"
+        "tests/lsp/test_generic_body_navigation.py::test_real_fp_format_constructor_and_declaration",
+        "tests/lsp/test_generic_module_navigation.py::test_declarations_do_not_make_unbound_hardware_valid",
+        "tests/lsp/test_generic_module_navigation.py::test_real_nco_references_include_generic_ports_and_rom",
+        "tests/lsp/test_generic_module_navigation.py::test_real_nco_same_file_type_definition",
+        "tests/lsp/test_generic_module_navigation.py::test_real_stdio_worker_resolves_unbound_nco_type_repeatedly"
       ]
     },
     {
@@ -445,8 +519,6 @@
     },
     {
       "id": "VSIX-005",
-      "status": "included",
-      "summary": "Compiler packs typed signed and protocol JSONL inputs for the reviewed native debugger; switching active sessions refreshes the retained live waveform and identifies its owning top module.",
       "source_paths": [
         ".vscode/launch.json",
         "editors/vscode/zlang-hdl/extension.js",
@@ -458,6 +530,8 @@
         "zlang/sim_cli.py",
         "zlang/simulation_protocol_access.py"
       ],
+      "status": "included",
+      "summary": "Compiler packs typed signed and protocol JSONL inputs for the reviewed native debugger; switching active sessions refreshes the retained live waveform and identifies its owning top module.",
       "tests": [
         "tests/integration/test_native_debug_events.py::test_cordic_jsonl_launches_with_reviewed_adapter_and_matches_native",
         "tests/integration/test_native_debug_events.py::test_debug_event_preparation_bounds_input_output_and_repeat",
@@ -468,8 +542,6 @@
     },
     {
       "id": "VSIX-006",
-      "status": "included",
-      "summary": "All supplied runnable JSONL examples have named typed launches. Session replacement waits for termination, automatically rebinds live waveforms, and honors per-file tops, stimuli and multi-root folders instead of assuming Top.",
       "source_paths": [
         ".vscode/launch.json",
         "editors/vscode/zlang-hdl/debug_launch.js",
@@ -481,6 +553,8 @@
         "editors/vscode/zlang-hdl/waveform_workspace.js",
         "tests/integration/test_debug_example_launches.py"
       ],
+      "status": "included",
+      "summary": "All supplied runnable JSONL examples have named typed launches. Session replacement waits for termination, automatically rebinds live waveforms, and honors per-file tops, stimuli and multi-root folders instead of assuming Top.",
       "tests": [
         "tests/integration/test_debug_example_launches.py::test_each_example_launch_steps_and_restarts_with_reviewed_adapter",
         "tests/integration/test_debug_example_launches.py::test_launch_inventory_covers_every_public_example_schedule"
@@ -628,19 +702,29 @@
     {
       "id": "ZL-059",
       "source_paths": [
+        "tests/parser/test_concise_callable_arguments.py",
+        "tests/parser/test_generic_comparison_boundary.py",
+        "tests/semantic/test_concise_callable_arguments.py",
         "tests/semantic/test_constant_predicate_values.py",
         "tests/semantic/test_instance_default_inference.py",
         "tests/semantic/test_typed_constant_constraints.py",
         "zlang/backend/expression_constant_folding.py",
         "zlang/ir/constants.py",
+        "zlang/parser/grammar.lark",
+        "zlang/parser/lalr-1.3.1.larkbin",
+        "zlang/parser/parser.py",
+        "zlang/parser/target_generic_rules.py",
         "zlang/semantic/callable_specialization_bindings.py",
         "zlang/semantic/compile_time_evaluation.py",
         "zlang/semantic/instances.py",
         "zlang/semantic/module_declarations.py"
       ],
       "status": "included",
-      "summary": "Generic constants, exact predicates and callee-owned derived defaults preserve typed numerical semantics; implementation-only module defaults no longer force premature sibling-input inference.",
+      "summary": "Generic constants, exact predicates and callee-owned derived defaults preserve typed numerical semantics; implementation-only module defaults no longer force premature sibling-input inference. Compact <= constraints cannot become generic-type tokens; concise typed callable actuals reuse explicit specialization grammar with original source coordinates.",
       "tests": [
+        "tests/parser/test_concise_callable_arguments.py::test_concise_callable_actuals_match_explicit_ast",
+        "tests/parser/test_generic_comparison_boundary.py::test_generic_comparison_spacing_does_not_change_ast",
+        "tests/semantic/test_concise_callable_arguments.py::test_concise_callable_instances_match_explicit_selected_products",
         "tests/semantic/test_constant_predicate_values.py::test_constant_predicate_never_accepts_runtime_guard_even_if_result_cancels",
         "tests/semantic/test_instance_default_inference.py::test_unrelated_default_does_not_evaluate_forward_sibling",
         "tests/semantic/test_typed_constant_constraints.py::test_callable_derived_default_cannot_capture_caller_parameter",
@@ -652,18 +736,23 @@
       "source_paths": [
         "tests/integration/test_storage_control_locals.py",
         "tests/semantic/test_storage_control_locals.py",
+        "tests/semantic/test_storage_control_targets.py",
         "zlang/compilation_selection.py",
         "zlang/semantic/module_behavior.py",
+        "zlang/semantic/module_state_storage.py",
         "zlang/semantic/storage_validation.py"
       ],
       "status": "included",
-      "summary": "FIFO, memory and ROM controls consume elaborated immutable locals and selected-IR inlining preserves those expression roots, exact ranges, domains and feedback rejection.",
+      "summary": "FIFO, memory and ROM controls consume elaborated immutable locals and selected-IR inlining preserves those expression roots, exact ranges, domains and feedback rejection. FIFO/ROM assignment targets reject ignored middle path segments before operand typing and preserve named memory-port paths and diagnostic origins.",
       "tests": [
         "tests/integration/test_storage_control_locals.py::test_rom_alias_actual_rtl_proven",
         "tests/integration/test_storage_control_locals.py::test_storage_alias_native_direct_sv",
         "tests/semantic/test_storage_control_locals.py::test_combinational_memory_feedback_through_local_is_rejected",
         "tests/semantic/test_storage_control_locals.py::test_global_storage_controls_accept_typed_locals",
-        "tests/semantic/test_storage_control_locals.py::test_rom_local_range_is_checked_not_only_its_type"
+        "tests/semantic/test_storage_control_locals.py::test_rom_local_range_is_checked_not_only_its_type",
+        "tests/semantic/test_storage_control_targets.py::test_fifo_rejects_ignored_middle_target_segment",
+        "tests/semantic/test_storage_control_targets.py::test_rom_rejects_ignored_middle_target_segment",
+        "tests/semantic/test_storage_control_targets.py::test_target_shape_is_checked_before_operand_typing"
       ]
     },
     {
@@ -743,15 +832,20 @@
     {
       "id": "ZL-066",
       "source_paths": [
+        "tests/backend/test_registered_vector_write_shape.py",
+        "tests/integration/test_guarded_vector_write_equivalence.py",
         "tests/integration/test_packed_reduction_widths.py",
         "tests/integration/test_packed_struct_widths.py",
         "tests/integration/test_single_bit_vector_projection.py",
         "zlang/backend/systemverilog/expression.py",
-        "zlang/backend/systemverilog/module_rendering.py"
+        "zlang/backend/systemverilog/module_rendering.py",
+        "zlang/backend/systemverilog/rendering.py"
       ],
       "status": "included",
-      "summary": "Direct-SV sizes packed reduction elements and struct fields to exact typed widths and projects singleton bit vectors as scalar values across supported RTL frontends. Packed-index scaling seals conditional indices to their exact typed width before offset widening.",
+      "summary": "Direct-SV sizes packed reduction elements and struct fields to exact typed widths and projects singleton bit vectors as scalar values across supported RTL frontends. Packed-index scaling seals conditional indices to their exact typed width before offset widening. Indexed updates of public packed vector output registers use element selection while internal flat registers retain bit-slice addressing; exact reset/guard behavior is independently checked.",
       "tests": [
+        "tests/backend/test_registered_vector_write_shape.py::test_public_vector_state_uses_element_selects",
+        "tests/integration/test_guarded_vector_write_equivalence.py::test_actual_rtl_guarded_write_induction_and_mutations",
         "tests/integration/test_packed_reduction_widths.py::test_packed_parity_elements_match_universal_rtl_reference",
         "tests/integration/test_packed_struct_widths.py::test_widened_subtraction_in_aggregate_actual_rtl",
         "tests/integration/test_single_bit_vector_projection.py::test_single_bit_vector_projection_universal_actual_rtl"
@@ -778,12 +872,18 @@
     {
       "id": "ZL-068",
       "source_paths": [
+        "tests/systemverilog/test_reserved_gate_identifier.py",
         "tests/systemverilog/test_reserved_release_identifier.py",
         "zlang/backend/identifiers.py"
       ],
       "status": "included",
-      "summary": "SystemVerilog release identifiers are escaped on physical ports and hierarchical bindings while source identity and collision rejection are preserved. The same reserved-word policy also escapes config.",
+      "summary": "SystemVerilog release identifiers are escaped on physical ports and hierarchical bindings while source identity and collision rejection are preserved. The same reserved-word policy also escapes config. The full pinned SystemVerilog keyword inventory also escapes gate, clocking and nettype keywords while preserving source names, deterministic physical mapping and collision rejection.",
       "tests": [
+        "tests/systemverilog/test_reserved_gate_identifier.py::test_cell_register_reset_update_and_formal_locator",
+        "tests/systemverilog/test_reserved_gate_identifier.py::test_complete_keyword_inventory_is_accepted_by_pinned_sv_lexer",
+        "tests/systemverilog/test_reserved_gate_identifier.py::test_reserved_instance_keeps_semantic_path_and_executes",
+        "tests/systemverilog/test_reserved_gate_identifier.py::test_reserved_port_and_instance_actual_rtl_proof",
+        "tests/systemverilog/test_reserved_gate_identifier.py::test_reserved_port_collision_remains_fail_closed",
         "tests/systemverilog/test_reserved_release_identifier.py::test_release_mangling_collision_is_not_silently_aliased",
         "tests/systemverilog/test_reserved_release_identifier.py::test_release_port_and_hierarchy_use_physical_names_only"
       ]
