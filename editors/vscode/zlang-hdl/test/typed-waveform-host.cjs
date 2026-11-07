@@ -34,14 +34,33 @@ module TypedDebug {
     {reset:{rst:false},set_logic:{load:'1',code:'00001010',value:'11111001'},edges:['clk']},
     {set_logic:{code:'01111001',value:'00000011'},edges:['clk']},
   ].map(event=>JSON.stringify(event)).join('\n')+'\n');
-  assert.equal(await vscode.debug.startDebugging(undefined,{
-    type:'zlang-hdl',request:'launch',name:'Typed waveform host',program:source,top:'TypedDebug',events,
-    initialRegisters:{mode:'u',stored:'u'},traceSignals:[],stopOnEntry:true,
-  }),true);
-  const session=vscode.debug.activeDebugSession;
-  assert.equal(session?.type,'zlang-hdl');
-  let control;
+  let session,control,entryStopped=false;
+  const responses=[];
+  const tracker=vscode.debug.registerDebugAdapterTrackerFactory('zlang-hdl',{
+    createDebugAdapterTracker(candidate){
+      if(candidate.configuration.program!==source||candidate.configuration.top!=='TypedDebug')return;
+      session=candidate;
+      return {onDidSendMessage(message){
+        if(message.event==='stopped'&&message.body?.reason==='entry')entryStopped=true;
+        if(message.type==='response'&&!message.success){
+          responses.push(message);
+          console.error('Typed waveform DAP failure: '+JSON.stringify(message));
+        }
+      }};
+    },
+  });
   try{
+    assert.equal(await vscode.debug.startDebugging(undefined,{
+      type:'zlang-hdl',request:'launch',name:'Typed waveform host',program:source,top:'TypedDebug',events,
+      initialRegisters:{mode:'u',stored:'u'},traceSignals:[],stopOnEntry:true,
+    }),true);
+    const launchDeadline=Date.now()+10000;
+    while(!entryStopped||vscode.debug.activeDebugSession?.id!==session?.id){
+      assert.ok(Date.now()<launchDeadline,'Typed waveform entry did not become ready: '+JSON.stringify({
+        session:session?.id,active:vscode.debug.activeDebugSession?.id,entryStopped,responses,
+      }));
+      await new Promise(resolve=>setTimeout(resolve,25));
+    }
     const ports=await session.customRequest('variables',{variablesReference:1});
     const packet=ports.variables.find(item=>item.name==='packet');
     assert.ok(packet.variablesReference>0);
@@ -108,6 +127,6 @@ module TypedDebug {
     assert.equal(recovered.viewports.length,2);
     console.log('VS Code typed waveform host: Variables → Add to Waveform, enum Ready/Done, s8=-7, union variant switch and late history passed');
     console.log('VS Code live workspace: Refresh is read-only, restart/reopen retain groups, colors, bookmarks and two viewports');
-  }finally{control?.close();await vscode.debug.stopDebugging(session);}
+  }finally{tracker.dispose();control?.close();if(session)await vscode.debug.stopDebugging(session);}
 }
 module.exports={checkTypedWaveformHost};

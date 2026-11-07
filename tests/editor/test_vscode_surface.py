@@ -78,6 +78,7 @@ def test_editor_tests_require_javascript_static_and_negative_fixture_gates() -> 
         "npm run static && node test/javascript-static.test.cjs &&"
     )
     assert "node test/waveform-live-ui.test.cjs" in package["scripts"]["test"]
+    assert "node test/typed-waveform-host.test.cjs" in package["scripts"]["test"]
     patch = "node test/patch-languageclient.cjs"
     assert package["scripts"]["postinstall"] == patch
     assert package["scripts"]["pretest"] == patch

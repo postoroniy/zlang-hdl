@@ -149,7 +149,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "2a40f2f237f9a428c169df9d9d1029d63ed4a8edf591b898967a0b952a9c2b4f"
+      "sha256": "3217765821b8410019a297aec33dbe9883a00c0e20fe2ed4f82adc5bb276fd65"
     },
     {
       "mode": "0644",
@@ -724,7 +724,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package.json",
-      "sha256": "a5b15fbf97c2553668cf541c9087f5769dd9094f995023a7b4f2b8a41e0232a1"
+      "sha256": "261bcf303c50d80cb27db175556a500c7c245c88680f03f8aa02e11edd355349"
     },
     {
       "mode": "0644",
@@ -864,7 +864,12 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/typed-waveform-host.cjs",
-      "sha256": "e33782a994188335066339bb83596bee8ce4243c4245882fe571e1847459f0de"
+      "sha256": "edf0bab99d7ec56ce651e0617eaec3a68e473e4e29305dac2ba40d03f89bbb75"
+    },
+    {
+      "mode": "0644",
+      "path": "editors/vscode/zlang-hdl/test/typed-waveform-host.test.cjs",
+      "sha256": "91c95822388b39a8f0f22dbc89acbf09b1f855a1bc635542f65cd5242f66e780"
     },
     {
       "mode": "0644",
@@ -2099,7 +2104,7 @@
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "64281b459aeed535ee974f41a8f085a845d4b11b410cb4bb5180f46fa2096641"
+      "sha256": "1c86e68e5ccc21bab10d65159c0763af4e2c85c8606b4107150ab02a2f190aed"
     },
     {
       "mode": "0664",
@@ -2664,7 +2669,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_surface.py",
-      "sha256": "c685b00ebf0a86b211163aaf74882fd973428877be572bd170c3ab9c9fcf981a"
+      "sha256": "72670f0036abf9c1da36aebf536871cf4fc1940c4a02da6df95661d263502275"
     },
     {
       "mode": "0644",

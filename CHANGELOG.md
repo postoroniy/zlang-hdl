@@ -121,6 +121,10 @@ unchanged.
 
 ### Fixed
 
+- Wait for the matching native debug session and initial entry stop in the
+  typed waveform host gate. Failed DAP responses retain command details for
+  diagnosis.
+
 - Escape the complete pinned SystemVerilog keyword set in generated identifiers,
   preserving logical names and rejecting physical-name collisions (ZL-068).
 

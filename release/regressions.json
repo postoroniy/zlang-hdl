@@ -12,6 +12,8 @@
         "editors/vscode/zlang-hdl/test/bundle.test.cjs",
         "editors/vscode/zlang-hdl/test/dependencies.test.cjs",
         "editors/vscode/zlang-hdl/test/patch-languageclient.cjs",
+        "editors/vscode/zlang-hdl/test/typed-waveform-host.cjs",
+        "editors/vscode/zlang-hdl/test/typed-waveform-host.test.cjs",
         "release/status.json",
         "tests/editor/test_vscode_package.py",
         "tests/editor/test_vscode_surface.py",
@@ -33,11 +35,12 @@
         "zlang/verification_bundle_execution.py"
       ],
       "status": "included",
-      "summary": "Dependency updates retain exact solver/status and manifest/lock/installed editor pins; formal children execute the selected Z3 across OSS launchers, and result caches bind executable identities; CodeQL pins and preparation-failure checks remain strict. The editor closure pins minimatch 11.0.1 in both packaging and LSP consumers; a hash-bound client compatibility patch preserves glob filtering, rejects unknown dependency bytes and retains the zero-findings npm audit gate.",
+      "summary": "Dependency updates retain exact solver/status and manifest/lock/installed editor pins; formal children execute the selected Z3 across OSS launchers, and result caches bind executable identities; CodeQL pins and preparation-failure checks remain strict. The editor closure pins minimatch 11.0.1 in both packaging and LSP consumers; a hash-bound client compatibility patch preserves glob filtering, rejects unknown dependency bytes and retains the zero-findings npm audit gate. Installed typed-waveform host checks wait for the matching session and initial entry stop and retain failed DAP command details.",
       "tests": [
         "tests/editor/test_vscode_package.py::VSCodePackageTests::test_minimatch_override_and_entire_lock_closure_are_patched",
         "tests/editor/test_vscode_package.py::VSCodePackageTests::test_playwright_manifest_and_lock_must_match_reviewed_toolchain",
         "tests/editor/test_vscode_package.py::VSCodePackageTests::test_vsce_manifest_and_lock_must_match_reviewed_toolchain",
+        "tests/editor/test_vscode_surface.py::test_editor_tests_require_javascript_static_and_negative_fixture_gates",
         "tests/integration/test_formal_tool_binding.py::test_actual_rtl_proof_executes_selected_solver",
         "tests/release/test_ci_contract.py::test_dependabot_groups_codeql_and_defers_incompatible_compiler_api",
         "tests/release/test_ci_contract.py::test_solver_pin_rejects_stale_missing_ranged_or_duplicate_dependencies",
