@@ -240,7 +240,7 @@ found; do not leave the recovery solely in shell history or chat notes.
 | EDA behavior differed between local and hosted runs | an ambient Yosys, Verilator, Icarus, SymbiYosys, Z3 or other solver replaced the pinned OSS CAD Suite/tool identity | `release/status.json`, `release-tools`, EDA workflow and formal evidence bind exact tool/config identities | activate the pinned suite, remove ambient overrides, and rerun the affected EDA/formal gate |
 | A feature-branch `release-preflight` failed | candidate mode correctly requires protected exact `main` | `release-review` is the pre-merge gate; `release-candidate` is post-merge only | use `release-review` before merge; do not weaken exact-main preflight |
 | A full suite passed before a final metadata or tooling change but was not replayed | the validated tree differed from the proposed release tree | `release-review` and hosted Release execute the exact committed projection; two zero-skip suites are retained as JUnit evidence | rerun the focused affected gate and both complete suites on final exact HEAD |
-| Installed wheel/sdist smoke rejected valid compatibility CLIs after all earlier gates passed | release YAML duplicated CLI display-name expectations and expected executable spellings (`zlang-lock`, `zlang-verify`) instead of the canonical supported display identities (`zlang lock`, `zlang verify`) | `installed_distribution_smoke.py` owns the exact installed CLI contract; the workflow invokes that tool and regression tests reject raw duplicated assertions | prepare the next reviewed alpha without rewriting the failed tag, run the package smoke locally, then repeat the hosted candidate and tagged gates |
+| Installed wheel/sdist smoke rejected valid compatibility CLIs after all earlier gates passed | release YAML duplicated CLI display-name expectations and expected executable spellings (`zlang-lock`, `zlang-verify`) instead of the canonical supported display identities (`zlang lock`, `zlang verify`) | `installed_distribution_smoke.py` owns the exact installed CLI contract; the workflow invokes that tool and regression tests reject raw duplicated assertions | stop publication and obtain a separate maintainer recovery decision without rewriting the failed tag; run the package smoke and required candidate gates before any separately authorized recovery |
 
 The matrix describes recovery, not exemptions. A failure stays failed until its
 authoritative gate passes on the exact candidate tree.
@@ -268,7 +268,9 @@ repeats all release checks, verifies GitHub's signature and exact-main identity,
 attests the accepted checksums, and publishes the GitHub prerelease.
 
 Never rewrite an existing release tag. If a tag-triggered gate fails after the
-tag exists, fix the cause through a reviewed commit and prepare the next alpha.
+tag exists, stop publication and preserve the failed tag and evidence. Any repair
+or recovery requires a separate maintainer decision; it does not authorize
+rewriting the tag or creating another public alpha.
 
 ## Durable fix identity
 
