@@ -3,6 +3,8 @@
 """Keep the reviewed false-positive exception narrower than a secret rule."""
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 import re
 import tomllib
@@ -13,6 +15,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 DIGEST = "0123456789abcdef" * 4
+FPGA_DIGEST = "ebecd0833cf7a6bfd83a1ff78c1ad6235349e2b13c9fa7304ca81e175cf9faab"
 
 
 def _exceptions() -> list[dict]:
@@ -26,7 +29,7 @@ def _exceptions() -> list[dict]:
     rule = config["rules"][0]
     assert set(rule) == {"id", "allowlists"}
     assert rule["id"] == "generic-api-key"
-    assert len(rule["allowlists"]) == 2
+    assert len(rule["allowlists"]) == 3
     return rule["allowlists"]
 
 
@@ -82,6 +85,47 @@ def test_source_hash_exception_does_not_hide_other_paths_fields_or_secrets(path:
     path_match = any(re.search(pattern, path) for pattern in exception["paths"])
     line_match = any(re.search(pattern, line) for pattern in exception["regexes"])
     assert not (path_match and line_match)
+
+
+def _fpga_source_hash_exception() -> dict:
+    exception = _exceptions()[2]
+    assert set(exception) == {"description", "condition", "regexTarget", "paths", "regexes"}
+    assert exception["condition"] == "AND"
+    assert exception["regexTarget"] == "line"
+    assert exception["paths"] == [r"^release/fpga-qualification\.json$"]
+    assert len(exception["regexes"]) == 1
+    return exception
+
+
+def test_fpga_hash_exception_matches_only_the_verified_source_digest() -> None:
+    exception = _fpga_source_hash_exception()
+    inventory = json.loads((ROOT / "release/fpga-qualification.json").read_text())
+    recorded = inventory["integration_gates"]["toolchain_lock"]["compiler-files"][
+        "simulation_protocol_access.py"
+    ]
+    assert recorded == FPGA_DIGEST
+    assert hashlib.sha256((ROOT / "zlang/simulation_protocol_access.py").read_bytes()).hexdigest() == FPGA_DIGEST
+    for ending in ("", ","):
+        line = f'        "simulation_protocol_access.py": "{FPGA_DIGEST}"{ending}'
+        assert re.search(exception["regexes"][0], line)
+
+
+@pytest.mark.parametrize(("path", "line"), (
+    ("release/other.json", f'"simulation_protocol_access.py": "{FPGA_DIGEST}"'),
+    ("other/release/fpga-qualification.json", f'"simulation_protocol_access.py": "{FPGA_DIGEST}"'),
+    ("release/fpga-qualification.json.bak", f'"simulation_protocol_access.py": "{FPGA_DIGEST}"'),
+    ("release/fpga-qualification.json", f'"api_key": "{FPGA_DIGEST}"'),
+    ("release/fpga-qualification.json", f'"simulation_protocol_adapters.py": "{FPGA_DIGEST}"'),
+    ("release/fpga-qualification.json", f'"simulation_protocol_access.py": "{DIGEST}"'),
+    ("release/fpga-qualification.json", f'"simulation_protocol_access.py": "{FPGA_DIGEST}0"'),
+    ("release/fpga-qualification.json", f'"simulation_protocol_access.py": "{FPGA_DIGEST[:-1]}"'),
+    ("release/fpga-qualification.json", f'"simulation_protocol_access.py": "{FPGA_DIGEST}", "api_key": "{DIGEST}"'),
+    ("release/fpga-qualification.json", f'"simulation_protocol_access.py": "{FPGA_DIGEST}" // api_key'),
+    ("release/fpga-qualification.json", '"simulation_protocol_access.py": "not-a-source-hash"'),
+))
+def test_fpga_hash_exception_rejects_other_values_fields_and_paths(path: str, line: str) -> None:
+    exception = _fpga_source_hash_exception()
+    assert not (re.search(exception["paths"][0], path) and re.search(exception["regexes"][0], line))
 
 
 def test_secret_scan_retains_full_history_self_test_pinning_and_redacted_locations() -> None:

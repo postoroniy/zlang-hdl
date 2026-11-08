@@ -99,7 +99,7 @@
     {
       "mode": "0644",
       "path": ".gitleaks.toml",
-      "sha256": "977ae871c8a458e4af55f4ac2cc978d949b67ad2532e958c51ae57f8f896fe98"
+      "sha256": "114e8a54a4e371962f15c8ef39ff0504e29e49cd3d3105e8be096362a580d077"
     },
     {
       "mode": "0644",
@@ -149,7 +149,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "ad0c3e688a62c1b8913dd4d6a01856755c143a817207d33dfeeac317465c64cc"
+      "sha256": "693e0e41fef90ef8b7da9ef0a3a21f37f16893c2ee8798015381425793fc65d3"
     },
     {
       "mode": "0644",
@@ -2169,7 +2169,7 @@
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "ed11074459259e73c3d4aa7e0620c060b16f0de7d4bcfc25600f9c2e40300416"
+      "sha256": "af686dba54fe3b544b97653df83618e3f033bf10f3781872bef145217390d7b4"
     },
     {
       "mode": "0644",
@@ -4524,7 +4524,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_secret_scan.py",
-      "sha256": "c0b74324b66e4633965612d3137e581812649ea39ee89b792e5abbaebc46d47d"
+      "sha256": "60824c9d9adc4884d16fd0b2c57e3d54c0c30d63e5345ed1f4eddb986cb0d42f"
     },
     {
       "mode": "0644",

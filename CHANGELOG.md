@@ -11,6 +11,9 @@ incompatible input explicitly.
 
 ## Unreleased
 
+- Keep full-history secret detection strict while recognizing the exact reviewed
+  compiler-source digest in the FPGA qualification inventory (CI-002).
+
 - Retain stalled bus request/slot payloads and canonical CSR responses, issue
   CSR accesses once, and preserve APB/AHB and fixture CSR byte-write contracts.
 

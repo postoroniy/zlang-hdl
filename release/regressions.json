@@ -99,14 +99,17 @@
       "source_paths": [
         ".github/workflows/secret-scan.yml",
         ".gitleaks.toml",
+        "release/fpga-qualification.json",
         "tests/release/test_release_preflight.py",
         "tests/release/test_secret_scan.py"
       ],
       "status": "included",
-      "summary": "Pinned full-history secret scanning excludes only complete documentation hash fields and exact synthesis cache-hash matches, not whole files; default detection and self-test failure semantics remain enabled, with redacted finding locations.",
+      "summary": "Pinned full-history secret scanning excludes complete documentation hash fields, the exact reviewed simulation_protocol_access.py digest line in the FPGA qualification inventory, and exact synthesis cache-hash matches. No whole file or other field/default rule is exempt; self-test failure semantics and redacted locations remain enabled.",
       "tests": [
         "tests/release/test_release_preflight.py::test_candidate_rejects_missing_documentation_or_security_regression",
         "tests/release/test_release_preflight.py::test_current_candidate_binds_release_sources_native_wheel_and_git",
+        "tests/release/test_secret_scan.py::test_fpga_hash_exception_matches_only_the_verified_source_digest",
+        "tests/release/test_secret_scan.py::test_fpga_hash_exception_rejects_other_values_fields_and_paths",
         "tests/release/test_secret_scan.py::test_secret_scan_retains_full_history_self_test_pinning_and_redacted_locations",
         "tests/release/test_secret_scan.py::test_source_hash_exception_accepts_only_the_documented_fields",
         "tests/release/test_secret_scan.py::test_source_hash_exception_does_not_hide_other_paths_fields_or_secrets",

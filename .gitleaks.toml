@@ -22,3 +22,13 @@ condition = "AND"
 regexTarget = "match"
 paths = ['''^examples/generated/CostMac\.synthesis$''']
 regexes = ['''^cache_key=[0-9a-f]{64}\s*$''']
+
+# Gitleaks treats "access" in this compiler filename as an API-key label.
+# Permit only the reviewed source SHA on its complete inventory line; other
+# values, fields, paths and default rules remain subject to normal scanning.
+[[rules.allowlists]]
+description = "Exact reviewed compiler source digest in FPGA qualification"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^release/fpga-qualification\.json$''']
+regexes = ['''^\s*"simulation_protocol_access\.py": "ebecd0833cf7a6bfd83a1ff78c1ad6235349e2b13c9fa7304ca81e175cf9faab",?\s*$''']
