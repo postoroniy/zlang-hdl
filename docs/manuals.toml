@@ -46,6 +46,7 @@ sources = [
   "docs/stdlib-viterbi.md",
   "docs/stdlib-recipes.md",
   "docs/stdlib-formal-coverage.md",
+  "docs/fpga-architecture-profiles.md",
   "docs/stdlib-api.md",
 ]
 
@@ -69,6 +70,7 @@ sources = [
   "docs/low-level-target-resource-library.md",
   "docs/high-level-target-aware-architecture-pipeline-planner.md",
   "docs/platform-constraint-publication.md",
+  "docs/fpga-builds.md",
   "docs/direct-systemverilog.md",
   "docs/formal-verification.md",
   "docs/whole-build-manifests.md",

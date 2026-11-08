@@ -1,0 +1,16 @@
+module FpgaFixedDsp {
+    clock clk
+    reset rst_n @clk {
+        mode synchronous
+        polarity active_low
+        power_up unspecified
+    }
+    out led:bit
+    reg a:fixed<16,14>=0
+    reg b:fixed<16,14>=1
+    a <- bitcast<fixed<16,14>>(truncate<16>(bitcast<u16>(a)+1))
+    b <- bitcast<fixed<16,14>>(truncate<16>(bitcast<u16>(b)+3))
+    reg product:fixed<32,28>=0
+    product <- a*b
+    led = bitcast<bits<32>>(product)[28]
+}

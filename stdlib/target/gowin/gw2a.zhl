@@ -1,0 +1,32 @@
+// DS102 Table 1-1 and UG287-1.4E: same bounded legacy DSP ABI.
+// https://gowinsemi.com/en/product/arora-ii-fpga/
+// https://cdn.gowinsemi.com.cn/UG287E.pdf
+// 48 18x18 multipliers = 24 whole macros; the 9x9 mode shares that pool.
+import std.target.gowin.gw1nr9
+resource GowinGW2ABSRAM {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 18432
+    capability port_modes simple_dual
+    capability widths 16
+    capability depth_width_16 256
+    capability qualified_depth 256
+    capability synchronous_read true
+    capability output_register optional
+    capability initialization true
+    capability selected_byte_masks unsupported
+    capability same_clock_collision write_first
+    capability candidate_scope target_only
+    capability reset_contents preserve
+    pipeline_config core_registered latency 0 ii 1
+    binding systemverilog gowin_bram_inference
+}
+target GowinGW2A {
+    provides GowinDSPMacro
+    provides GowinGW2ABSRAM
+}
+device gw2a_lv18pg256c8 : GowinGW2A {
+    part GW2A-LV18PG256C8
+    inventory GowinDSPMacro 24
+    inventory GowinGW2ABSRAM 46
+}

@@ -1,0 +1,53 @@
+// FPGA-DS-02049-2.5 Table 1.1; FPGA-TN-02096-1.7; FPGA-TN-02094-1.8.
+// 56 18x18 multipliers = 14 whole sysDSP blocks; reserve a whole block.
+// https://www.latticesemi.com/view_document?document_id=52780
+// https://www.latticesemi.com/view_document?document_id=52791
+// https://www.latticesemi.com/view_document?document_id=52785
+resource NexusDSPBlock {
+    port a input signed 18
+    port b input signed 18
+    port p output signed 36
+    class dsp_mac
+    operation multiply
+    capability signed true
+    capability unsigned true
+    capability unsigned_native true
+    capability physical_architectures multiply
+    capability arithmetic_realization dsp_plus_fabric
+    capability candidate_scope target_only
+    capability pipeline_selection declared_when_explicit
+    capability inventory_unit whole_macro
+    capability hard_multipliers_per_macro 4
+    capability clock_enable constant_high
+    capability reset synchronous_active_high
+    limit preadder 18
+    limit multiplier_a 18
+    limit multiplier_b 18
+    limit product 36
+    limit accumulator 36
+    pipeline_site product_output location multiply_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config unregistered latency 0 ii 1
+    pipeline_config output_registered latency 1 ii 1 enable product_output setting product_oreg 1
+    binding systemverilog nexus_dsp_fabric
+    physical_primitive MULT18X18
+}
+resource NexusEBR {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 18432
+    capability port_modes simple_dual
+    capability widths 16
+    capability depth_width_16 256
+    capability qualified_depth 256
+    capability synchronous_read true
+    capability output_register optional
+    capability initialization true
+    capability selected_byte_masks unsupported
+    capability same_clock_collision write_first
+    capability candidate_scope target_only
+    capability reset_contents preserve
+    pipeline_config core_registered latency 0 ii 1
+    binding systemverilog nexus_bram_inference
+}
+target LatticeNexus { provides NexusDSPBlock provides NexusEBR }
+device lifcl_40_9bg400c : LatticeNexus { part LIFCL-40-9BG400C inventory NexusDSPBlock 14 inventory NexusEBR 84 }

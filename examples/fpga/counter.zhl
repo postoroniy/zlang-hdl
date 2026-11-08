@@ -1,0 +1,12 @@
+module FpgaCounter {
+    clock clk
+    reset rst_n @clk {
+        mode synchronous
+        polarity active_low
+        power_up unspecified
+    }
+    out led:bit
+    reg count:u24=0
+    count <- truncate<24>(count+1)
+    led = count[23]
+}

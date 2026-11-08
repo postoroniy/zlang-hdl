@@ -31,3 +31,5 @@ identities; it does not establish that a Release exists.
 [The release process](release-process.md) requires a fresh review/freeze and
 validation of the exact documentation tree. Historical engineering records
 remain evidence for their recorded revision, not a second current specification.
+
+- [Gowin/Lattice FPGA builds](fpga-builds.md): exact board revisions and physical-flow evidence.

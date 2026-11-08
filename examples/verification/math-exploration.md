@@ -148,7 +148,8 @@ The runner exits zero when all three measurements completed, not when every
 variant met timing; inspect each row's `setup_pass`, `hold_pass`, and
 `timing_pass`. A failing baseline is an expected result of this experiment.
 
-### Historical recorded result — 2026-09-08
+<a id="historical-recorded-result--2026-09-08"></a>
+### Recorded routed comparison
 
 Vivado 2024.2 build 5239630, `xc7z030ffg676-1`, 10.000 ns, direct-SV,
 identical OOC launch/capture shells, two threads per process, at most two
@@ -163,8 +164,6 @@ concurrent jobs:
 All use zero BRAM. Fabric FF counts exclude the register sites inside DSPs.
 Routed delay proxies are 15.372 / 8.717 / 4.073 ns; all register endpoints are
 clocked/constrained, and all three routes have zero routing errors.
-The three runs took 63.668 / 55.011 / 52.850 seconds under the stated concurrent
-load; these are not isolated compiler-speed measurements.
 
 The original chain **fails** this one-cycle 100 MHz budget. Topology selection
 alone already passes it; pipelining is not necessary just to cross 100 MHz here,
@@ -182,31 +181,19 @@ all-path `results.json`; future fresh runs query register-only paths directly.
 Exact source SHA256:
 `db002f4b7aaa492e673d9210f55eb060c5355045f849ff1be613845261534c14`.
 The same source snapshot produced the numerical, formal and timing evidence.
-This table records the pre-retirement dual-backend experiment. Current
-production verification executes only the direct-SV semantic-reference equivalence/formal-aware selection row; the Clash and
-retired cross-backend equivalence rows are historical evidence.
+The routed comparison is bound to that source snapshot. Use the current
+commands above for a fresh measurement; source availability or a similar
+expression does not transfer the recorded timing to another candidate.
 
-| Check | Recorded result |
-| --- | --- |
-| `MathExplore`: canonical reference ↔ Clash | `bounded_pass depth=10` |
-| `MathExplore`: canonical reference ↔ direct-SV | `bounded_pass depth=10` |
-| `MathExplore`: Clash ↔ direct-SV | `bounded_pass depth=10` |
-| Too-shallow pipeline comparison | depth 7 `unknown`, minimum meaningful depth 8 |
-| Output-bit-flip mutation | `failed`, counterexample at formal cycle 8 |
-| Missing-final-stage mutation | `failed`, counterexample at formal cycle 8 |
-| `MathArchitecture`: separate topology formal-aware selection check | `unknown` after 45 s and 120 s timeouts |
+### Interpreting formal results
 
-The two mutation results demonstrate that checking arithmetic alone is insufficient:
-the formal comparison must preserve the originating sample and pipeline latency.
-No bounded result above is labeled `proven`.
+`MathExplore` has a recorded direct-SV bounded comparison at depth 10.
+The output-bit and missing-final-stage mutations produce counterexamples at
+formal cycle 8; these controls check sample alignment as well as arithmetic.
+A depth below the complete pipeline window cannot establish equivalence.
 
-The separate `MathArchitecture` rank-1 `folded_p4` equivalence problem timed out
-while checking its first symbolic step. It passes the numerical/RTL tests and
-the timing experiment, but **does not have a successful formal equivalence
-result in this record**. The faster `MathExplore` proof is for its own selected
-candidate and must not be transferred to another topology. Required formal-aware selection policy
-correctly stops on the inconclusive result rather than accepting it or silently
-trying a different implementation:
+Each `MathArchitecture` topology requires its own result. To require bounded
+formal evidence for the selected candidate:
 
 ```sh
 .venv/bin/zlang examples/verification/math_exploration.zhl \
@@ -215,10 +202,10 @@ trying a different implementation:
   --systemverilog build/math/architecture-checked.sv
 ```
 
-Recorded outcome: nonzero exit and explicit timeout/`unknown`; no accepted
-checked artifact. Solver runtime depends on the representation as well as the
-mathematics. Lowering the bound does not cure this first-step timeout, and
-changing arithmetic semantics to make the proof easier is not acceptable.
+Required selection exits nonzero for an inconclusive check and publishes no
+accepted checked artifact. A `bounded_pass` applies only to its recorded depth;
+`proven` requires a completed inductive proof. Numerical simulation and routed
+timing do not supply missing formal evidence for another topology.
 
 ## Regression
 

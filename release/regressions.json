@@ -1,6 +1,44 @@
 {
   "entries": [
     {
+      "id": "BUS-001",
+      "source_paths": [
+        "stdlib/bus/axi4.zhl",
+        "tests/integration/test_axi4_source.py"
+      ],
+      "status": "included",
+      "summary": "AXI4WriteManager masks inactive one-hot OR lanes with zero, preserving FIXED, INCR and WRAP encodings and every accepted AW payload field under stalls.",
+      "tests": [
+        "tests/integration/test_axi4_source.py::test_axi4_write_manager_engine_parity"
+      ]
+    },
+    {
+      "id": "BUS-002",
+      "source_paths": [
+        "stdlib/bus/ahb_lite.zhl",
+        "stdlib/bus/apb.zhl",
+        "stdlib/bus/axi4_subordinate.zhl",
+        "stdlib/bus/axi4_user_subordinate.zhl",
+        "stdlib/bus/axi_lite.zhl",
+        "stdlib/bus/reg.zhl",
+        "tests/integration/test_ahb_lite.py",
+        "tests/integration/test_axi4_source.py",
+        "tests/integration/test_standard_bus_error_paths.py",
+        "tests/test_standard_bus_csr_validation.py",
+        "tests/test_standard_bus_source_migration.py"
+      ],
+      "status": "included",
+      "summary": "Stalled requests retain AXI4-Lite arbitration and AXI4 subordinate slot tokens; AHB reads ignore HWDATA, APB writes select all bytes, canonical CSR accesses execute once with held responses and reject unsupported partial writes without side effects, and fixture CSR writes obey their byte strobe.",
+      "tests": [
+        "tests/integration/test_ahb_lite.py::test_source_bridge_runs_in_generic_semantic_simulator_with_async_release",
+        "tests/integration/test_axi4_source.py::test_axi4_read_subordinate_backend_two_beats",
+        "tests/integration/test_axi4_source.py::test_axi4_write_subordinate_valid_backend_result",
+        "tests/integration/test_standard_bus_error_paths.py::test_source_frontends_retain_typed_error_state_and_wiring",
+        "tests/test_standard_bus_csr_validation.py::SourceAuthoritativeCsrTests::test_real_source_target_delegates_rw_w1c_and_pulse_state",
+        "tests/test_standard_bus_source_migration.py::StandardBusSourceMigrationTests::test_registered_csr_target_is_an_ordinary_imported_module"
+      ]
+    },
+    {
       "id": "CI-001",
       "source_paths": [
         ".github/dependabot.yml",
@@ -124,10 +162,11 @@
         "tools/release_status.py"
       ],
       "status": "included",
-      "summary": "Manual release validation rejects detached punctuation and split CLI/range tokens; the host renderer permits only internal safe breaks, and language examples and bounded-support descriptions remain consistent. Source links use the matching release tag, bind linked file hashes, and reject altered PDF URLs; candidate availability is explicit.",
+      "summary": "Manual release validation rejects detached punctuation and split CLI/range tokens; the host renderer permits only internal safe breaks, and language examples and bounded-support descriptions remain consistent. Source links use the matching release tag, bind linked file hashes, and reject altered PDF URLs; candidate availability is explicit. Major chapters start fresh pages; the font-license notice bookmark targets its rendered final-page heading rather than the preceding chapter anchor.",
       "tests": [
         "tests/release/test_manual_manifest.py::test_linked_source_missing_directory_or_symlink_fails_closed",
         "tests/release/test_manual_manifest.py::test_source_links_follow_release_tag_and_record_complete_file_closure",
+        "tests/release/test_manual_pdf_links.py::test_major_chapters_start_new_pages_without_forcing_subchapter_breaks",
         "tests/release/test_manual_pdf_links.py::test_pdf_stale_altered_or_missing_source_url_is_rejected",
         "tests/release/test_manual_pdf_links.py::test_rendered_manual_allows_member_access_paths_and_ellipsis",
         "tests/release/test_manual_pdf_links.py::test_rendered_manual_rejects_detached_punctuation_and_split_tokens",
@@ -921,6 +960,44 @@
         "tests/semantic/test_module_nominal_type_bindings.py::test_enum_type_facts_remain_available_to_deferred_callable_arguments",
         "tests/semantic/test_module_nominal_type_bindings.py::test_nominal_types_inside_aggregate_module_parameters",
         "tests/semantic/test_module_nominal_type_bindings.py::test_same_width_nominal_enums_cannot_be_substituted"
+      ]
+    },
+    {
+      "id": "ZL-071",
+      "source_paths": [
+        "tests/integration/test_bounded_subprocess.py",
+        "zlang/common/subprocess.py"
+      ],
+      "status": "included",
+      "summary": "A bounded tool timeout closes identified descendant processes even when a wrapper starts separate sessions; PID/starttime checks preserve unrelated processes.",
+      "tests": [
+        "tests/integration/test_bounded_subprocess.py::test_timeout_reaps_cross_session_child_without_touching_sibling"
+      ]
+    },
+    {
+      "id": "ZL-072",
+      "source_paths": [
+        "tests/integration/test_fpga_storage.py",
+        "zlang/backend/systemverilog/storage.py"
+      ],
+      "status": "included",
+      "summary": "Legacy synchronous no_change RAM holds its previous read result on an enabled same-address write, matching native semantics while preserving contents and reset behavior.",
+      "tests": [
+        "tests/integration/test_fpga_storage.py::test_legacy_no_change_native_selected_rtl_and_preserved_reset",
+        "tests/integration/test_fpga_storage.py::test_selected_ram_matches_independent_transition_scoreboard"
+      ]
+    },
+    {
+      "id": "ZL-073",
+      "source_paths": [
+        "tests/integration/test_reference_fixed_conversion.py",
+        "zlang/equivalence.py",
+        "zlang/formal_configuration.py"
+      ],
+      "status": "included",
+      "summary": "The independent fixed-conversion formal reference uses explicitly sized lossless carriers for signed extrema, scale growth, rounding and saturation, rather than unsized 32-bit intermediates. Preparation identity invalidates previous reference products.",
+      "tests": [
+        "tests/integration/test_reference_fixed_conversion.py::test_reference_fixed_conversion_exact_carrier"
       ]
     }
   ],

@@ -245,7 +245,7 @@ produces, in stream order,
 (779,157), (921,-1257), (-215,-711), (915,1411)
 ```
 
-Simulation and both RTL backends preserve payload stability under downstream
+Native simulation and Direct-SV/Verilator preserve payload stability under downstream
 stall, and reset discards a partial pre-reset transform rather than allowing it
 to enter the next reset epoch. The emitted artifacts retain three distinct ROM
 companions of exact depths 4, 2, and 1.
@@ -258,11 +258,9 @@ Generate the direct-SystemVerilog artifact with:
   --systemverilog build/FFT8SDFReference.sv
 ```
 
-The target report for this stateful hierarchy remains generic with unknown
-whole-module timing. This FFT8 reference does not itself claim target-aware
-architecture selection, DSP/BRAM mapping, cardinal-twiddle strength reduction,
-synthesis QoR, or Fmax. The complete FFT512 functional hierarchy is documented
-below.
+This FFT8 reference uses generic RTL. Obtain DSP/BRAM utilization and timing
+from synthesis and routing of the chosen design and device. The complete
+FFT512 functional hierarchy is documented below.
 
 ## FFT16 four-stage reference
 
@@ -299,17 +297,15 @@ produces, in stream order,
 (254,1598), (-782,560), (-543,-35), (1571,777)
 ```
 
-The simulator and both accepted RTL paths agree with this independent staged
+Native simulation and Direct-SV/Verilator agree with this independent staged
 oracle. Backpressure holds the visible payload stable, and reset clears all
 four stages so partial pre-reset work cannot cross the reset epoch. Artifacts
 publish four distinct initialized-ROM companions of exact depths 8, 4, 2, and
 1.
 
-The target result remains a generic implementation with unknown whole-module
-timing. Framing, automatic target planning, physical DSP/BRAM selection,
-constant-twiddle strength reduction, synthesis QoR, and Fmax claims remain
-outside this bounded reference. The complete functional FFT512 hierarchy is
-documented below.
+This reference uses generic RTL and the stated framing/numerical contract.
+Physical resource usage and timing depend on synthesis and routing of the
+selected device. The complete functional FFT512 hierarchy is documented below.
 
 ## FFT32 five-stage reference
 
@@ -370,12 +366,9 @@ cycles. Stalls preserve the visible payload and propagate backpressure through
 all five stages; reset clears partial work in every stage. Artifacts preserve
 five distinct ROM companions of exact depths 16, 8, 4, 2, and 1.
 
-On the validation host, direct semantic compilation took about 0.19 seconds
-and one bounded 72-cycle hierarchical simulation took about 7.09 seconds. This
-is measurable scaling cost, not a correctness failure. The target result is
-still generic with unknown whole-module timing. This FFT32 result makes no
-automatic-planner, resource-mapping, synthesis-QoR, or Fmax conclusion; the
-complete functional FFT512 hierarchy follows.
+This FFT32 reference uses generic RTL. Measure physical resources and timing
+for the chosen device and constraints. The complete functional FFT512
+hierarchy follows.
 
 ## FFT512 nine-stage functional reference
 
@@ -430,18 +423,12 @@ RTL and passes strict Verilator lint. The production Verilator test matches all
 512 outputs against the independent oracle. It also resets a partial stream
 and holds the first clean-epoch output stable through five cycles of
 backpressure; the complete post-reset stream remains lossless and ordered.
-The retired Clash 1.11 compatibility run previously agreed with this oracle;
-it is historical evidence rather than a current feature or release gate.
 
-The persistent backend-independent hierarchy simulator now completes the same
-1,033-cycle continuous replay routinely. On the validation host it takes about
-11 seconds and peaks at roughly 84 MiB RSS. The replay accepts all 1,023 input
-transfers (the 512 fixture samples followed by 511 ordinary sentinel samples),
+The native hierarchy simulation uses a 1,033-cycle continuous replay. It
+accepts all 1,023 input transfers (the 512 fixture samples followed by 511 ordinary sentinel samples),
 produces exactly 512 outputs, and matches the frozen digest and latency window
 above. It runs in the default regression with a 60-second hard timeout rather
 than behind an opt-in gate.
 
-The backend-independent simulator and direct-SystemVerilog/Verilator agree
-with the same independent frozen oracle. This closes the former
-simulator-scalability limitation without adding an FFT-specific compiler path
-or changing the functional schedule.
+Native simulation and Direct-SV/Verilator use the same independent frozen
+oracle and functional schedule.

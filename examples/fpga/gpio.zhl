@@ -1,0 +1,19 @@
+import std.peripheral.gpio
+
+module FpgaGpio {
+    clock clk
+    reset rst_n @clk {
+        mode synchronous
+        polarity active_low
+        power_up unspecified
+    }
+    out led:bit
+    reg count:u24=0
+    count <- truncate<24>(count+1)
+    gpio:Gpio8
+    gpio.reset_active = 0
+    gpio.pins_in = bitcast<bits<8>>(count[23:16])
+    gpio.data = bitcast<bits<8>>(count[23:16])
+    gpio.oe = 255
+    led = gpio.pins_out[0]
+}

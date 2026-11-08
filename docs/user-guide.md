@@ -23,6 +23,7 @@ Candidate: **0.1.0a24**. Direct SystemVerilog is the production RTL backend.
 - [Target resources](low-level-target-resource-library.md)
 - [Target-aware architecture and pipeline planning](high-level-target-aware-architecture-pipeline-planner.md)
 - [Platform constraints](platform-constraint-publication.md)
+- [Gowin and Lattice FPGA builds](fpga-builds.md)
 - [Direct-SV](direct-systemverilog.md)
 - [Formal verification](formal-verification.md)
 - [Whole-build manifests and evidence](whole-build-manifests.md)

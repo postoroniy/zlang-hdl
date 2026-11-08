@@ -75,7 +75,7 @@ where AW >= 1 && AW >= floor_log2(DW / 8) &&
     regbus.request.payload = RegRequest {
         addr = address
         write = write
-        wdata = ahb.HWDATA
+        wdata = mux(write, ahb.HWDATA, 0)
         wstrb = ones<DW / 8>
     }
     regbus.response.ready = response_phase

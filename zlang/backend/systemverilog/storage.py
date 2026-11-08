@@ -192,6 +192,12 @@ def _emit_memory(module: ir_module.Module, *, ram_style: str | None = None) -> s
         lines.append(
             f"      else {read_capture} <= {name}_cells[{sv_expression._expression(memory.read_address)}];"
         )
+    elif memory.read_latency >= 1 and memory.collision is ir_storage.MemoryCollision.NO_CHANGE:
+        lines.append(
+            f"      if (!({sv_expression._expression(memory.write_enable)} && "
+            f"({sv_expression._expression(memory.read_address)} == {sv_expression._expression(memory.write_address)}))) "
+            f"{read_capture} <= {name}_cells[{sv_expression._expression(memory.read_address)}];"
+        )
     elif memory.read_latency >= 1:
         lines.append(
             f"      {read_capture} <= {name}_cells[{sv_expression._expression(memory.read_address)}];"

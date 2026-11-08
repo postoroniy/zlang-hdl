@@ -11,7 +11,43 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a24 — 2026-11-07
+- Retain stalled bus request/slot payloads and canonical CSR responses, issue
+  CSR accesses once, and preserve APB/AHB and fixture CSR byte-write contracts.
+
+- Preserve FIXED/INCR/WRAP burst encodings and complete AW payloads in
+  `AXI4WriteManager`; inactive request slots now contribute zero to its
+  one-hot OR selector. Handshake timing and the USER profile are unchanged.
+
+- Unify Gowin/Lattice DSP and memory imports under vendor namespaces, retaining
+  the old import paths and short architecture names. Canonical fully qualified
+  architecture identities change; regenerate identity-bound products.
+- Add bounded scalar DSP and 256×16 synchronous RAM bindings for iCE40
+  UltraPlus, Lattice Nexus, Gowin GW2A and Arora V, plus a shared-pool Gowin
+  9×9 multiplier mode. Preserve the existing GW1NR9/Lattice ECP5 profiles and
+  Direct-SV/native ABI contracts. New targets do not imply new board flows.
+
+## 0.1.0a24 — 2026-11-08
+
+- Clarify Gowin/Lattice support contracts and consolidate qualification records;
+  correct the manual font-license bookmark to its own final-page heading.
+
+- Add source-defined Gowin GW1NR9 and Lattice ECP5-25F/85F targets, explicit
+  BRS/EPM11 and OrangeCrab revision profiles, and bounded OSS synthesis,
+  routing and bitstream flows over the existing Direct-SV backend. Export
+  Gowin EDA batch projects separately; the executable OSS flow and the vendor
+  project export have distinct contracts. Direct-SV and native ABI v13 are retained.
+- Add bounded Gowin/Lattice DSP + fabric and preserved-content BRAM/FIFO profiles,
+  exact whole-macro reservations, actual-RTL model/replay checks and explicit
+  board qualification fixtures. Unsupported native FIR/input-register and
+  dedicated cascade modes remain fail-closed.
+- Fix synchronous legacy RAM `no_change` collision handling and bounded-tool
+  cleanup of identified cross-session descendants. Proof-only arithmetic
+  preparation retains arithmetic-to-predicate boundaries and avoids redundant
+  literal-true SMT queries with a fresh policy identity and unchanged limits.
+- Fix lossless carrier sizing in the independent fixed-conversion formal
+  reference, including left rescaling, signed minima, rounding and saturation.
+  Previous reference preparations are invalidated; native and generic
+  production conversion semantics are unchanged.
 
 Alpha update consolidating native simulation ownership in the audited Rust
 runtime, extending nominal enum backing/value declarations, and publishing a

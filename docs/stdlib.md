@@ -22,4 +22,5 @@ Candidate: **0.1.0a24**. Direct SystemVerilog is the production RTL backend.
 - [Framed K=7 Viterbi decoding](stdlib-viterbi.md)
 - [Standard library recipes](stdlib-recipes.md)
 - [Stdlib formal coverage](stdlib-formal-coverage.md)
+- [Gowin and Lattice architecture profiles](fpga-architecture-profiles.md)
 - [Standard library API inventory](stdlib-api.md)

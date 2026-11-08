@@ -78,6 +78,9 @@ class MemoryCapabilityAssessment:
             )
         if not self.capacity_supported:
             required = self.request.width * self.request.depth
+            if not self.capacity_bits or required <= self.capacity_bits:
+                return (f"memory resource '{self.resource_identity}' has no one-block geometry "
+                        f"for width {self.request.width}, depth {self.request.depth}")
             return (
                 f"memory resource '{self.resource_identity}' capacity exceeded: "
                 f"{required}>{self.capacity_bits} bits"
@@ -100,7 +103,7 @@ def assess_memory_capability(
 
     capabilities = dict(resource.capabilities)
     advertised_widths = tuple(sorted(
-        int(value) for value in capabilities.get("widths", "").split(".") if value
+        int(value) for value in capabilities.get(f"widths_{request.port_mode}", capabilities.get("widths", "")).split(".") if value
     ))
     capacity_bits = int(capabilities.get("capacity_bits", "0"))
     return MemoryCapabilityAssessment(
@@ -109,7 +112,11 @@ def assess_memory_capability(
         resource.resource_class in {"block_memory", "distributed_memory"},
         request.port_mode in set(capabilities.get("port_modes", "").split(".")),
         not advertised_widths or request.width in advertised_widths,
-        not capacity_bits or request.width * request.depth <= capacity_bits,
+        (not capacity_bits or request.width * request.depth <= capacity_bits)
+        and (not capabilities.get(f"depth_width_{request.width}")
+             or request.depth <= int(capabilities[f"depth_width_{request.width}"]))
+        and (not capabilities.get("qualified_depth")
+             or request.depth == int(capabilities["qualified_depth"])),
         advertised_widths,
         capacity_bits,
     )

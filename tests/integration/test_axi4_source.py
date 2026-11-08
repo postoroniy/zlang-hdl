@@ -1308,6 +1308,21 @@ def test_axi4_read_subordinate_backend_two_beats() -> None:
     ]
     assert trace[-1]["protocol_error"] == 0
 
+    # A lower-numbered slot may retire while a backend request is stalled.
+    stalled = [
+        _subordinate_read_cycle(ar_valid=1, ar_id=1, r_ready=0),
+        _subordinate_read_cycle(beat_valid=1, beat_last=1, r_ready=0),
+        _subordinate_read_cycle(ar_valid=1, ar_id=2, r_ready=0),
+        _subordinate_read_cycle(ar_valid=1, ar_id=2, r_ready=1),
+        _subordinate_read_cycle(ar_valid=1, ar_id=2, r_ready=1),
+    ]
+    for cycle in stalled[2:]:
+        cycle["backend_request"]["ready"] = 0
+    held = simulate_cycles(module, stalled, reset=(False,) * len(stalled))
+    assert held[2]["backend_request"]["payload"]["slot"] == 1
+    assert held[4]["backend_request"]["valid"] == 1
+    assert held[4]["backend_request"]["payload"] == held[2]["backend_request"]["payload"]
+
 
 def test_axi4_ordinary_subordinates_never_claim_exclusive_success() -> None:
     source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_subordinate.zhl"
@@ -1587,6 +1602,21 @@ def test_axi4_write_subordinate_valid_backend_result() -> None:
     assert trace[3]["axi__b"]["transfer"] == 1
     assert trace[-1]["protocol_error"] == 0
 
+    stalled = [
+        _subordinate_write_cycle(aw_valid=1, aw_id=1, b_ready=0),
+        _subordinate_write_cycle(w_valid=1, b_ready=0),
+        _subordinate_write_cycle(backend_result_valid=1, b_ready=0),
+        _subordinate_write_cycle(aw_valid=1, aw_id=2, b_ready=0),
+        _subordinate_write_cycle(aw_valid=1, aw_id=2, b_ready=1),
+        _subordinate_write_cycle(aw_valid=1, aw_id=2, b_ready=1),
+    ]
+    for cycle in stalled[3:]:
+        cycle["backend_request"]["ready"] = 0
+    held = simulate_cycles(module, stalled, reset=(False,) * len(stalled))
+    assert held[3]["backend_request"]["payload"]["slot"] == 1
+    assert held[5]["backend_request"]["valid"] == 1
+    assert held[5]["backend_request"]["payload"] == held[3]["backend_request"]["payload"]
+
 
 def test_axi4_write_subordinate_reorders_b_between_ids_not_within_id() -> None:
     source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_subordinate.zhl"
@@ -1847,6 +1877,8 @@ def test_axi4_write_manager_engine_parity(tmp_path: Path, engine: str) -> None:
             _write_cycle(command_id=2, command_valid=1),
             _write_cycle(response_id=1, response_valid=1),
         )
+        # FIXED's zero encoding must survive inactive slots and AW stalls.
+        cycles[0]["command"]["payload"]["burst"] = 0
         outputs = []
         for inputs in cycles:
             for port, value in inputs.items():
@@ -1856,6 +1888,10 @@ def test_axi4_write_manager_engine_parity(tmp_path: Path, engine: str) -> None:
         assert [item["axi__w"]["transfer"] for item in outputs] == [0, 1, 0, 0]
         assert [item["axi__aw"]["transfer"] for item in outputs] == [0, 0, 1, 0]
         assert [item["failed"] for item in outputs] == [0, 0, 0, 0]
+
+        for item in outputs:
+            if item["axi__aw"]["valid"]:
+                assert item["axi__aw"]["payload"] == cycles[0]["command"]["payload"]
 
 
 @pytest.mark.parametrize("engine", ("native",))

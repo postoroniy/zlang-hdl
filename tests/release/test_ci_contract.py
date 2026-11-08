@@ -433,6 +433,6 @@ def test_eda_retains_both_regression_reports_even_on_failure():
     assert len(uploads) == 1
     assert uploads[0]["if"] == "always()"
     assert set(uploads[0]["with"]["path"].split()) == {
-        "build/eda.xml", "build/eda-performance.xml",
+        "build/eda.xml", "build/eda-performance.xml", "build/fpga-acceptance/",
     }
     assert "${{ github.run_attempt }}" in uploads[0]["with"]["name"]

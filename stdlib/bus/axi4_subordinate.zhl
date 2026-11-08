@@ -39,13 +39,20 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
         id=0 data=0 resp=0 last=0
     }
     reg failed : bit = 0
+    // A presented backend token stays reserved until that request transfers.
+    reg request_stalled : bit = 0
+    reg request_slot : bits<SW> = 0
 
     free = generate(i in 0..D)
-        (~occupied[i] & ~reduce(|, generate(j in 0..D)
-            ((j < i) & ~occupied[j])))
+        (~occupied[i] & mux(request_stalled,
+            request_slot == bitcast<bits<SW>>(truncate<SW>(i)),
+            ~reduce(|, generate(j in 0..D) ((j < i) & ~occupied[j]))))
     has_free = reduce(|, free)
     free_slot = reduce(|, generate(i in 0..D)
         mux(free[i], bitcast<bits<SW>>(truncate<SW>(i)), zeros<SW>))
+    request_stalled <- backend_request.valid & ~backend_request.ready
+    request_slot <- mux(backend_request.valid & ~backend_request.ready,
+                        free_slot, request_slot)
     legal = axi4_address_valid<AW=AW,DW=DW,IW=RIW>(axi.ar.payload) &
         (~axi.ar.payload.lock |
          axi4_exclusive_address_valid<AW=AW,DW=DW,IW=RIW>(axi.ar.payload))
@@ -190,13 +197,20 @@ where AW >= 1 && AW <= 64 && WIW >= 1 && WIW <= 32 &&
     reg output_payload : Axi4WriteResponse<WIW> =
         Axi4WriteResponse { id=0 resp=0 }
     reg failed : bit = 0
+    // A presented backend token stays reserved until that request transfers.
+    reg request_stalled : bit = 0
+    reg request_slot : bits<SW> = 0
 
     free = generate(i in 0..D)
-        (~occupied[i] & ~reduce(|, generate(j in 0..D)
-            ((j < i) & ~occupied[j])))
+        (~occupied[i] & mux(request_stalled,
+            request_slot == bitcast<bits<SW>>(truncate<SW>(i)),
+            ~reduce(|, generate(j in 0..D) ((j < i) & ~occupied[j]))))
     has_free = reduce(|, free)
     free_slot = reduce(|, generate(i in 0..D)
         mux(free[i], bitcast<bits<SW>>(truncate<SW>(i)), zeros<SW>))
+    request_stalled <- backend_request.valid & ~backend_request.ready
+    request_slot <- mux(backend_request.valid & ~backend_request.ready,
+                        free_slot, request_slot)
     legal = axi4_address_valid<AW=AW,DW=DW,IW=WIW>(axi.aw.payload) &
         (~axi.aw.payload.lock |
          axi4_exclusive_address_valid<AW=AW,DW=DW,IW=WIW>(axi.aw.payload))

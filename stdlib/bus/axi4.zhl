@@ -416,10 +416,7 @@ where AW >= 1 && AW <= 64 && WIW >= 1 && WIW <= 32 &&
          axi4_exclusive_address_valid<AW=AW,DW=DW,IW=WIW>(command.payload))
     selected_request = reduce(|, generate(i in 0..D)
         mux(sending[i], bitcast<bits<AW+WIW+29>>(requests[i]),
-            bitcast<bits<AW+WIW+29>>(Axi4Address {
-                id=0 addr=0 len=0 size=0 burst=1 lock=0
-                cache=0 prot=0 qos=0 region=0
-            })))
+            zeros<AW+WIW+29>))
     // Selection is a one-hot OR of the registered active slot.  No priority
     // reordering or runtime array index is introduced for its payload.
     active_request = bitcast<Axi4Address<AW,WIW>>(selected_request)

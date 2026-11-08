@@ -69,3 +69,15 @@ Formal execution requires Yosys, SymbiYosys, `yosys-smtbmc`, and a supported
 solver such as Z3. The installation chapter shows how to check those tools.
 Examples are available in
 [`examples/verification`](../examples/verification/README.md).
+
+## FPGA arithmetic preparation
+
+The Gowin/ECP5 DSP + fabric gates reuse the existing solver-checked actual-RTL
+arithmetic preparation where pre-add reduction needs it. Arithmetic outputs
+feeding sign/rounding predicates are included as connected proof boundaries.
+A helper is accepted only after an unconditional finite-bitvector check and
+round-trip verification. State, reset, temporal controls and assertions remain
+unchanged. The preparation policy changes evidence/cache identity; it does not
+promote old receipts or turn UNKNOWN into PROVEN. The same bounded solver,
+node, lemma and wall deadlines apply. Unqualified native FIR register modes
+remain rejected; the admitted FIR delay profiles use explicit fabric state.

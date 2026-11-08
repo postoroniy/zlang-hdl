@@ -70,11 +70,11 @@ def test_full_width_required_proven_preserves_production_artifacts(witness, tmp_
         == sha256(verifier.prepare(candidate, config).source.encode()).hexdigest()
     )
     assert proof["assumptions_added"] == 0
-    # Policy v2 retains explicit carrier-composition obligations before Z3
-    # simplifies extensions. All 19 saved obligations (15+4 round trips)
-    # were independently replayed UNSAT before updating this exact snapshot.
-    assert proof["schema"] == "zlang-rtl-arithmetic-normalization-v2"
-    assert len(proof["roots"]) == 4 and len(proof["widening_lemmas"]) == 15
+    # Policy v3 retains nontrivial carrier-composition obligations. Literal-true
+    # exact BV simplifications need no duplicate SMT lemma. All 11 remaining
+    # obligations (7+4 round trips) are independently replayed below.
+    assert proof["schema"] == "zlang-rtl-arithmetic-normalization-v4"
+    assert len(proof["roots"]) == 4 and len(proof["widening_lemmas"]) == 7
     assert proof["unchanged_state_and_controls_hash"]
     # Replay each query without the e-graph, compiler polynomial checker or IR.
     import subprocess

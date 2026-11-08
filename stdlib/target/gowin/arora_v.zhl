@@ -1,0 +1,54 @@
+// DS1103 product resources; UG305-1.0.1E; UG300-1.3.6E.
+// MULT12X12 is signed-only: unsigned operands require zero-extension (u11 max).
+// Reserve one complete DSP, including both 12x12 multiplier sites.
+// https://www.gowinsemi.com/en/product/arora-v-fpga/
+// https://cdn.gowinsemi.com.cn/UG305E.pdf
+// https://cdn.gowinsemi.com.cn/UG300E.pdf
+resource GowinAroraVDSP {
+    port a input signed 12
+    port b input signed 12
+    port p output signed 24
+    class dsp_mac
+    operation multiply
+    capability signed true
+    capability unsigned true
+    capability unsigned_native false
+    capability physical_architectures multiply
+    capability arithmetic_realization dsp_plus_fabric
+    capability candidate_scope target_only
+    capability pipeline_selection declared_when_explicit
+    capability inventory_unit whole_macro
+    capability hard_multipliers_per_macro 2
+    capability clock_enable constant_high
+    capability reset synchronous_active_high
+    limit preadder 12
+    limit multiplier_a 12
+    limit multiplier_b 12
+    limit product 24
+    limit accumulator 24
+    pipeline_site product_output location multiply_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config unregistered latency 0 ii 1
+    pipeline_config output_registered latency 1 ii 1 enable product_output setting product_oreg 1
+    binding systemverilog gowin_v_dsp_fabric
+    physical_primitive MULT12X12
+}
+resource GowinAroraVBSRAM {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 18432
+    capability port_modes simple_dual
+    capability widths 16
+    capability depth_width_16 256
+    capability qualified_depth 256
+    capability synchronous_read true
+    capability output_register optional
+    capability initialization true
+    capability selected_byte_masks unsupported
+    capability same_clock_collision write_first
+    capability candidate_scope target_only
+    capability reset_contents preserve
+    pipeline_config core_registered latency 0 ii 1
+    binding systemverilog gowin_v_bram_inference
+}
+target GowinAroraV { provides GowinAroraVDSP provides GowinAroraVBSRAM }
+device gw5a_lv25mg121nc1 : GowinAroraV { part GW5A-LV25MG121NC1 inventory GowinAroraVDSP 28 inventory GowinAroraVBSRAM 56 }

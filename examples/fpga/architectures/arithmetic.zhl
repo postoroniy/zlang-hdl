@@ -1,0 +1,355 @@
+// Portable kernels for exact physical architecture selection; no board pins.
+
+module Multiply1 {
+    clock clk reset rst
+    in a,b:s18
+    out y:s36
+    y=pipeline(1) { a*b }
+}
+
+module Multiply2 {
+    clock clk reset rst
+    in a,b:s18
+    out y:s36
+    y=pipeline(2) { a*b }
+}
+
+module Multiply3 {
+    clock clk reset rst
+    in a,b:s18
+    out y:s36
+    y=pipeline(3) { a*b }
+}
+
+module UnsignedMultiply1 {
+    clock clk reset rst
+    in a,b:u18
+    out y:u36
+    y=pipeline(1) { a*b }
+}
+
+module UnsignedMultiply2 {
+    clock clk reset rst
+    in a,b:u18
+    out y:u36
+    y=pipeline(2) { a*b }
+}
+
+module UnsignedMultiply3 {
+    clock clk reset rst
+    in a,b:u18
+    out y:u36
+    y=pipeline(3) { a*b }
+}
+
+module MultiplyAdd1 {
+    clock clk reset rst
+    in a,b:s18 in c:s53
+    out y:s54
+    y=pipeline(1) { a*b+c }
+}
+
+module MultiplyAdd2 {
+    clock clk reset rst
+    in a,b:s18 in c:s53
+    out y:s54
+    y=pipeline(2) { a*b+c }
+}
+
+module MultiplyAdd3 {
+    clock clk reset rst
+    in a,b:s18 in c:s53
+    out y:s54
+    y=pipeline(3) { a*b+c }
+}
+
+module PreaddMultiply1 {
+    clock clk reset rst
+    in a,d:s17 in b:s18
+    out y:s36
+    y=pipeline(1) { (a+d)*b }
+}
+
+module PreaddMultiply2 {
+    clock clk reset rst
+    in a,d:s17 in b:s18
+    out y:s36
+    y=pipeline(2) { (a+d)*b }
+}
+
+module PreaddMultiply3 {
+    clock clk reset rst
+    in a,d:s17 in b:s18
+    out y:s36
+    y=pipeline(3) { (a+d)*b }
+}
+
+module SignedReduction1 {
+    clock clk reset rst
+    in a,b,c,d:s18
+    out y:s37
+    y=pipeline(1) { a*b-c*d }
+}
+
+module SignedReduction2 {
+    clock clk reset rst
+    in a,b,c,d:s18
+    out y:s37
+    y=pipeline(2) { a*b-c*d }
+}
+
+module SignedReduction3 {
+    clock clk reset rst
+    in a,b,c,d:s18
+    out y:s37
+    y=pipeline(3) { a*b-c*d }
+}
+
+module Reduction41 {
+    clock clk reset rst
+    in a,b,c,d,e,f,g,h:s8
+    out y:s19
+    y=pipeline(1) { ((a*b+c*d)+e*f)+g*h }
+}
+
+module Reduction42 {
+    clock clk reset rst
+    in a,b,c,d,e,f,g,h:s8
+    out y:s19
+    y=pipeline(2) { ((a*b+c*d)+e*f)+g*h }
+}
+
+module Reduction43 {
+    clock clk reset rst
+    in a,b,c,d,e,f,g,h:s8
+    out y:s19
+    y=pipeline(3) { ((a*b+c*d)+e*f)+g*h }
+}
+
+struct ProductBundle1 { sum:s8 mirror:s8 }
+module Parallel1 {
+    clock clk reset rst
+    in a0,a1,a2,b0,b1,b2:s4
+    out y:ProductBundle1
+    y=implement { ProductBundle1 { sum=a0*b0 mirror=a0*b0 } intent { dsp == 1 latency == 1 ii == 1 minimize lut } }
+}
+
+struct ProductBundle2 { sum:s9 mirror:s9 }
+module Parallel2 {
+    clock clk reset rst
+    in a0,a1,a2,b0,b1,b2:s4
+    out y:ProductBundle2
+    y=implement { ProductBundle2 { sum=(a0*b0)+a0*b1 mirror=(a0*b0)+a0*b1 } intent { dsp == 2 latency == 1 ii == 1 minimize lut } }
+}
+
+struct ProductBundle3 { sum:s10 mirror:s10 }
+module Parallel3 {
+    clock clk reset rst
+    in a0,a1,a2,b0,b1,b2:s4
+    out y:ProductBundle3
+    y=implement { ProductBundle3 { sum=((a0*b0)+a0*b1)+a0*b2 mirror=((a0*b0)+a0*b1)+a0*b2 } intent { dsp == 3 latency == 1 ii == 1 minimize lut } }
+}
+
+struct ProductBundle4 { sum:s11 mirror:s11 }
+module Parallel4 {
+    clock clk reset rst
+    in a0,a1,a2,b0,b1,b2:s4
+    out y:ProductBundle4
+    y=implement { ProductBundle4 { sum=(((a0*b0)+a0*b1)+a0*b2)+a1*b0 mirror=(((a0*b0)+a0*b1)+a0*b2)+a1*b0 } intent { dsp == 4 latency == 1 ii == 1 minimize lut } }
+}
+
+struct ProductBundle5 { sum:s12 mirror:s12 }
+module Parallel5 {
+    clock clk reset rst
+    in a0,a1,a2,b0,b1,b2:s4
+    out y:ProductBundle5
+    y=implement { ProductBundle5 { sum=((((a0*b0)+a0*b1)+a0*b2)+a1*b0)+a1*b1 mirror=((((a0*b0)+a0*b1)+a0*b2)+a1*b0)+a1*b1 } intent { dsp == 5 latency == 1 ii == 1 minimize lut } }
+}
+
+struct ProductBundle6 { sum:s13 mirror:s13 }
+module Parallel6 {
+    clock clk reset rst
+    in a0,a1,a2,b0,b1,b2:s4
+    out y:ProductBundle6
+    y=implement { ProductBundle6 { sum=(((((a0*b0)+a0*b1)+a0*b2)+a1*b0)+a1*b1)+a1*b2 mirror=(((((a0*b0)+a0*b1)+a0*b2)+a1*b0)+a1*b1)+a1*b2 } intent { dsp == 6 latency == 1 ii == 1 minimize lut } }
+}
+
+struct ProductBundle7 { sum:s14 mirror:s14 }
+module Parallel7 {
+    clock clk reset rst
+    in a0,a1,a2,b0,b1,b2:s4
+    out y:ProductBundle7
+    y=implement { ProductBundle7 { sum=((((((a0*b0)+a0*b1)+a0*b2)+a1*b0)+a1*b1)+a1*b2)+a2*b0 mirror=((((((a0*b0)+a0*b1)+a0*b2)+a1*b0)+a1*b1)+a1*b2)+a2*b0 } intent { dsp == 7 latency == 1 ii == 1 minimize lut } }
+}
+
+struct ProductBundle8 { sum:s15 mirror:s15 }
+module Parallel8 {
+    clock clk reset rst
+    in a0,a1,a2,b0,b1,b2:s4
+    out y:ProductBundle8
+    y=implement { ProductBundle8 { sum=(((((((a0*b0)+a0*b1)+a0*b2)+a1*b0)+a1*b1)+a1*b2)+a2*b0)+a2*b1 mirror=(((((((a0*b0)+a0*b1)+a0*b2)+a1*b0)+a1*b1)+a1*b2)+a2*b0)+a2*b1 } intent { dsp == 8 latency == 1 ii == 1 minimize lut } }
+}
+
+// One functional symmetric FIR.  Four coefficient values are semantically
+// reused at mirrored taps; the source contains no target-resource constructs.
+module SymmetricFir1 {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+
+    reg result_reg : fixed<16,14> = 0
+
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+
+    result_reg <- quantize<fixed<16,14>>(acc) {
+        round nearest_even
+        overflow saturate
+    }
+    result = result_reg
+}
+
+// One functional symmetric FIR.  Four coefficient values are semantically
+// reused at mirrored taps; the source contains no target-resource constructs.
+module SymmetricFir2 {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+
+    reg result_reg : fixed<16,14> = 0
+
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+
+    result_reg <- quantize<fixed<16,14>>(acc) {
+        round nearest_even
+        overflow saturate
+    }
+    reg q1:fixed<16,14>=0
+    q1 <- result_reg
+    result = q1
+}
+
+// One functional symmetric FIR.  Four coefficient values are semantically
+// reused at mirrored taps; the source contains no target-resource constructs.
+module SymmetricFir3 {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+
+    reg result_reg : fixed<16,14> = 0
+
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+
+    result_reg <- quantize<fixed<16,14>>(acc) {
+        round nearest_even
+        overflow saturate
+    }
+    reg q1:fixed<16,14>=0
+    q1 <- result_reg
+    reg q2:fixed<16,14>=0
+    q2 <- q1
+    result = q2
+}
+
+// Portable high-level target-aware FIR.  The source states numerical and
+// timing requirements; target libraries decide whether generic logic or a
+// physical resource graph implements them.
+module SymmetricFirAuto1 {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+
+    result = implement {
+        quantize<fixed<16,14>>(acc) {
+            round nearest_even
+            overflow saturate
+        }
+
+        intent {
+            latency == 1
+            ii == 1
+            minimize dsp
+        }
+    }
+}
+
+
+// Portable high-level target-aware FIR.  The source states numerical and
+// timing requirements; target libraries decide whether generic logic or a
+// physical resource graph implements them.
+module SymmetricFirAuto2 {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+
+    result = implement {
+        quantize<fixed<16,14>>(acc) {
+            round nearest_even
+            overflow saturate
+        }
+
+        intent {
+            latency == 2
+            ii == 1
+            minimize dsp
+        }
+    }
+}
+
+
+// Portable high-level target-aware FIR.  The source states numerical and
+// timing requirements; target libraries decide whether generic logic or a
+// physical resource graph implements them.
+module SymmetricFirAuto3 {
+    clock clk
+    reset rst
+    in samples : vec<8,SF2.10>
+    in coefficients : vec<4,SF2.10>
+    out result : fixed<16,14>
+
+    acc = (((samples[0] * coefficients[0] + samples[7] * coefficients[0])
+          + (samples[1] * coefficients[1] + samples[6] * coefficients[1]))
+          + ((samples[2] * coefficients[2] + samples[5] * coefficients[2])
+          + (samples[3] * coefficients[3] + samples[4] * coefficients[3])))
+
+    result = implement {
+        quantize<fixed<16,14>>(acc) {
+            round nearest_even
+            overflow saturate
+        }
+
+        intent {
+            latency == 3
+            ii == 1
+            minimize dsp
+        }
+    }
+}

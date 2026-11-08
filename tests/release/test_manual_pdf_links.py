@@ -125,3 +125,16 @@ def test_major_chapters_start_new_pages_without_forcing_subchapter_breaks(manual
         assert float(page.attrib["height"]) - chapter["dest"][3] < 100, chapter["title"]
     assert any(child["destpageposfrom1"] == chapter["destpageposfrom1"]
                for chapter in chapters for child in chapter["kids"])
+
+    # The notice is a real final-page heading, not a bookmark at the previous
+    # chapter's last hyperref anchor. Check rendered text independently of the
+    # renderer's destination metadata.
+    notice = outlines[-1]
+    assert notice["destpageposfrom1"] == len(pages)
+    assert notice["destpageposfrom1"] > chapter_pages[-1]
+    notice_page = pages[-1]
+    notice_lines = [line for line in notice_page.findall(".//x:line", namespace)
+                    if 50 <= float(line.attrib["yMin"]) < float(notice_page.attrib["height"]) - 35]
+    assert " ".join(word.text for word in notice_lines[0].findall("x:word", namespace)) == "Font license notice"
+    assert float(notice_lines[0].attrib["yMin"]) < 100
+    assert float(notice_page.attrib["height"]) - notice["dest"][3] < 100

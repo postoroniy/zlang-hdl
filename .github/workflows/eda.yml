@@ -52,6 +52,21 @@ jobs:
           make -s ci-test-floor \
             CI_DETERMINISTIC_JUNIT=build/eda.xml \
             CI_PERFORMANCE_JUNIT=build/eda-performance.xml
+      - name: Qualify Gowin and ECP5 physical builds
+        run: |
+          curl --fail --location --retry 2 \
+            --output "$RUNNER_TEMP/fpga-suite.tgz" \
+            https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-10-21/oss-cad-suite-linux-x64-20261021.tgz
+          .venv/bin/python -m tools.setup_fpga_toolchain \
+            --archive "$RUNNER_TEMP/fpga-suite.tgz" \
+            --destination "$RUNNER_TEMP/zlang-fpga-tools" \
+            --manifest "$RUNNER_TEMP/zlang-fpga-tools.json"
+          .venv/bin/python -m tools.qualify_fpga \
+            --toolchain-manifest "$RUNNER_TEMP/zlang-fpga-tools.json" \
+            --output build/fpga-acceptance
+          .venv/bin/python -m tools.qualify_fpga_architectures \
+            --toolchain-manifest "$RUNNER_TEMP/zlang-fpga-tools.json" \
+            --output build/fpga-acceptance/architectures
       - name: Retain EDA regression reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -60,5 +75,6 @@ jobs:
           path: |
             build/eda.xml
             build/eda-performance.xml
+            build/fpga-acceptance/
           if-no-files-found: warn
           retention-days: 14

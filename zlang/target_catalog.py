@@ -46,6 +46,13 @@ def _dsp_signed_width(type_) -> int:
     return type_.width + int(isinstance(type_, (UIntType, UFixedType)))
 
 
+def _dsp_physical_width(type_, resource: ResourceDefinition) -> int:
+    """Respect an explicitly native unsigned port; legacy signed ports widen."""
+    if dict(resource.capabilities).get("unsigned_native") == "true":
+        return type_.width
+    return _dsp_signed_width(type_)
+
+
 def _dsp_value_expression(
     source_expression: expr.Expression,
 ) -> tuple[expr.Expression, expr.Expression, str]:
@@ -309,11 +316,16 @@ def load_architecture(selection: str) -> ArchitectureTemplate:
     return matches[0]
 
 
-def load_architecture_templates(*, operation: str | None = None) -> tuple[ArchitectureTemplate, ...]:
+def load_architecture_templates(*, operation: str | None = None,
+                                target_resources: tuple[ResourceDefinition, ...] | None = None) -> tuple[ArchitectureTemplate, ...]:
     """Return source-defined templates in stable identity order."""
-    _, _, _, architectures = _catalog(("std.arch.",))
+    definitions, _, _, architectures = _catalog(("std.arch.",))
+    scoped = {r.name for r in definitions.values()
+              if dict(r.capabilities).get("candidate_scope") == "target_only"}
+    available = {r.name for r in target_resources} if target_resources is not None else None
     values = tuple(
         item for item in architectures.values()
-        if operation is None or item.operation == operation
+        if (operation is None or item.operation == operation)
+        and (available is None or item.resource_name not in scoped or item.resource_name in available)
     )
     return tuple(sorted(values, key=lambda item: item.identity))

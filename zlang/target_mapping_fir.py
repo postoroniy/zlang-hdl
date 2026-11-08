@@ -14,6 +14,7 @@ from zlang.ir.timing import TimingKnowledge
 from zlang import target_catalog as catalog
 from zlang import target_mapping_identity as mapping_identity
 from zlang import target_mapping_storage as storage_mapping
+from zlang.target_fpga_bindings import fpga_dsp_binding
 
 
 def map_manual_architecture(module, target, family, resources, template,
@@ -41,18 +42,21 @@ def map_manual_architecture(module, target, family, resources, template,
         raise catalog.TargetArchitectureError("the bounded symmetric FIR template requires exactly four resources")
     link = next((item for item in resource.dedicated_links
                  if item.name == template.dedicated_link), None)
-    if link is None:
+    fabric = fpga_dsp_binding(resource, template.operation) is not None
+    if fabric and template.dedicated_link is not None:
+        raise catalog.TargetArchitectureError("DSP + fabric has no dedicated cascade")
+    if link is None and not fabric:
         raise catalog.TargetArchitectureError(
             f"architecture '{template.identity}' requires unavailable dedicated connection "
             f"'{template.dedicated_link}'"
         )
     capacity = dict(((rid, kind), count) for rid, kind, count in target.dedicated_capacities).get(
-        (resource.identity, link.name), 0
+        (resource.identity, link.name if link else ""), 0
     )
 
 
     required_edges = template.resource_count - 1
-    if capacity < required_edges:
+    if capacity < required_edges and not fabric:
         raise catalog.TargetArchitectureError(
             f"architecture '{template.identity}' dedicated connection '{link.name}' "
             f"requires capacity {required_edges}, target provides {capacity}"
@@ -70,6 +74,8 @@ def map_manual_architecture(module, target, family, resources, template,
             selected_pipeline = resource.pipeline_configuration(template.pipeline_configuration)
         except ValueError as error:
             raise catalog.TargetArchitectureError(str(error)) from error
+        if fabric and selected_pipeline.latency != 0:
+            raise catalog.TargetArchitectureError("native registered FIR composition is not qualified; select explicit fabric delays")
         if selected_pipeline.initiation_interval != template.initiation_interval:
             raise catalog.TargetArchitectureError(
                 f"architecture '{template.identity}' II {template.initiation_interval} does not match "
@@ -83,7 +89,8 @@ def map_manual_architecture(module, target, family, resources, template,
             f"semantic fixed latency {semantic_latency}"
         )
     configuration_latency = selected_pipeline.latency if selected_pipeline is not None else 0
-    if semantic_latency != configuration_latency + (1 if output_register is not None else 0):
+    minimum_latency = configuration_latency + (1 if output_register is not None else 0)
+    if (semantic_latency < minimum_latency if fabric else semantic_latency != minimum_latency):
         raise catalog.TargetArchitectureError(
             f"architecture '{template.identity}' pipeline configuration contributes "
             f"{configuration_latency} cycles but semantic output boundary requires {semantic_latency}"
@@ -121,7 +128,7 @@ def map_manual_architecture(module, target, family, resources, template,
         f"dsp{index}", link.source_port, f"dsp{index + 1}",
         link.destination_port, link.width, link.placement_relation, 0,
         link.fabric_fallback,
-    ) for index in range(3))
+    ) for index in range(3)) if not fabric else ()
     semantic_identity = mapping_identity._expression_identity(accumulator)
     return target_ir.ImplementationGraph(
         semantic_region_identity=semantic_identity,

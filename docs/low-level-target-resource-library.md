@@ -156,3 +156,41 @@ and ordered signed-product reduction regions documented in the
 General `explore`, BRAM/clock selection, and arbitrary resource ranking remain
 disabled. The accepted boundary is documented in the
 [Target-aware architecture and pipeline planning](high-level-target-aware-architecture-pipeline-planner.md#reference-high-level-target-aware-architecture-pipeline-planner).
+
+<a id="gowin-and-ecp5-descriptive-resources"></a>
+<a id="gowin-gw1nr9-and-lattice-ecp5"></a>
+## Gowin and Lattice resources
+
+`std.target.gowin.gw1nr9` describes 8640 LUT4, 6480 FF, twenty descriptive
+18×18 multipliers, 26 BSRAM blocks and two PLLs from Gowin DS117-3.2.5E Table 1-1.
+`std.target.lattice.ecp5` describes Lattice ECP5-25F/85F EBR, multiplier and
+PLL/DLL inventories from Lattice FPGA-DS-02012-3.4 Table 1.1. Exact LUT/PFU-register
+site counts (24288/83640) use the pinned Trellis device database; the vendor
+selection guide rounds LUT capacity to 24K/84K. IO registers are not added.
+These inventories are capacities, not measured utilization or timing.
+
+The [architecture profiles](fpga-architecture-profiles.md) bind bounded 18×18
+DSP plus fabric operations through `GowinDSPMacro` / `Ecp5DSPSlice`, and preserved
+synchronous memory/FIFO storage through the corresponding BRAM inference binding.
+The descriptive multiplier counts are not a second allocatable pool. Logic and
+registers use `generic_rtl`. Clock generators remain `unsupported`; there is no
+automatic PLL, SerDes or DDR generation. Existing Xilinx/Intel selection contracts
+are unchanged. The [qualification reference](fpga-target-integration-report.md)
+separates legal profiles, RTL proofs, measured implementation and board acceptance.
+
+The common `std.arch.lattice.dsp` / `memory` and `std.arch.gowin.dsp` / `memory`
+imports keep generation-specific contracts distinct. Additional bounded target
+records provide the following allocatable DSP/RAM inventories:
+
+| Target source | Device | Whole DSP blocks/macros | RAM blocks |
+| --- | --- | --- | --- |
+| `std.target.lattice.ice40` | `ICE40UP5K-SG48I` | 8 | 30 |
+| `std.target.lattice.nexus` | `LIFCL-40-9BG400C` | 14 | 84 |
+| `std.target.gowin.gw2a` | `GW2A-LV18PG256C8` | 24 | 46 |
+| `std.target.gowin.arora_v` | `GW5A-LV25MG121NC1` | 28 | 56 |
+
+These records cite their device documentation in source. They are not complete
+logic/clock/IO inventories. The new memory resources admit only the exact
+256×16 simple-dual configuration in the architecture guide. Descriptive
+sub-multiplier counts do not create extra allocatable capacity; the compiler
+reserves whole blocks/macros and fails closed on excess inventory.

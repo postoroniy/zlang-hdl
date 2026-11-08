@@ -5,9 +5,9 @@
 ZLang keeps functional behavior, implementation architecture, and physical
 target data separate. Explicit selection maps the ordinary
 functional [symmetric FIR example](../examples/symmetric_fixed_fir.zhl) to four
-DSP48E1 resources on `xc7z030ffg676-1`. Without an explicit selection, the same
-source continues through the generic Direct-SV path. Bounded automatic
-selection is described under
+DSP48E1 resources on `xc7z030ffg676-1`. Without a concrete target, the same
+source continues through the generic Direct-SV path. A concrete target can also
+enable bounded automatic selection, described under
 [target-aware planning](high-level-target-aware-architecture-pipeline-planner.md#reference-high-level-target-aware-architecture-pipeline-planner).
 
 <a id="reference-target-platform-architecture-description-compiler-shipped-source-descriptions"></a>
@@ -19,6 +19,14 @@ Target data is ordinary compiler-shipped ZLang source:
 - `std.target.xilinx.series7` defines the bounded DSP48E1 capability;
 - `std.target.xilinx.xc7z030` defines the device part, inventory, and cascade
   capacity;
+- `std.target.gowin.gw1nr9` defines GW1NR9 device facts;
+- `std.target.lattice.ecp5` defines Lattice ECP5-25F/85F inventories;
+- `std.target.lattice.ice40` defines the bounded iCE40 UltraPlus UP5K DSP/EBR profile;
+- `std.target.lattice.nexus` defines the bounded CrossLink-NX LIFCL-40 DSP/EBR profile;
+- `std.target.gowin.gw2a` defines the GW2A-18 DSP/BSRAM profile;
+- `std.target.gowin.arora_v` defines the GW5A-25 DSP/BSRAM profile;
+- `std.arch.lattice.dsp` / `memory` and `std.arch.gowin.dsp` / `memory`
+  collect the corresponding [architecture profiles](fpga-architecture-profiles.md);
 - `std.arch.xilinx7_fir` defines the one manual symmetric-FIR template;
 - `std.target.asic.sky130` describes the real `sky130_fd_sc_hd` standard-cell
   library boundary and proves that the core records are not FPGA- or
@@ -66,8 +74,10 @@ zlang examples/symmetric_fixed_fir.zhl \
 
 `required` turns every target, shape, width, inventory, dedicated-link, or
 backend failure into a diagnostic. `preferred` returns the generic graph on a
-mapping failure. `generic` and omission of target options preserve the existing
-generic implementation. This command performs explicit selection;
+mapping failure. Omitting target options, or selecting the `generic` target,
+preserves generic implementation. The `generic` architecture mode disables the
+explicit architecture request; with a concrete target, eligible regions can
+still pass through the separate bounded automatic planner. This command performs explicit selection;
 bounded automatic target-aware selection is documented separately in the
 [Target-aware architecture and pipeline planning](high-level-target-aware-architecture-pipeline-planner.md#reference-high-level-target-aware-architecture-pipeline-planner).
 
@@ -133,3 +143,13 @@ signed-product regions;
 general placement/graph covering, DSP48E2, Intel physical emission, automatic
 storage/clock-resource mapping, and new formal machinery remain outside the
 current bounded support.
+
+Gowin/Lattice use ordinary Direct-SV and bounded external physical flows. See
+[FPGA builds](fpga-builds.md) for exact board revisions, tool pins, constraints
+and the distinction between synthesis, routed and hardware evidence. The
+bounded architecture bindings below reuse the existing operation providers.
+
+The [Gowin/Lattice profile contract](fpga-architecture-profiles.md) adds source-defined
+whole-macro DSP reservations and preserved-content BRAM/FIFO bindings through
+these same owners. Dedicated links and inferred storage are not interchangeable
+with explicit primitive instances or measured physical utilization.

@@ -1,0 +1,183 @@
+import std.target.lattice.nexus
+import std.target.lattice.ice40
+import std.target.lattice.ecp5
+
+
+// Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+architecture Ecp5Multiply {
+    operation multiply
+    require_resource Ecp5DSPSlice 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5MultiplyMREG {
+    operation multiply
+    require_resource Ecp5DSPSlice 1
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+architecture Ecp5MultiplyMREGOREG {
+    operation multiply
+    require_resource Ecp5DSPSlice 1
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+// Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+architecture Ecp5MultiplyAddFabric {
+    operation multiply_add
+    require_resource Ecp5DSPSlice 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5MultiplyAddFabricMREG {
+    operation multiply_add
+    require_resource Ecp5DSPSlice 1
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+architecture Ecp5MultiplyAddFabricMREGOREG {
+    operation multiply_add
+    require_resource Ecp5DSPSlice 1
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+// Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+architecture Ecp5SignedProductFabric {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 2
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5SignedProductFabricMREG {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 2
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+architecture Ecp5SignedProductFabricMREGOREG {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 2
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+architecture Ecp5SignedProductFabric4 {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5SignedProductFabric4MREG {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 4
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+architecture Ecp5SignedProductFabric4MREGOREG {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 4
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+architecture Ecp5ParallelProducts1 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5ParallelProducts2 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 2
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5ParallelProducts3 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 3
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5ParallelProducts4 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5ParallelProducts5 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 5
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5ParallelProducts6 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 6
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5ParallelProducts7 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 7
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5ParallelProducts8 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 8
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+
+// Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+architecture Ecp5SymmetricFirFabric {
+    operation symmetric_fir_cascade
+    require_resource Ecp5DSPSlice 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5SymmetricFirFabricDelay2 {
+    operation symmetric_fir_cascade
+    require_resource Ecp5DSPSlice 4
+    latency 2
+    ii 1
+    use_pipeline unregistered
+}
+architecture Ecp5SymmetricFirFabricDelay3 {
+    operation symmetric_fir_cascade
+    require_resource Ecp5DSPSlice 4
+    latency 3
+    ii 1
+    use_pipeline unregistered
+}
+
+architecture LatticeIce40Multiply { operation multiply require_resource Ice40DSP 1 latency 1 ii 1 use_pipeline unregistered }
+
+architecture LatticeIce40MultiplyOREG { operation multiply require_resource Ice40DSP 1 latency 2 ii 1 use_pipeline output_registered }
+
+architecture LatticeNexusMultiply { operation multiply require_resource NexusDSPBlock 1 latency 1 ii 1 use_pipeline unregistered }
+
+architecture LatticeNexusMultiplyOREG { operation multiply require_resource NexusDSPBlock 1 latency 2 ii 1 use_pipeline output_registered }

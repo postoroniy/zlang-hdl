@@ -69,7 +69,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/eda.yml",
-      "sha256": "eb672ac0ade98f71d0ad77c3cb990f28d99a40bc3be2a0abe87da261ca64ee16"
+      "sha256": "c404053bd5ed49c6e90b01038b4b11b94c56c57114f78b95479f14a51e957933"
     },
     {
       "mode": "0644",
@@ -149,7 +149,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "3217765821b8410019a297aec33dbe9883a00c0e20fe2ed4f82adc5bb276fd65"
+      "sha256": "ad0c3e688a62c1b8913dd4d6a01856755c143a817207d33dfeeac317465c64cc"
     },
     {
       "mode": "0644",
@@ -209,7 +209,7 @@
     {
       "mode": "0644",
       "path": "README.md",
-      "sha256": "4577239be4636544e77791f6a1ada06a14242c5ea233b5bf8ad9618eb3350907"
+      "sha256": "11613d4c373bfbf4610881f42afe0a36f6baf9cdecbe3c63355d60fa5d887d49"
     },
     {
       "mode": "0644",
@@ -234,22 +234,22 @@
     {
       "mode": "0644",
       "path": "docs/README.md",
-      "sha256": "b8c4e922b9f984734404b54e088908555786dfbeacc99fa534e7da2780c017b5"
+      "sha256": "505cc984f1e29023c636ba85d4eb898dae63231b594d53172af92b28ea52562d"
     },
     {
       "mode": "0644",
       "path": "docs/ZLang-HDL-Language-Reference.pdf",
-      "sha256": "f71318bc5e8063627e535517fcd5f289b7ca77ea0ced462722bd5508384b536d"
+      "sha256": "73d7080c446ce12889341f78d3d9b60a8b6dd661861ba258a8101b087c45969c"
     },
     {
       "mode": "0644",
       "path": "docs/ZLang-HDL-Standard-Library-Guide.pdf",
-      "sha256": "22b896c992b8a685978c33cd9dfc799c646c4670c50d5ee64625983ce1b019c4"
+      "sha256": "66a7997e41bb67744610b769279555a3a30a03e529ed3c27cf2bbd49c6bb5a85"
     },
     {
       "mode": "0644",
       "path": "docs/ZLang-HDL-User-Guide.pdf",
-      "sha256": "823b1dd4aba7f437da06b4508da6864ea6aa10cf4888b05e21c1f9da1826eeb0"
+      "sha256": "1e5aa2297b4bc9fd4d1870dbc3c10a0aa79681243b6a3c9cace8cfcfc08d4567"
     },
     {
       "mode": "0644",
@@ -274,7 +274,27 @@
     {
       "mode": "0644",
       "path": "docs/formal-verification.md",
-      "sha256": "d3d74292450f0fa3a7a45fe7d5e6a7c794c4d88f90b1b836a6ca991aaef0cbcf"
+      "sha256": "3dfaee81eb68d45a1cf76ec557eb1f49ea586cbd36b3e3a5e3c7976afbb649a6"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/fpga-architecture-profiles.md",
+      "sha256": "c001da623b6706b9cea7c3912f7d8a1bbe43b283e9f6d3b26de4e336135c2c4e"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/fpga-builds.md",
+      "sha256": "7e4ff6a9cba2d8a365f68b2c2c1c933728f8a020fe23b954526b403782e4dc61"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/fpga-target-integration-design.md",
+      "sha256": "493a231f0d3433abc463033622d2e7c9b0cae26adbf6858c5acafd08966fa633"
+    },
+    {
+      "mode": "0644",
+      "path": "docs/fpga-target-integration-report.md",
+      "sha256": "b32c4508bcfcf5fcf2c916c335e9b08a0090050ebb9cb0febc09c219a39725c0"
     },
     {
       "mode": "0644",
@@ -364,12 +384,12 @@
     {
       "mode": "0644",
       "path": "docs/low-level-target-resource-library.md",
-      "sha256": "700a4aae6cc1873180a383b394c1509cfb32b49fc931cd1407bab59984c28906"
+      "sha256": "e857e355735c3c4afa84e20111a7850c6887745e6146e66f94a95330a271d8d2"
     },
     {
       "mode": "0644",
       "path": "docs/manuals.toml",
-      "sha256": "05b8a664eb744630706cc34c08f5f8853597d0f45b7dae20c1954b3b97fdad3d"
+      "sha256": "23d0a7a44a95590c834d16b1fdd20d89752d6e8418592f9ddc92bc65245b47c1"
     },
     {
       "mode": "0644",
@@ -549,12 +569,12 @@
     {
       "mode": "0644",
       "path": "docs/standard-bus-library.md",
-      "sha256": "8a5b11a914dbe096111086a70d0b647dd976435dbf163805e777416515c1930b"
+      "sha256": "237c4f2bae5ed5a9346e06d618ba87e53a5dbb2c3fd313341f3c5c740f590fa2"
     },
     {
       "mode": "0644",
       "path": "docs/stdlib-api.md",
-      "sha256": "0f7f936e7dc308e46ffcefb7df3c86962d52b7e604b40b015a71cb6a96899c73"
+      "sha256": "2607e07c8940f7338331a942c5f5ba66e0f45e4f8bd82e4e2ab56b74a2bfb91f"
     },
     {
       "mode": "0644",
@@ -564,7 +584,7 @@
     {
       "mode": "0644",
       "path": "docs/stdlib-formal-coverage.md",
-      "sha256": "e3aace8277650eb223f7d9b251ee7e790a536ad7dc084812b340affeb0d5ff88"
+      "sha256": "530f6b7a25ef1ea81cc98f9a42da528a5a4cec4b28e7f4e331e0cf242a59d9e1"
     },
     {
       "mode": "0644",
@@ -614,7 +634,7 @@
     {
       "mode": "0644",
       "path": "docs/stdlib.md",
-      "sha256": "c324bc16d7caa591e8122d2abe9d0885fe01dd80f8bcc134ad9f6e544da80aa8"
+      "sha256": "331ee12bd233891f64f36d080e403a87ffa36cf146d2baf71f39db505b05534f"
     },
     {
       "mode": "0644",
@@ -639,7 +659,7 @@
     {
       "mode": "0644",
       "path": "docs/target-platform-architecture-description.md",
-      "sha256": "348debe9fd86d89e4419b9276833e92b91b537c39e57b7aca072055142e5a4d6"
+      "sha256": "05a87d71a7a416b43e814d6ccc2321c09e0cbe1614c39d40c5da96c636b544ab"
     },
     {
       "mode": "0644",
@@ -659,7 +679,7 @@
     {
       "mode": "0644",
       "path": "docs/user-guide.md",
-      "sha256": "a0012c1ed6644fae274d4c05dfb6151f58f6d30eeadc79cf9c34569689ba476c"
+      "sha256": "7d2a30b347b3b16d6beff5d56dff2ac7a0f831ef69ace9084a718be8f8dcdf72"
     },
     {
       "mode": "0644",
@@ -1264,7 +1284,7 @@
     {
       "mode": "0644",
       "path": "examples/fft/README.md",
-      "sha256": "3c6f7f441a73942912a94f20d5aa764f728701f21c943654af6cdc73da27b920"
+      "sha256": "e151789fcd03a8b1ef1a7f3e1fce39b95e68531d1e1b039f08abb9b965276ff9"
     },
     {
       "mode": "0644",
@@ -1338,8 +1358,48 @@
     },
     {
       "mode": "0644",
+      "path": "examples/fpga/README.md",
+      "sha256": "84c5e0ff98bce082a693868ca296cb269ce0e36959664f961465cbbab7ef0b67"
+    },
+    {
+      "mode": "0644",
+      "path": "examples/fpga/architectures/arithmetic.zhl",
+      "sha256": "30bed5d2150f8fc2284048c35eac2d2ce172bf4d9d1a187d8979e28d0c11ef2c"
+    },
+    {
+      "mode": "0644",
+      "path": "examples/fpga/architectures/storage.zhl",
+      "sha256": "af401febc73a7d0fef26286169a5ae1a4c10cf7c7dd85e11d2942b3c1e2505e8"
+    },
+    {
+      "mode": "0644",
+      "path": "examples/fpga/counter.zhl",
+      "sha256": "ce5c8cad362306b4924ba6ec764d22d1606e87a2e4e229f4e7f101aac4487506"
+    },
+    {
+      "mode": "0644",
+      "path": "examples/fpga/fixed_dsp.zhl",
+      "sha256": "3db27fb8657b7dd7d0f96193e02c1d474edb4be90188efc21fc7f6dbaa8ed955"
+    },
+    {
+      "mode": "0644",
+      "path": "examples/fpga/gpio.zhl",
+      "sha256": "ca29b3eace76e914b255abace88613bf95dc9ce44607e51e4ac42f94c99c9a24"
+    },
+    {
+      "mode": "0644",
+      "path": "examples/fpga/hierarchy.zhl",
+      "sha256": "af5c044250ccf5b1a65e25d481af0ea61e751cfed5bfb77899e8c38d1c706f8b"
+    },
+    {
+      "mode": "0644",
+      "path": "examples/fpga/memory.zhl",
+      "sha256": "7c31d28b3acb60e42e8f66c7aa0b078067051c846bfd5e8182109b9cca9c52ba"
+    },
+    {
+      "mode": "0644",
       "path": "examples/fpga_debug/README.md",
-      "sha256": "ab44ebd69d7f2ab18a227b4c784f456ee8492032c7372326ce62ce4c764acd58"
+      "sha256": "297eed6d9f7e3009598eb794b346aa054a3dda88ece59298983eed5775eec3b0"
     },
     {
       "mode": "0644",
@@ -2004,7 +2064,7 @@
     {
       "mode": "0644",
       "path": "examples/verification/README.md",
-      "sha256": "f2fbab17c817dc76ae9c1cc768170e011d878245533137da2340ce4fe3d121e1"
+      "sha256": "719778a179bedf1902e84df9694a3f8461c18104be6cdea8130c05b443382ed7"
     },
     {
       "mode": "0644",
@@ -2014,7 +2074,7 @@
     {
       "mode": "0644",
       "path": "examples/verification/math-exploration.md",
-      "sha256": "5ea29bd0bb87cc6febe882a2fbc545ec75c3da265dc6aa10cb99e9321131053c"
+      "sha256": "675a46adbc17b5449b26de0477bb9391ad4f861347b9e1f56337470d498dc813"
     },
     {
       "mode": "0644",
@@ -2078,6 +2138,11 @@
     },
     {
       "mode": "0644",
+      "path": "release/fpga-qualification.json",
+      "sha256": "753a016c2af8ae78d7ad9da250ac3308fca44e541f4285b906600e02431420aa"
+    },
+    {
+      "mode": "0644",
       "path": "release/native-editor/THIRD_PARTY_LICENSES.md",
       "sha256": "9dfc3852c2e40c16b42a82dd8abf9562e3ef7ca39214d448959366dc9d7ff3d4"
     },
@@ -2104,17 +2169,97 @@
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "1c86e68e5ccc21bab10d65159c0763af4e2c85c8606b4107150ab02a2f190aed"
+      "sha256": "ed11074459259e73c3d4aa7e0620c060b16f0de7d4bcfc25600f9c2e40300416"
     },
     {
-      "mode": "0664",
+      "mode": "0644",
       "path": "release/status.json",
-      "sha256": "6df29d955c32e797696e94cff96812d1b490b2e1d8bc3d1a93a6afd786134508"
+      "sha256": "78de7fc784a9275423dd116ae4991d2b51b7e228aca4a0e1a8c80a5903ebc25e"
     },
     {
       "mode": "0644",
       "path": "setup.py",
       "sha256": "72d5faea975b52fd035ef134fb8e4eb08661e7f9ab006453905b884970d511aa"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/ecp5_bilinear.zhl",
+      "sha256": "7a8fac1c8e4369d7f9f0d6d0ca4ba0792eb7555fa49ee8e815e546e921232317"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/ecp5_fir.zhl",
+      "sha256": "0ec8e5686fa454563d37dc363577a598a0edb285514b972a9643bf63a54096c7"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/ecp5_memory.zhl",
+      "sha256": "02a28010ffb5af6bb2180e68f0a21f29f71876d9941c182744e6cef19ec88d13"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/ecp5_multiply.zhl",
+      "sha256": "2365468df1a804b6a60b934ef92bf4d105b9a149d7dcd9518a1c6606935acb9d"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/ecp5_multiply_add.zhl",
+      "sha256": "821de6440bcadc8f640e682402e927529407170d4c8d078ee24a13696bff4712"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/ecp5_signed_product.zhl",
+      "sha256": "596d7f7072e32f775ff977a848e487b1bb880886699b1b6f97ada870e2834476"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/gowin/dsp.zhl",
+      "sha256": "dc84dca2156ab33d1e2d1408569539b43b1f43e4996902bf012b92649c140bb6"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/gowin/memory.zhl",
+      "sha256": "85344c74900ea4447a4fac430ff9df27070b1a948ed81b5457a2b338719e173e"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/gowin_bilinear.zhl",
+      "sha256": "d8e7dc2c5332fe3a479c33bfa5dc5b9448aef82ff1be85953e64a4e1477f438e"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/gowin_fir.zhl",
+      "sha256": "9204a57575be23426d9ca26578eb7fa718562115fdc2104032175bab05189ffb"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/gowin_memory.zhl",
+      "sha256": "4d37846b128f05e99433314b7dc89d5e47c3e964fc20717e8eccd2989fba70b7"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/gowin_multiply.zhl",
+      "sha256": "7c6eb860406975c203f3182027e5186485a0497cdb6714b85e775807555f3894"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/gowin_multiply_add.zhl",
+      "sha256": "040edb67412b37f747f38dbd1fa520ebb0ad6d05356db92bdcf14bec24c09bfa"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/gowin_signed_product.zhl",
+      "sha256": "0a586a092b0a5524a29f36fd37cacf85866cf83f645d57efe0f969b1e165e0c5"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/lattice/dsp.zhl",
+      "sha256": "464cbd3f89196e6e5a98d0062a289d3672f2dd1df67bf3da63107f69f32186e3"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/arch/lattice/memory.zhl",
+      "sha256": "b99b1b7e52778f914086564b2badf1881e2ab27decd13388b031979685d8720e"
     },
     {
       "mode": "0644",
@@ -2149,17 +2294,17 @@
     {
       "mode": "0644",
       "path": "stdlib/bus/ahb_lite.zhl",
-      "sha256": "bd0c21b303760a9ec7b8c8e57fe514bbfd5c09603f94121e25a921f9226e3601"
+      "sha256": "d620b3208a7601e35d60809bc79dd18048cdb4767e99202cf1d7f1fb3150a292"
     },
     {
       "mode": "0644",
       "path": "stdlib/bus/apb.zhl",
-      "sha256": "73e764b486bcb8a41a0a63ae2f06fe22c4c966a8dd72452d807a7551e1e4b205"
+      "sha256": "6801c041a2d045179ddd8e2362dcfc5105e48d4734a018fbf8aefdaceeb8925a"
     },
     {
       "mode": "0644",
       "path": "stdlib/bus/axi4.zhl",
-      "sha256": "99e330b754d843b2687e468392b488516f3ded7136b11977b04d61b48eeef2a3"
+      "sha256": "d8b7b5b58af49153df24a32f49698b521b9e4cb063ab5a50554addc12ce592af"
     },
     {
       "mode": "0644",
@@ -2174,12 +2319,12 @@
     {
       "mode": "0644",
       "path": "stdlib/bus/axi4_subordinate.zhl",
-      "sha256": "d47dbcac7926caa86e97f31d01378cc6811454f3a967807656cf0e6bf7f2c85b"
+      "sha256": "50bc09bcad84418fa1a24f2499b9b75aa99d031a7e4c31f8c03d4c924498b4ec"
     },
     {
       "mode": "0644",
       "path": "stdlib/bus/axi4_user_subordinate.zhl",
-      "sha256": "438d29f14c490aa946daefb49c3c38e9b2b2099a1e5c085004bd719e7cca615b"
+      "sha256": "d879d1127d5f4ee1e9825f2bd0ee8f98d78eba9052558da64e3674d7e0ce551e"
     },
     {
       "mode": "0644",
@@ -2189,7 +2334,7 @@
     {
       "mode": "0644",
       "path": "stdlib/bus/axi_lite.zhl",
-      "sha256": "5dde054d70131beb6e811f845b6d6e582e592e2a65d6c6d501b20c8cfe5a43f6"
+      "sha256": "2fe5f20962dd2386ab672bdf17fdab8334955f7eeda2ada461aad9a8b213b6a2"
     },
     {
       "mode": "0644",
@@ -2199,7 +2344,7 @@
     {
       "mode": "0644",
       "path": "stdlib/bus/reg.zhl",
-      "sha256": "55dc5bdf44b01ae540dcfa97b18cc5f5ee2697e92104114fe3b44e7b5523c6c6"
+      "sha256": "8d7c86278cc5a58d7a55724283e045975c6dd89fb4739af2dee16ef54ae823d0"
     },
     {
       "mode": "0644",
@@ -2402,7 +2547,7 @@
       "sha256": "ede61d17834435e977eec1815a07211cb9a0b09c4a06ad0687f1d20b2c9e6c4c"
     },
     {
-      "mode": "0664",
+      "mode": "0644",
       "path": "stdlib/math/fp_convert.zhl",
       "sha256": "a98f46b58d53d4f12d527128a4286a6c217e6646d6b509aa9addf8cf6ce3c139"
     },
@@ -2503,8 +2648,38 @@
     },
     {
       "mode": "0644",
+      "path": "stdlib/target/gowin/arora_v.zhl",
+      "sha256": "9f96fe762d7668a5ef0a26d70b57d2ec13614307a4ab9e2c202d0e6430c708f6"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/target/gowin/gw1nr9.zhl",
+      "sha256": "70b01df05acb2e7355256f62e5425635af85dd5d1646df054610eab2b5b5b544"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/target/gowin/gw2a.zhl",
+      "sha256": "ef0719a0e9c0c161cbda9cfab953bc9ea5c1134d83fb7080fe6a80150b88f991"
+    },
+    {
+      "mode": "0644",
       "path": "stdlib/target/intel/cyclone_v.zhl",
       "sha256": "d19df2a8787ece9089822cdcc854f1e27dccbad5b3acb5c31d02d23780d2cacd"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/target/lattice/ecp5.zhl",
+      "sha256": "e10532df8520ab38326ca63791d87cb01677d5dadef465fda00daf093863466d"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/target/lattice/ice40.zhl",
+      "sha256": "779198656dfec630bc0ec37edbcbca817218c86fec1fb0b29d4d5b01bb43a769"
+    },
+    {
+      "mode": "0644",
+      "path": "stdlib/target/lattice/nexus.zhl",
+      "sha256": "9601415849862c006e4d2db390e78d82d231fa4a5d96a9673405e127aa060e65"
     },
     {
       "mode": "0644",
@@ -2544,7 +2719,7 @@
     {
       "mode": "0644",
       "path": "tests/backend/test_composed_emitter_decomposition.py",
-      "sha256": "345a9e99fe07ebd85bbf6669cff00aed2dad1b1b85420b0b3d6c408c1abc2f11"
+      "sha256": "c8427b59844bd8ed399c3336c70b108ffbc7bdba6971eeb88cf7196ddfa45cd3"
     },
     {
       "mode": "0644",
@@ -2700,6 +2875,11 @@
       "mode": "0644",
       "path": "tests/fixtures/fft/value_parameter_expression.zhl",
       "sha256": "86082deb9c12b10775def643331be0659ee8936d48b3e23b41f5450a70231b22"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/fixtures/fpga_fifo_reference.sv",
+      "sha256": "286bb926b81996ad6555323c670913fa8633b7177cd466c3c8e06712e71b3be5"
     },
     {
       "mode": "0644",
@@ -2909,7 +3089,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_ahb_lite.py",
-      "sha256": "9a0280e125be27e5e383807503a4851d490cbda505619db211c24f235a76e2c3"
+      "sha256": "635ee5d666bc449c2e43855a1fd02547655012c296b9cb088fc5ba1e190ca0e8"
     },
     {
       "mode": "0644",
@@ -2924,7 +3104,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_axi4_source.py",
-      "sha256": "791d6a17cff4ef40c7af4e4f9801bf40239adeac0dcd822a125a9e674265f20d"
+      "sha256": "6840d7388539896f34c2ae52b268b7d9f0c4b1cfd587816ce016b13faa83e6a7"
     },
     {
       "mode": "0644",
@@ -2939,7 +3119,12 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_bilinear_rtl_proof.py",
-      "sha256": "d287b7898da28574664dbc3dde9e53c47876360acefd10cdd8229098b1cd8d6c"
+      "sha256": "192f5893c037d427ba1cd01df65c21c5e053565f623cddb770d22abb108852c9"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/integration/test_bounded_subprocess.py",
+      "sha256": "4540eb202a4dba0d58d63eec6a88a27289f33c86e0c1048325ccb857ee5fd3dc"
     },
     {
       "mode": "0644",
@@ -3238,6 +3423,31 @@
     },
     {
       "mode": "0644",
+      "path": "tests/integration/test_fpga_architectures.py",
+      "sha256": "8fff6e4fb818348652100b32fedc0d5af234638ec4b8414f2ec96249307fd7d4"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/integration/test_fpga_build.py",
+      "sha256": "6b8e1780dbd35e7092d5e720ef31b832fa0373f19c8e407c821a6a6f3ce11b55"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/integration/test_fpga_native_modes.py",
+      "sha256": "90ab12bc23e27bbb068c1761233b05ef51be9930de197040a68dbb1678966ec6"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/integration/test_fpga_quantizer.py",
+      "sha256": "16cba7dc40c12fc6d2c79d3d787c0e0d032e9776d0c554ef0b82e3560f88c0e0"
+    },
+    {
+      "mode": "0644",
+      "path": "tests/integration/test_fpga_storage.py",
+      "sha256": "4c4da73ea7328fff48e2960ed4454c345a1a2153f8e707b5abfe94ec7e4de240"
+    },
+    {
+      "mode": "0644",
       "path": "tests/integration/test_fsm_backends.py",
       "sha256": "698182fef6105e60a02fcfc5e52c190fa3419432e52a60da741abfe398826315"
     },
@@ -3493,6 +3703,11 @@
     },
     {
       "mode": "0644",
+      "path": "tests/integration/test_reference_fixed_conversion.py",
+      "sha256": "f8b0578ceff3e439d48af239146032d489527b0e28f84e6f2730beed74fdd588"
+    },
+    {
+      "mode": "0644",
       "path": "tests/integration/test_registered_outputs.py",
       "sha256": "36eb376b1836fb9789edca3a45c524ac9cb29c286a07513b41198783766182d9"
     },
@@ -3664,7 +3879,7 @@
     {
       "mode": "0644",
       "path": "tests/integration/test_standard_bus_error_paths.py",
-      "sha256": "ae10401d3a11e4ba9a5b0f39512a314013d2ce3ca7b3524f26f3853ec8047f1d"
+      "sha256": "a6e44e7720dc030482db869a93e4079e9d85439263b269955764bb337256a9cb"
     },
     {
       "mode": "0644",
@@ -4199,7 +4414,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_ci_contract.py",
-      "sha256": "5edcbc63c66140fcc2ec2f2c14d26c9b6823a103380d981dfd320eaae6d88310"
+      "sha256": "847c00dd82ab0f62fe9a73233944b30560b4011ed4187f780ea4ed367801ef54"
     },
     {
       "mode": "0644",
@@ -4239,7 +4454,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_manual_pdf_links.py",
-      "sha256": "e6ccff6815ade240f88facda58db6965731efb1c45dda5d2f423b8e9946dfa05"
+      "sha256": "c7909d66d83ba4d1c75df5c45bd3de9d988d82bfce4224b6a6ccd7f8d6ae217d"
     },
     {
       "mode": "0644",
@@ -4289,12 +4504,12 @@
     {
       "mode": "0644",
       "path": "tests/release/test_release_preflight.py",
-      "sha256": "0e70f8cde7bea746fab070798a68caf14fa718c20f9e63075115cc90baf35ed8"
+      "sha256": "ea4ed116f8946f2bed7300defc44cfda9bb8e69d1955929478ae70113d4e7691"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_release_regressions.py",
-      "sha256": "244cb8ae38476a4f0f1a07ec4f7260ce4f8859b1e0a955f2a13005716131ab83"
+      "sha256": "4943eaadd2dfd7260b6efe23d1947f53a8f405cc1680d028e633550fb956aee3"
     },
     {
       "mode": "0644",
@@ -4492,7 +4707,7 @@
       "sha256": "10d39593547235c1e604af0f9abe07333c94af06ab263b34fa636652b9437c70"
     },
     {
-      "mode": "0664",
+      "mode": "0644",
       "path": "tests/semantic/test_concise_exact_width_arithmetic.py",
       "sha256": "31d6ee52686cd916d6827972723307238600e952585d0582d45a28edd25c97a4"
     },
@@ -4584,7 +4799,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_equivalence_replay_integrity.py",
-      "sha256": "39d4199e432e775023d8353fce25e6aeb683a85715254e6fb50daca691331716"
+      "sha256": "5c8c4abe1e80d011ae893ac8d91d6eba241b8e7cfacc34c073cddae5e78f7465"
     },
     {
       "mode": "0644",
@@ -4649,7 +4864,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_formal_bitvector_rewrite.py",
-      "sha256": "bd7d197b5be1307123b3dd8cf5e98009cc37f4012942866a5297950d5bcc52e0"
+      "sha256": "617d985e5525a07d731d062dbf91d5d0bccafa023b21d7172179ba2ac635bb3e"
     },
     {
       "mode": "0644",
@@ -5629,7 +5844,7 @@
     {
       "mode": "0644",
       "path": "tests/test_standard_bus_csr_validation.py",
-      "sha256": "1fcde98a528436fe077ef8a958ff873053dccf0fcbd97e5e10fa79f83540bca7"
+      "sha256": "1b3cd22c594117e084402bcc6a3b367d752fc77e308e8512c719e290f39a1d6e"
     },
     {
       "mode": "0644",
@@ -5644,7 +5859,7 @@
     {
       "mode": "0644",
       "path": "tests/test_standard_bus_source_migration.py",
-      "sha256": "48a43d2f6b3f21034a18ce71d7484aaa33ddec6c6da33143505bb70bef47d38d"
+      "sha256": "a2a686c2b27ffbcdb2a0cf8c1a3015c57efa3f038e29a1cd946c705dec5982e5"
     },
     {
       "mode": "0644",
@@ -5764,7 +5979,7 @@
     {
       "mode": "0644",
       "path": "tools/document_stdlib.py",
-      "sha256": "fc507cbc9595c113c3acc5dfa1611695668d0d679a360f2a1945f543e392a5d4"
+      "sha256": "ee26b91d4dc23cb87827ea19520ae1a9ad76bd098aa11058af080ec4c4fdebf7"
     },
     {
       "mode": "0644",
@@ -5833,6 +6048,16 @@
     },
     {
       "mode": "0644",
+      "path": "tools/qualify_fpga.py",
+      "sha256": "4f7d51e8bb3a0fd0f147518e3118cb0a81192f854613bf09d13879402f29eb00"
+    },
+    {
+      "mode": "0644",
+      "path": "tools/qualify_fpga_architectures.py",
+      "sha256": "a86cd3d0fb86a67588019bd51e1e720e9699baf51b2ee1f0cd2c4e554a1d0221"
+    },
+    {
+      "mode": "0644",
       "path": "tools/random_regression.py",
       "sha256": "16694eef21e2a1f56fde2635bac26f6ad92909b8e8bbe72c08b7dc43363c3c70"
     },
@@ -5865,6 +6090,11 @@
       "mode": "0755",
       "path": "tools/run_local_env.sh",
       "sha256": "ffb0d71ddc81b1fdf92428b14038778e2675925e88a79d29c39b83cd00ff1d18"
+    },
+    {
+      "mode": "0644",
+      "path": "tools/setup_fpga_toolchain.py",
+      "sha256": "e6dcf56ffd5cb0fe75601e0925e38b2e3c830155eb24dfd58c58ff6975cc3115"
     },
     {
       "mode": "0644",
@@ -6068,6 +6298,21 @@
     },
     {
       "mode": "0644",
+      "path": "zlang/backend/systemverilog/fpga_dsp.py",
+      "sha256": "a87e6dca1cdc739420cac78937e5874dfa9422d1b682e7a9c75b16f939795ff4"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/backend/systemverilog/fpga_primitives.py",
+      "sha256": "b4e830d46587d18d1d15dbf562454945a2345ffd1c49bd63bf6748007f7351d9"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/backend/systemverilog/fpga_scalar_primitives.py",
+      "sha256": "c5185c71fa91e715b299f72170d44fbab78f53794d5c6bb0cf236d7fc21e1f8c"
+    },
+    {
+      "mode": "0644",
       "path": "zlang/backend/systemverilog/functional/__init__.py",
       "sha256": "c2d0b8b04aa65e36282dcf68fca4c06dcd45c5c9ba24cf40262445821c97a759"
     },
@@ -6169,7 +6414,7 @@
     {
       "mode": "0644",
       "path": "zlang/backend/systemverilog/storage.py",
-      "sha256": "9b97f400d1b48a0b659261e99ef4b63bdfb9c93698ceee6cd46655f842154041"
+      "sha256": "4f6205794227585b00ee6a546c3cfad0ae9c507b93681a7edb303c9dd76b683a"
     },
     {
       "mode": "0644",
@@ -6179,7 +6424,7 @@
     {
       "mode": "0644",
       "path": "zlang/backend/systemverilog/target.py",
-      "sha256": "e586fac5dc925e8c7a1d608519657a072f1cb276e71d8d01b1dcd9359d6f54c3"
+      "sha256": "e0ae70f48ec258d19e427416d3b1f6ceb9e987a2efb885a645465a0063faf438"
     },
     {
       "mode": "0644",
@@ -6229,7 +6474,7 @@
     {
       "mode": "0644",
       "path": "zlang/cli.py",
-      "sha256": "7a28b64e37fdbf48bc347f2fdaca5d4ac1b580da39955ade0e798cd2116cddff"
+      "sha256": "0beb65da603009e80cd9d932f49023301fd401889d582c63b40fbad28012eb6b"
     },
     {
       "mode": "0644",
@@ -6278,6 +6523,11 @@
     },
     {
       "mode": "0644",
+      "path": "zlang/common/files.py",
+      "sha256": "2bcb2c8ffee7dcaa696c7094f3088eec421d3e3dcc9ecfbf395454cee988091f"
+    },
+    {
+      "mode": "0644",
       "path": "zlang/common/graph.py",
       "sha256": "3b7695d712150aceb4714e8671fc0e485e153108fee227b08c2b119aa8c449f8"
     },
@@ -6294,7 +6544,7 @@
     {
       "mode": "0644",
       "path": "zlang/common/subprocess.py",
-      "sha256": "9c8fd59926df143e12176eaf7240c999405cc352dc89b8d41435015bc7003a32"
+      "sha256": "f492ae8ec3fc0fcaadb79c9120e4c26a576b43bdf8c045be86343a184615df3a"
     },
     {
       "mode": "0644",
@@ -6363,6 +6613,11 @@
     },
     {
       "mode": "0644",
+      "path": "zlang/data/fpga-boards.json",
+      "sha256": "22c07047a8f87b0da67d5073839b31a48e8ca8cc372de9461e21789c94688c19"
+    },
+    {
+      "mode": "0644",
       "path": "zlang/data/target_qor_catalog.json",
       "sha256": "1b6c960dedaeb19587db7403d75b3d040aa75d65f9d0dc7d9efac7cf7b7b35b6"
     },
@@ -6394,7 +6649,7 @@
     {
       "mode": "0644",
       "path": "zlang/equivalence.py",
-      "sha256": "638081377652b8c15b171a23398e792e5e864b235b6d301610cff73608af5d62"
+      "sha256": "7efad8c1dc34deb83d6122246c6b87e83e789a764197e4ec4ccd573eff294a03"
     },
     {
       "mode": "0644",
@@ -6444,7 +6699,7 @@
     {
       "mode": "0644",
       "path": "zlang/formal_bitvector_rewrite.py",
-      "sha256": "5cf1b6625abd3f135e9e9e1f980091335f31e017c591cfa7f4786b7f439fd885"
+      "sha256": "a25ace5f63b53932caa1955fb93a61b749ffc1b182e02f0284f62d45f61eeca3"
     },
     {
       "mode": "0644",
@@ -6454,7 +6709,7 @@
     {
       "mode": "0644",
       "path": "zlang/formal_configuration.py",
-      "sha256": "ac7ffe4e15df093e3ca9bb4632300bf3365257c82757b2a7fc87359cb0a09264"
+      "sha256": "8cb8bbab25e437544a3f3f4c379a4826ac38199cd93a901d0687d007dfe6d4fe"
     },
     {
       "mode": "0644",
@@ -6488,8 +6743,13 @@
     },
     {
       "mode": "0644",
+      "path": "zlang/formal_fpga_quantizer.py",
+      "sha256": "273e9bd4be5b1342fca44c0222b50d9710c6db41d6886c18a269e90e1b68c5ab"
+    },
+    {
+      "mode": "0644",
       "path": "zlang/formal_joint_value.py",
-      "sha256": "d026f942a644844115b0c774f2b2374bfdb92ba5f33fd13c8e7298745b6355ce"
+      "sha256": "7b76c5ba88fa82d048c390b121b0862896639f4fdeea883290df7a0f0677e7ae"
     },
     {
       "mode": "0644",
@@ -6499,7 +6759,7 @@
     {
       "mode": "0644",
       "path": "zlang/formal_primitive_models.py",
-      "sha256": "fa904caa206bd86069db1dad6fee1ce6df69c18889f7e1c36460a935d71c42b7"
+      "sha256": "d7416b80575f2c13d8db7b126d402a8197dfe217ced93e03fca0089364c01d7d"
     },
     {
       "mode": "0644",
@@ -6514,12 +6774,12 @@
     {
       "mode": "0644",
       "path": "zlang/formal_rtl_arithmetic.py",
-      "sha256": "cdb8b2861b02b022a2e581b0518cba0f0bccbea98aae981b908bbcb097d61b7b"
+      "sha256": "f5511b1d6c938f5502fad047adc72cabd72c76bd7443c5b7905d40789ad98c0c"
     },
     {
       "mode": "0644",
       "path": "zlang/formal_rtl_cones.py",
-      "sha256": "023ee1be0cb85cc0f0d670c22933ee67526d24f88096ad2b0f9166c7eeff9101"
+      "sha256": "504079c8022f027c8aa3b9a49ba752cae10b824b16f3828782d4af3ae0cea1ad"
     },
     {
       "mode": "0644",
@@ -6535,6 +6795,41 @@
       "mode": "0644",
       "path": "zlang/formal_trace.py",
       "sha256": "1fe1732b9c716283db7b0952174f9062dd0b26f4062b96572bf61dd598ccab7a"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/fpga_boards.py",
+      "sha256": "5f6bca96569e976090c1894dec2d203f64210e10208dc1a8d80afa1767464d91"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/fpga_build.py",
+      "sha256": "8006ddb85ca143c18e222a63c291e9b80f3ad3d489c4165bb4ecd59c93a559a9"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/fpga_cli.py",
+      "sha256": "84e21bf5d47d5313670f02660b8a48c512285769b18995b123a144c4f8ccc7a2"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/fpga_gowin.py",
+      "sha256": "a405f6fe7e4c139a76dd27d607c053552327d64328ab0d6ae1e6101f28cf101a"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/fpga_probe.py",
+      "sha256": "30d34ebef53c2c5eca69216a44083051fb77f5dcbac5157a91484d718b27d28a"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/fpga_reports.py",
+      "sha256": "cb3be66442fdf723c92bcd58d9c58a0ea4d46598c653eddfca1172dd1b1e6d2f"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/fpga_toolchain.py",
+      "sha256": "d1a4237cf617c59a839e356871005bd6575a7b02ebcd1ebed51d7192b26d3109"
     },
     {
       "mode": "0644",
@@ -7524,7 +7819,7 @@
     {
       "mode": "0644",
       "path": "zlang/simulation_compare.py",
-      "sha256": "89ce3d83e2929b3bcd61270742da5df78908461ec7b36e94b0a135e71810d0d4"
+      "sha256": "6cff2aba04d5120d13c11556b5a9a171ffee32fc257bf6fdfc309a3151fd3c99"
     },
     {
       "mode": "0644",
@@ -7814,17 +8109,22 @@
     {
       "mode": "0644",
       "path": "zlang/target_candidate_providers.py",
-      "sha256": "ea758ed0236a1322e101301659a2d74aed89a911b5d12f88e6624bd5a1d4bd7e"
+      "sha256": "eb43386b97d487b9a778e7511eb15f50cee5f8a7eadc77168c638337189853a9"
     },
     {
       "mode": "0644",
       "path": "zlang/target_capabilities.py",
-      "sha256": "e3273b3bb0e50a2e45d162dc1dfa957cc79bea255b84688d14319db1ae823a06"
+      "sha256": "4010d8e2cbced02189f1608194e863c9df59ec92be1b83fd9f901e6332ba81d8"
     },
     {
       "mode": "0644",
       "path": "zlang/target_catalog.py",
-      "sha256": "e69c54cdf41bf9fd408a7ef37f824d71de0be9be6bade342b66fa3809889cc4e"
+      "sha256": "cac545f9c82523e1e23d2c3e59a80a804a39efa3c1783a4677277c099243d479"
+    },
+    {
+      "mode": "0644",
+      "path": "zlang/target_fpga_bindings.py",
+      "sha256": "d0ab9f1ba30af91278018ec45ef0e92d434caba1cc2f65f80c01547637c57228"
     },
     {
       "mode": "0644",
@@ -7834,12 +8134,12 @@
     {
       "mode": "0644",
       "path": "zlang/target_mapping_dsp.py",
-      "sha256": "d8ce8bb2c27bfbfa20aa5ca0ecb3bc9e19e6c4e609c8ae0488424cab739a01b5"
+      "sha256": "e8dcf2723cff75fe9e0c60d45c206fcebda4f82154856169469e73a72a9b3894"
     },
     {
       "mode": "0644",
       "path": "zlang/target_mapping_fir.py",
-      "sha256": "2880c1b55054a35f828d9e290b123e8f76cc89bc907ee78ee61af3a22bf45a49"
+      "sha256": "cf4939868687ae5063cdacc303b7c3fcbdcb9ccac7427adf44646078fe3147f7"
     },
     {
       "mode": "0644",
@@ -7849,17 +8149,17 @@
     {
       "mode": "0644",
       "path": "zlang/target_mapping_selection.py",
-      "sha256": "ec73094912aa0a8352326c061de0bb3e2cd912ae176af404ac326df256853c97"
+      "sha256": "0c0f081dd6c334d1f0c447e58e4cbd53dd7605ca313c4a22148909598d891765"
     },
     {
       "mode": "0644",
       "path": "zlang/target_mapping_storage.py",
-      "sha256": "9047c22c1953ff89acfe3f896f3ff7653ca78f4c7fe0082fc2dc180c54bcb722"
+      "sha256": "fcfc748e9d006c44309bd7150906542f40b552ccc0379c2e65726c3322ddb66f"
     },
     {
       "mode": "0644",
       "path": "zlang/target_planner.py",
-      "sha256": "6ab7d18d5a56cdd46c3ba3d7c52402b49b72e344f9ec4e9a16da928fb6d19444"
+      "sha256": "fffa0ba9edc9d2f4ce1b21b4f1d551c3d3f71d917c40ff6e0d7c9023cfb65413"
     },
     {
       "mode": "0644",

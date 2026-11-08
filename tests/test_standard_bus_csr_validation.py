@@ -60,6 +60,23 @@ class SourceAuthoritativeCsrTests(unittest.TestCase):
                 self.assertIn("csr_registers_pulse_value <=", generated)
                 self.assertIn(f"module {frontend}_s", generated)
 
+        from pathlib import Path
+        from zlang.compiler import compile_file
+        from zlang.ir.cdc import ClockDomain
+        from zlang.native_simulation import simulate_cycles
+
+        target = compile_file(Path("stdlib/bus/reg.zhl"), top="RegBusCSRTarget",
+                              root_domain=ClockDomain("clk", "rst")).ir
+        trace = simulate_cycles(target, [
+            {"regbus__request": {"valid": 1, "payload": {
+                "addr": 0, "write": 1, "wdata": 1, "wstrb": 0}},
+             "regbus__response": {"ready": 0}},
+            {"regbus__request": {"valid": 0, "payload": {
+                "addr": 0, "write": 1, "wdata": 1, "wstrb": 0}},
+             "regbus__response": {"ready": 0}},
+        ], reset=(False, False))
+        self.assertEqual(trace[1]["rw_value"], 0)
+
     def test_child_formal_design_retains_state_and_handshake_bindings(self):
         result = compile_source(AXI_TOP)
         target = next(child for child in result.ir.children

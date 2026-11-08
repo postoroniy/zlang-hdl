@@ -8,6 +8,8 @@ arithmetic or change production ABI; it builds private proof-only boundaries.
 from __future__ import annotations
 
 from dataclasses import replace
+from hashlib import sha256
+from pathlib import Path
 from importlib.metadata import PackageNotFoundError, version
 
 from zlang.ir import expressions as e
@@ -17,7 +19,7 @@ from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.target_mapping_identity import _semantic_mapping_identity
 
 
-RTL_ARITHMETIC_PROOF_SCHEMA = "zlang-rtl-arithmetic-normalization-v2"
+RTL_ARITHMETIC_PROOF_SCHEMA = "zlang-rtl-arithmetic-normalization-v4"
 
 
 def validate_physical_joint_value(module, implementation):
@@ -39,13 +41,12 @@ def validate_physical_joint_value(module, implementation):
 def rtl_arithmetic_policy(implementation, solver):
     """Version optional word-level preparation without importing a solver."""
     resources = getattr(implementation, "resources", ())
-    if (
-        solver != "z3"
-        or not resources
-        or not all(
-            dict(item.configuration).get("parallel_bilinear") == 1 for item in resources
-        )
-    ):
+    joint = resources and all(dict(n.configuration).get("parallel_bilinear") == 1 for n in resources)
+    fabric_preadd_reduction = len(resources) > 1 and all(
+        dict(n.configuration).get("realization") == "dsp_plus_fabric"
+        and dict(n.configuration).get("fabric_preadder_bits", 0) > 0 for n in resources
+    )
+    if solver != "z3" or not (joint or fabric_preadd_reduction):
         return None
     try:
         binding_version = version("z3-solver")
@@ -53,6 +54,9 @@ def rtl_arithmetic_policy(implementation, solver):
         return None  # Retain the existing raw SMT route, never a fake proof.
     return {
         "schema": RTL_ARITHMETIC_PROOF_SCHEMA,
+        "checker_sources": {name: sha256((Path(__file__).parent/name).read_bytes()).hexdigest()
+            for name in ("formal_bitvector_rewrite.py", "formal_rtl_cones.py",
+                         "formal_fpga_quantizer.py", "formal_rtl_arithmetic.py", "equivalence.py")},
         "z3_python": binding_version,
         "semantics": "QF_BV",
         "max_cells": 4096,

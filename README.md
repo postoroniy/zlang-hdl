@@ -127,3 +127,7 @@ resulting HDL. Users remain responsible for input code, copied standard-library
 material, third-party content, and other material included in generated output.
 Generated fixtures committed to this repository remain part of the licensed
 repository distribution unless an adjacent notice states otherwise.
+
+Revision-specific Gowin GW1NR9 and Lattice ECP5 external synthesis-to-bitstream
+flows are documented in the [FPGA build guide](docs/fpga-builds.md). Hardware
+acceptance and licensed Gowin EDA execution are separate qualification levels.

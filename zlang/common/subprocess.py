@@ -5,6 +5,31 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+from pathlib import Path
+
+
+def _linux_process(pid):
+    try:
+        # comm may contain spaces or parentheses; field 22 is starttime.
+        text = (Path('/proc') / str(pid) / 'stat').read_text()
+        fields = text[text.rfind(')') + 2:].split()
+        return int(fields[1]), fields[19]
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _owned_descendants(root):
+    """Snapshot children before killing a wrapper; SBY starts separate sessions."""
+    if not Path('/proc/self/stat').is_file():
+        return ()
+    processes = {int(p.name): value for p in Path('/proc').iterdir()
+                 if p.name.isdigit() and (value := _linux_process(int(p.name))) is not None}
+    owned, frontier = [], {root}
+    while frontier:
+        children = {pid for pid, (parent, _) in processes.items() if parent in frontier}
+        owned.extend((pid, processes[pid][1]) for pid in sorted(children))
+        frontier = children
+    return tuple(reversed(owned))
 
 
 def run_bounded_process(args, *, timeout, capture_output=False, check=False, **options):
@@ -22,6 +47,14 @@ def run_bounded_process(args, *, timeout, capture_output=False, check=False, **o
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except BaseException as error:
+            descendants = _owned_descendants(process.pid)
+            for pid, starttime in descendants:
+                identity = _linux_process(pid)
+                if identity is not None and identity[1] == starttime:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
             try:
                 if os.name == "posix":
                     os.killpg(process.pid, signal.SIGKILL)

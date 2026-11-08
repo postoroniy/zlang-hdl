@@ -27,6 +27,7 @@ from zlang.target_capabilities import (
     PhysicalBindingRequirement,
     capabilities_satisfied,
 )
+from zlang.target_fpga_bindings import fpga_dsp_binding, finalize_fpga_graph
 from zlang.targets import (
     TargetArchitectureError,
     map_auto_multiply_configuration,
@@ -72,11 +73,12 @@ def _with_natural_latency(
     """
 
     try:
-        return build(request.exact_latency)
+        graph = build(request.exact_latency)
     except ValueError as error:
         if request.exact_latency is None or "exceeds exact latency" not in str(error):
             raise
-        return build(None)
+        graph = build(None)
+    return finalize_fpga_graph(graph, _exact_resource(request))
 
 
 @dataclass(frozen=True)
@@ -114,13 +116,9 @@ class MultiplyAddProvider:
 
     def build(self, request: CandidateRequest) -> ImplementationGraph:
         resource = _exact_resource(request)
-        if not capabilities_satisfied(
+        if fpga_dsp_binding(resource, self.operation) is None and not capabilities_satisfied(
             resource,
-            (
-                PhysicalBindingRequirement(
-                    "systemverilog", "dsp48e1_explicit", "DSP48E1"
-                ),
-            ),
+            (PhysicalBindingRequirement("systemverilog", "dsp48e1_explicit", "DSP48E1"),),
         ):
             raise TargetArchitectureError(
                 f"resource '{resource.identity}' has no explicit "
@@ -149,13 +147,9 @@ class MultiplyProvider:
 
     def build(self, request: CandidateRequest) -> ImplementationGraph:
         resource = _exact_resource(request)
-        if not capabilities_satisfied(
+        if fpga_dsp_binding(resource, self.operation) is None and not capabilities_satisfied(
             resource,
-            (
-                PhysicalBindingRequirement(
-                    "systemverilog", "dsp48e1_explicit", "DSP48E1"
-                ),
-            ),
+            (PhysicalBindingRequirement("systemverilog", "dsp48e1_explicit", "DSP48E1"),),
         ):
             raise TargetArchitectureError(
                 f"resource '{resource.identity}' has no explicit DSP48E1 "
@@ -201,12 +195,12 @@ class ParallelBilinearProvider:
 
     def build(self, request: CandidateRequest) -> ImplementationGraph:
         resource = _exact_resource(request)
-        if not capabilities_satisfied(resource, (
+        if fpga_dsp_binding(resource, self.operation) is None and not capabilities_satisfied(resource, (
             PhysicalBindingRequirement("systemverilog", "dsp48e1_explicit", "DSP48E1"),
         )):
             raise TargetArchitectureError("parallel products require an explicit DSP48E1 binding")
         from zlang.target_mapping_bilinear import map_parallel_bilinear
-        return map_parallel_bilinear(request)
+        return finalize_fpga_graph(map_parallel_bilinear(request), resource)
 
 
 def _exact_resource(request: CandidateRequest) -> ResourceDefinition:

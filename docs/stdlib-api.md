@@ -14,6 +14,1010 @@ Source availability, successful simulation, synthesis and formal proof are disti
 No universal proof for all generic specializations is implied by this inventory.
 See the linked component contract and [recipes](stdlib-recipes.md) for executable usage.
 
+## `std.arch.ecp5_bilinear`
+
+Import: `import std.arch.ecp5_bilinear`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/ecp5_bilinear.zhl)
+
+### `Ecp5ParallelProductsArchitectureLibrary` — module
+
+```text
+module Ecp5ParallelProductsArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/ecp5_bilinear.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.ecp5_fir`
+
+Import: `import std.arch.ecp5_fir`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/ecp5_fir.zhl)
+
+### `Ecp5FirArchitectureLibrary` — module
+
+```text
+module Ecp5FirArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/ecp5_fir.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.ecp5_memory`
+
+Import: `import std.arch.ecp5_memory`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/ecp5_memory.zhl)
+
+### `Ecp5MemoryArchitectureLibrary` — module
+
+```text
+module Ecp5MemoryArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/ecp5_memory.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.ecp5_multiply`
+
+Import: `import std.arch.ecp5_multiply`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/ecp5_multiply.zhl)
+
+### `Ecp5MultiplyArchitectureLibrary` — module
+
+```text
+module Ecp5MultiplyArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/ecp5_multiply.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.ecp5_multiply_add`
+
+Import: `import std.arch.ecp5_multiply_add`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/ecp5_multiply_add.zhl)
+
+### `Ecp5MultiplyAddArchitectureLibrary` — module
+
+```text
+module Ecp5MultiplyAddArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/ecp5_multiply_add.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.ecp5_signed_product`
+
+Import: `import std.arch.ecp5_signed_product`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/ecp5_signed_product.zhl)
+
+### `Ecp5SignedProductArchitectureLibrary` — module
+
+```text
+module Ecp5SignedProductArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/ecp5_signed_product.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.gowin.dsp`
+
+Import: `import std.arch.gowin.dsp`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/gowin/dsp.zhl)
+
+### `GowinMultiply` — class
+
+Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+
+```text
+architecture GowinMultiply {
+    operation multiply
+    require_resource GowinDSPMacro 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L6) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinMultiplyMREG` — class
+
+```text
+architecture GowinMultiplyMREG {
+    operation multiply
+    require_resource GowinDSPMacro 1
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L13) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinMultiplyMREGOREG` — class
+
+```text
+architecture GowinMultiplyMREGOREG {
+    operation multiply
+    require_resource GowinDSPMacro 1
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L20) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinMultiplyAddFabric` — class
+
+Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+
+```text
+architecture GowinMultiplyAddFabric {
+    operation multiply_add
+    require_resource GowinDSPMacro 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L29) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinMultiplyAddFabricMREG` — class
+
+```text
+architecture GowinMultiplyAddFabricMREG {
+    operation multiply_add
+    require_resource GowinDSPMacro 1
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L36) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinMultiplyAddFabricMREGOREG` — class
+
+```text
+architecture GowinMultiplyAddFabricMREGOREG {
+    operation multiply_add
+    require_resource GowinDSPMacro 1
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L43) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinSignedProductFabric` — class
+
+Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+
+```text
+architecture GowinSignedProductFabric {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 2
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L52) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinSignedProductFabricMREG` — class
+
+```text
+architecture GowinSignedProductFabricMREG {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 2
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L59) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinSignedProductFabricMREGOREG` — class
+
+```text
+architecture GowinSignedProductFabricMREGOREG {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 2
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L66) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinSignedProductFabric4` — class
+
+```text
+architecture GowinSignedProductFabric4 {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L74) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinSignedProductFabric4MREG` — class
+
+```text
+architecture GowinSignedProductFabric4MREG {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 4
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L81) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinSignedProductFabric4MREGOREG` — class
+
+```text
+architecture GowinSignedProductFabric4MREGOREG {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 4
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L88) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinParallelProducts1` — class
+
+```text
+architecture GowinParallelProducts1 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L96) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinParallelProducts2` — class
+
+```text
+architecture GowinParallelProducts2 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 2
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L103) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinParallelProducts3` — class
+
+```text
+architecture GowinParallelProducts3 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 3
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L110) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinParallelProducts4` — class
+
+```text
+architecture GowinParallelProducts4 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L117) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinParallelProducts5` — class
+
+```text
+architecture GowinParallelProducts5 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 5
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L124) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinParallelProducts6` — class
+
+```text
+architecture GowinParallelProducts6 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 6
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L131) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinParallelProducts7` — class
+
+```text
+architecture GowinParallelProducts7 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 7
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L138) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinParallelProducts8` — class
+
+```text
+architecture GowinParallelProducts8 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 8
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L145) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinSymmetricFirFabric` — class
+
+Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+
+```text
+architecture GowinSymmetricFirFabric {
+    operation symmetric_fir_cascade
+    require_resource GowinDSPMacro 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L154) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinSymmetricFirFabricDelay2` — class
+
+```text
+architecture GowinSymmetricFirFabricDelay2 {
+    operation symmetric_fir_cascade
+    require_resource GowinDSPMacro 4
+    latency 2
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L161) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinSymmetricFirFabricDelay3` — class
+
+```text
+architecture GowinSymmetricFirFabricDelay3 {
+    operation symmetric_fir_cascade
+    require_resource GowinDSPMacro 4
+    latency 3
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L168) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinMultiply9` — class
+
+```text
+architecture GowinMultiply9 { operation multiply require_resource GowinDSPMacro 1 latency 1 ii 1 use_pipeline multiply9_unregistered }
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L176) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinMultiply9OREG` — class
+
+```text
+architecture GowinMultiply9OREG { operation multiply require_resource GowinDSPMacro 1 latency 2 ii 1 use_pipeline multiply9_output_registered }
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L178) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinAroraVMultiply` — class
+
+```text
+architecture GowinAroraVMultiply { operation multiply require_resource GowinAroraVDSP 1 latency 1 ii 1 use_pipeline unregistered }
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L180) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinAroraVMultiplyOREG` — class
+
+```text
+architecture GowinAroraVMultiplyOREG { operation multiply require_resource GowinAroraVDSP 1 latency 2 ii 1 use_pipeline output_registered }
+```
+
+[Exact declaration](../stdlib/arch/gowin/dsp.zhl#L182) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.gowin.memory`
+
+Import: `import std.arch.gowin.memory`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/gowin/memory.zhl)
+
+### `GowinBRAM` — class
+
+```text
+architecture GowinBRAM {
+    operation synchronous_memory
+    require_resource GowinBSRAM 1
+    latency 1
+    ii 1
+    use_pipeline core_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/memory.zhl#L6) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinAsyncFifoBRAM` — class
+
+```text
+architecture GowinAsyncFifoBRAM {
+    operation async_fifo_memory
+    require_resource GowinBSRAM 1
+    latency 1
+    ii 1
+    use_pipeline core_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/gowin/memory.zhl#L14) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinAroraVBRAM` — class
+
+```text
+architecture GowinAroraVBRAM { operation synchronous_memory require_resource GowinAroraVBSRAM 1 latency 1 ii 1 use_pipeline core_registered }
+```
+
+[Exact declaration](../stdlib/arch/gowin/memory.zhl#L22) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `GowinGW2ABRAM` — class
+
+```text
+architecture GowinGW2ABRAM { operation synchronous_memory require_resource GowinGW2ABSRAM 1 latency 1 ii 1 use_pipeline core_registered }
+```
+
+[Exact declaration](../stdlib/arch/gowin/memory.zhl#L24) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.gowin_bilinear`
+
+Import: `import std.arch.gowin_bilinear`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/gowin_bilinear.zhl)
+
+### `GowinParallelProductsArchitectureLibrary` — module
+
+```text
+module GowinParallelProductsArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/gowin_bilinear.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.gowin_fir`
+
+Import: `import std.arch.gowin_fir`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/gowin_fir.zhl)
+
+### `GowinFirArchitectureLibrary` — module
+
+```text
+module GowinFirArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/gowin_fir.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.gowin_memory`
+
+Import: `import std.arch.gowin_memory`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/gowin_memory.zhl)
+
+### `GowinMemoryArchitectureLibrary` — module
+
+```text
+module GowinMemoryArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/gowin_memory.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.gowin_multiply`
+
+Import: `import std.arch.gowin_multiply`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/gowin_multiply.zhl)
+
+### `GowinMultiplyArchitectureLibrary` — module
+
+```text
+module GowinMultiplyArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/gowin_multiply.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.gowin_multiply_add`
+
+Import: `import std.arch.gowin_multiply_add`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/gowin_multiply_add.zhl)
+
+### `GowinMultiplyAddArchitectureLibrary` — module
+
+```text
+module GowinMultiplyAddArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/gowin_multiply_add.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.gowin_signed_product`
+
+Import: `import std.arch.gowin_signed_product`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/gowin_signed_product.zhl)
+
+### `GowinSignedProductArchitectureLibrary` — module
+
+```text
+module GowinSignedProductArchitectureLibrary
+```
+
+[Exact declaration](../stdlib/arch/gowin_signed_product.zhl#L3) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.lattice.dsp`
+
+Import: `import std.arch.lattice.dsp`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/lattice/dsp.zhl)
+
+### `Ecp5Multiply` — class
+
+Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+
+```text
+architecture Ecp5Multiply {
+    operation multiply
+    require_resource Ecp5DSPSlice 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L7) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5MultiplyMREG` — class
+
+```text
+architecture Ecp5MultiplyMREG {
+    operation multiply
+    require_resource Ecp5DSPSlice 1
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L14) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5MultiplyMREGOREG` — class
+
+```text
+architecture Ecp5MultiplyMREGOREG {
+    operation multiply
+    require_resource Ecp5DSPSlice 1
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L21) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5MultiplyAddFabric` — class
+
+Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+
+```text
+architecture Ecp5MultiplyAddFabric {
+    operation multiply_add
+    require_resource Ecp5DSPSlice 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L30) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5MultiplyAddFabricMREG` — class
+
+```text
+architecture Ecp5MultiplyAddFabricMREG {
+    operation multiply_add
+    require_resource Ecp5DSPSlice 1
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L37) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5MultiplyAddFabricMREGOREG` — class
+
+```text
+architecture Ecp5MultiplyAddFabricMREGOREG {
+    operation multiply_add
+    require_resource Ecp5DSPSlice 1
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L44) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5SignedProductFabric` — class
+
+Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+
+```text
+architecture Ecp5SignedProductFabric {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 2
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L53) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5SignedProductFabricMREG` — class
+
+```text
+architecture Ecp5SignedProductFabricMREG {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 2
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L60) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5SignedProductFabricMREGOREG` — class
+
+```text
+architecture Ecp5SignedProductFabricMREGOREG {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 2
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L67) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5SignedProductFabric4` — class
+
+```text
+architecture Ecp5SignedProductFabric4 {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L75) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5SignedProductFabric4MREG` — class
+
+```text
+architecture Ecp5SignedProductFabric4MREG {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 4
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L82) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5SignedProductFabric4MREGOREG` — class
+
+```text
+architecture Ecp5SignedProductFabric4MREGOREG {
+    operation signed_product_reduction
+    require_resource Ecp5DSPSlice 4
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L89) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5ParallelProducts1` — class
+
+```text
+architecture Ecp5ParallelProducts1 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L97) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5ParallelProducts2` — class
+
+```text
+architecture Ecp5ParallelProducts2 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 2
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L104) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5ParallelProducts3` — class
+
+```text
+architecture Ecp5ParallelProducts3 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 3
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L111) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5ParallelProducts4` — class
+
+```text
+architecture Ecp5ParallelProducts4 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L118) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5ParallelProducts5` — class
+
+```text
+architecture Ecp5ParallelProducts5 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 5
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L125) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5ParallelProducts6` — class
+
+```text
+architecture Ecp5ParallelProducts6 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 6
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L132) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5ParallelProducts7` — class
+
+```text
+architecture Ecp5ParallelProducts7 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 7
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L139) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5ParallelProducts8` — class
+
+```text
+architecture Ecp5ParallelProducts8 {
+    operation parallel_bilinear
+    require_resource Ecp5DSPSlice 8
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L146) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5SymmetricFirFabric` — class
+
+Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+
+```text
+architecture Ecp5SymmetricFirFabric {
+    operation symmetric_fir_cascade
+    require_resource Ecp5DSPSlice 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L155) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5SymmetricFirFabricDelay2` — class
+
+```text
+architecture Ecp5SymmetricFirFabricDelay2 {
+    operation symmetric_fir_cascade
+    require_resource Ecp5DSPSlice 4
+    latency 2
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L162) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5SymmetricFirFabricDelay3` — class
+
+```text
+architecture Ecp5SymmetricFirFabricDelay3 {
+    operation symmetric_fir_cascade
+    require_resource Ecp5DSPSlice 4
+    latency 3
+    ii 1
+    use_pipeline unregistered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L169) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `LatticeIce40Multiply` — class
+
+```text
+architecture LatticeIce40Multiply { operation multiply require_resource Ice40DSP 1 latency 1 ii 1 use_pipeline unregistered }
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L177) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `LatticeIce40MultiplyOREG` — class
+
+```text
+architecture LatticeIce40MultiplyOREG { operation multiply require_resource Ice40DSP 1 latency 2 ii 1 use_pipeline output_registered }
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L179) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `LatticeNexusMultiply` — class
+
+```text
+architecture LatticeNexusMultiply { operation multiply require_resource NexusDSPBlock 1 latency 1 ii 1 use_pipeline unregistered }
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L181) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `LatticeNexusMultiplyOREG` — class
+
+```text
+architecture LatticeNexusMultiplyOREG { operation multiply require_resource NexusDSPBlock 1 latency 2 ii 1 use_pipeline output_registered }
+```
+
+[Exact declaration](../stdlib/arch/lattice/dsp.zhl#L183) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+## `std.arch.lattice.memory`
+
+Import: `import std.arch.lattice.memory`.
+
+[Component contracts](fpga-architecture-profiles.md) · [Source](../stdlib/arch/lattice/memory.zhl)
+
+### `Ecp5BRAM` — class
+
+```text
+architecture Ecp5BRAM {
+    operation synchronous_memory
+    require_resource Ecp5EBR 1
+    latency 1
+    ii 1
+    use_pipeline core_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/memory.zhl#L6) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `Ecp5AsyncFifoBRAM` — class
+
+```text
+architecture Ecp5AsyncFifoBRAM {
+    operation async_fifo_memory
+    require_resource Ecp5EBR 1
+    latency 1
+    ii 1
+    use_pipeline core_registered
+}
+```
+
+[Exact declaration](../stdlib/arch/lattice/memory.zhl#L14) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `LatticeIce40BRAM` — class
+
+```text
+architecture LatticeIce40BRAM { operation synchronous_memory require_resource Ice40EBR 1 latency 1 ii 1 use_pipeline core_registered }
+```
+
+[Exact declaration](../stdlib/arch/lattice/memory.zhl#L22) · [Contract and restrictions](fpga-architecture-profiles.md)
+
+### `LatticeNexusBRAM` — class
+
+```text
+architecture LatticeNexusBRAM { operation synchronous_memory require_resource NexusEBR 1 latency 1 ii 1 use_pipeline core_registered }
+```
+
+[Exact declaration](../stdlib/arch/lattice/memory.zhl#L24) · [Contract and restrictions](fpga-architecture-profiles.md)
+
 ## `std.arch.xilinx7_bilinear`
 
 Import: `import std.arch.xilinx7_bilinear`.
@@ -951,7 +1955,7 @@ out axi_w : rv<W>
 in axi_b : rv<B>
 ```
 
-[Exact declaration](../stdlib/bus/axi4.zhl#L496) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4.zhl#L493) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4WriteManagerWithUser` — module
 
@@ -969,7 +1973,7 @@ out protocol_error : bit
 interface axi : AXI4WriteWithUser<AW,DW,WIW,AWUW,WUW,BUW>.master
 ```
 
-[Exact declaration](../stdlib/bus/axi4.zhl#L602) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4.zhl#L599) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4Manager` — module
 
@@ -989,7 +1993,7 @@ out protocol_error : bit = reader.protocol_error | writer.protocol_error
 interface axi : AXI4<AW,DW,RIW,WIW>.master
 ```
 
-[Exact declaration](../stdlib/bus/axi4.zhl#L632) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4.zhl#L629) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4ManagerWithUser` — module
 
@@ -1010,7 +2014,7 @@ out protocol_error : bit = reader.protocol_error | writer.protocol_error
 interface axi : AXI4WithUser<AW,DW,RIW,WIW,AWUW,WUW,BUW,ARUW,RUW>.master
 ```
 
-[Exact declaration](../stdlib/bus/axi4.zhl#L670) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4.zhl#L667) · [Contract and restrictions](standard-bus-library.md)
 
 ## `std.bus.axi4_exclusive`
 
@@ -1400,7 +2404,7 @@ slot : bits<SW>
 address : Axi4Address<AW,WIW>
 ```
 
-[Exact declaration](../stdlib/bus/axi4_subordinate.zhl#L144) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_subordinate.zhl#L151) · [Contract and restrictions](standard-bus-library.md)
 
 ### `Axi4BackendWriteBeat` — struct
 
@@ -1412,7 +2416,7 @@ strb : bits<DW/8>
 last : bit
 ```
 
-[Exact declaration](../stdlib/bus/axi4_subordinate.zhl#L149) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_subordinate.zhl#L156) · [Contract and restrictions](standard-bus-library.md)
 
 ### `Axi4BackendWriteResult` — struct
 
@@ -1422,7 +2426,7 @@ slot : bits<SW>
 resp : bits<2>
 ```
 
-[Exact declaration](../stdlib/bus/axi4_subordinate.zhl#L156) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_subordinate.zhl#L163) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4WriteSubordinate` — module
 
@@ -1441,7 +2445,7 @@ out protocol_error : bit
 interface axi : AXI4Write<AW,DW,WIW>.slave
 ```
 
-[Exact declaration](../stdlib/bus/axi4_subordinate.zhl#L161) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_subordinate.zhl#L168) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4Subordinate` — module
 
@@ -1464,7 +2468,7 @@ out protocol_error : bit = reader.protocol_error | writer.protocol_error
 interface axi : AXI4<AW,DW,RIW,WIW>.slave
 ```
 
-[Exact declaration](../stdlib/bus/axi4_subordinate.zhl#L340) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_subordinate.zhl#L354) · [Contract and restrictions](standard-bus-library.md)
 
 ## `std.bus.axi4_user_subordinate`
 
@@ -1520,7 +2524,7 @@ slot : bits<SW>
 address : Axi4AddressUser<AW,WIW,AWUW>
 ```
 
-[Exact declaration](../stdlib/bus/axi4_user_subordinate.zhl#L136) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_user_subordinate.zhl#L143) · [Contract and restrictions](standard-bus-library.md)
 
 ### `Axi4BackendWriteBeatUser` — struct
 
@@ -1533,7 +2537,7 @@ last : bit
 user : bits<WUW>
 ```
 
-[Exact declaration](../stdlib/bus/axi4_user_subordinate.zhl#L141) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_user_subordinate.zhl#L148) · [Contract and restrictions](standard-bus-library.md)
 
 ### `Axi4BackendWriteResultUser` — struct
 
@@ -1544,7 +2548,7 @@ resp : bits<2>
 user : bits<BUW>
 ```
 
-[Exact declaration](../stdlib/bus/axi4_user_subordinate.zhl#L149) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_user_subordinate.zhl#L156) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4WriteSubordinateWithUser` — module
 
@@ -1562,7 +2566,7 @@ out protocol_error : bit
 interface axi : AXI4WriteWithUser<AW,DW,WIW,AWUW,WUW,BUW>.slave
 ```
 
-[Exact declaration](../stdlib/bus/axi4_user_subordinate.zhl#L155) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_user_subordinate.zhl#L162) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4SubordinateWithUser` — module
 
@@ -1584,7 +2588,7 @@ out protocol_error : bit = reader.protocol_error | writer.protocol_error
 interface axi : AXI4WithUser<AW,DW,RIW,WIW,AWUW,WUW,BUW,ARUW,RUW>.slave
 ```
 
-[Exact declaration](../stdlib/bus/axi4_user_subordinate.zhl#L325) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_user_subordinate.zhl#L339) · [Contract and restrictions](standard-bus-library.md)
 
 ## `std.bus.axi_burst`
 
@@ -2014,7 +3018,7 @@ The core CSR declaration is the sole authority for the fixture's address, reset,
 module RegBusCSRBank
 ```
 
-[Exact declaration](../stdlib/bus/reg.zhl#L61) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/reg.zhl#L77) · [Contract and restrictions](standard-bus-library.md)
 
 ### `RegBusCSRTarget` — module
 
@@ -2027,7 +3031,7 @@ out pulse : bit
 interface regbus : RegBus<AW,DW>.responder
 ```
 
-[Exact declaration](../stdlib/bus/reg.zhl#L78) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/reg.zhl#L94) · [Contract and restrictions](standard-bus-library.md)
 
 ## `std.bus.wishbone`
 
@@ -5696,6 +6700,374 @@ module GenericTargetLibrary
 
 [Exact declaration](../stdlib/target/generic.zhl#L52) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
 
+## `std.target.gowin.arora_v`
+
+Import: `import std.target.gowin.arora_v`.
+
+[Component contracts](../docs/target-platform-architecture-description.md) · [Source](../stdlib/target/gowin/arora_v.zhl)
+
+### `GowinAroraVDSP` — class
+
+DS1103 product resources; UG305-1.0.1E; UG300-1.3.6E. MULT12X12 is signed-only: unsigned operands require zero-extension (u11 max). Reserve one complete DSP, including both 12x12 multiplier sites. https://www.gowinsemi.com/en/product/arora-v-fpga/ https://cdn.gowinsemi.com.cn/UG305E.pdf https://cdn.gowinsemi.com.cn/UG300E.pdf
+
+```text
+resource GowinAroraVDSP {
+    port a input signed 12
+    port b input signed 12
+    port p output signed 24
+    class dsp_mac
+    operation multiply
+    capability signed true
+    capability unsigned true
+    capability unsigned_native false
+    capability physical_architectures multiply
+    capability arithmetic_realization dsp_plus_fabric
+    capability candidate_scope target_only
+    capability pipeline_selection declared_when_explicit
+    capability inventory_unit whole_macro
+    capability hard_multipliers_per_macro 2
+    capability clock_enable constant_high
+    capability reset synchronous_active_high
+    limit preadder 12
+    limit multiplier_a 12
+    limit multiplier_b 12
+    limit product 24
+    limit accumulator 24
+    pipeline_site product_output location multiply_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config unregistered latency 0 ii 1
+    pipeline_config output_registered latency 1 ii 1 enable product_output setting product_oreg 1
+    binding systemverilog gowin_v_dsp_fabric
+    physical_primitive MULT12X12
+}
+```
+
+[Exact declaration](../stdlib/target/gowin/arora_v.zhl#L7) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinAroraVBSRAM` — class
+
+```text
+resource GowinAroraVBSRAM {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 18432
+    capability port_modes simple_dual
+    capability widths 16
+    capability depth_width_16 256
+    capability qualified_depth 256
+    capability synchronous_read true
+    capability output_register optional
+    capability initialization true
+    capability selected_byte_masks unsupported
+    capability same_clock_collision write_first
+    capability candidate_scope target_only
+    capability reset_contents preserve
+    pipeline_config core_registered latency 0 ii 1
+    binding systemverilog gowin_v_bram_inference
+}
+```
+
+[Exact declaration](../stdlib/target/gowin/arora_v.zhl#L35) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinAroraV` — class
+
+```text
+target GowinAroraV { provides GowinAroraVDSP provides GowinAroraVBSRAM }
+```
+
+[Exact declaration](../stdlib/target/gowin/arora_v.zhl#L53) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `gw5a_lv25mg121nc1` — object
+
+```text
+device gw5a_lv25mg121nc1 : GowinAroraV { part GW5A-LV25MG121NC1 inventory GowinAroraVDSP 28 inventory GowinAroraVBSRAM 56 }
+```
+
+[Exact declaration](../stdlib/target/gowin/arora_v.zhl#L54) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+## `std.target.gowin.gw1nr9`
+
+Import: `import std.target.gowin.gw1nr9`.
+
+[Component contracts](../docs/target-platform-architecture-description.md) · [Source](../stdlib/target/gowin/gw1nr9.zhl)
+
+### `GowinLUT4` — class
+
+Gowin DS117-3.2.5E, Table 1-1: GW1NR-9 resources. Bounded DSP + fabric and BSRAM bindings are supported; clock generation is unsupported.
+
+```text
+resource GowinLUT4 { class logic operation combinational_logic capability inputs 4 binding systemverilog generic_rtl }
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L3) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinFF` — class
+
+```text
+resource GowinFF { class register operation register binding systemverilog generic_rtl }
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L4) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinMult18` — class
+
+```text
+resource GowinMult18 { class multiplier operation multiply limit multiplier_a 18 limit multiplier_b 18 binding systemverilog unsupported }
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L5) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinBSRAM` — class
+
+```text
+resource GowinBSRAM {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 18432
+    capability port_modes single.simple_dual.true_dual
+    capability widths 1.2.4.8.9.16.18.32.36
+    capability widths_true_dual 1.2.4.8.9.16.18
+    capability depth_width_1 16384
+    capability depth_width_2 8192
+    capability depth_width_4 4096
+    capability depth_width_8 2048
+    capability depth_width_9 2048
+    capability depth_width_16 1024
+    capability depth_width_18 1024
+    capability depth_width_32 512
+    capability depth_width_36 512
+    capability synchronous_read true
+    capability output_register optional
+    capability initialization true
+    capability byte_write_enable true
+    capability selected_byte_masks unsupported
+    capability read_during_write write_first.no_change
+    capability same_clock_collision write_first.no_change
+    capability read_first_shared_address true
+    capability read_first_widths 8.9.16.18.32.36
+    capability cross_clock_collision unspecified
+    capability fifo_registered_read true
+    capability candidate_scope target_only
+    capability reset_contents preserve
+    pipeline_site output location memory_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config core_registered latency 0 ii 1
+    binding systemverilog gowin_bram_inference
+}
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L6) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinPLL` — class
+
+```text
+resource GowinPLL { class clock_generator operation clock_multiply_divide binding systemverilog unsupported }
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L39) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinDSPMacro` — class
+
+A bound node reserves one whole macro/slice. Its one multiplier is hard; pre-add/reduction/addend arithmetic is explicit fabric, never a hard cascade. Supported DSP pipelines bypass input registers; native FIR registers are unsupported.
+
+```text
+resource GowinDSPMacro {
+    port a input signed 18
+    port d input signed 18
+    port b input signed 18
+    port c input signed 54
+    port pcin input signed 54
+    port p output signed 54
+    port pcout output signed 54
+    class dsp_mac
+    operation preadd_multiply_accumulate
+    capability signed true
+    capability unsigned true
+    capability unsigned_native true
+    capability preadder true
+    capability accumulator true
+    capability accumulator_modes accumulator_plus_product.accumulator_minus_product.product_minus_accumulator
+    capability physical_architectures multiply.multiply_add.signed_product_reduction.symmetric_fir_cascade.parallel_bilinear
+    capability arithmetic_realization dsp_plus_fabric
+    capability candidate_scope target_only
+    capability pipeline_selection declared_when_explicit
+    capability inventory_unit whole_macro
+    capability dsp_metric_unit mult18x18
+    capability hard_multipliers_per_macro 2
+    capability hard_accumulator_width 54
+    capability hard_preadder_width 18
+    capability input_register_qualification unavailable
+    capability fir_native_pipeline_qualification unavailable
+    capability clock_enable constant_high
+    capability reset synchronous_active_high
+    limit preadder 18
+    limit multiplier_a 18
+    limit multiplier_b 18
+    limit product 36
+    limit accumulator 54
+    pipeline_site multiply location multiply latency 1 ii 1 local true delay_ps 0
+    pipeline_site product_output location multiply_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config unregistered latency 0 ii 1
+    pipeline_config multiply_registered latency 1 ii 1 enable multiply setting mreg 1
+    pipeline_config multiply_output_registered latency 2 ii 1 enable multiply enable product_output setting mreg 1 setting product_oreg 1
+    pipeline_config multiply9_unregistered latency 0 ii 1 setting primitive_width 9
+    pipeline_config multiply9_output_registered latency 1 ii 1 enable product_output setting primitive_width 9 setting product_oreg 1
+    binding systemverilog gowin_dsp_fabric
+    physical_primitive MULT18X18
+    physical_site multiply PIPE_REG
+    physical_site product_output OUT_REG
+}
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L43) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinCarry` — class
+
+```text
+resource GowinCarry { class arithmetic_chain operation carry capability implementation fabric_carry_chain binding systemverilog generic_rtl }
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L89) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinDistributedRAM` — class
+
+```text
+resource GowinDistributedRAM { class distributed_memory operation synchronous_ram capability capacity_bits 64 capability widths 1.2.4 capability depth_max 16 capability synchronous_read false capability initialization true binding systemverilog generic_rtl }
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L90) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinShiftRegisterFabric` — class
+
+```text
+resource GowinShiftRegisterFabric { class shift_register operation delay capability implementation fabric_registers capability hard_shift_register false binding systemverilog generic_rtl }
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L91) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinClockBuffer` — class
+
+```text
+resource GowinClockBuffer { class clock_buffer operation clock_buffer capability configuration external_tool_owned binding systemverilog unsupported }
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L92) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinGW1NR9` — class
+
+```text
+target GowinGW1NR9 {
+    provides GowinLUT4
+    provides GowinFF
+    provides GowinMult18
+    provides GowinBSRAM
+    provides GowinPLL
+    provides GowinDSPMacro
+    provides GowinCarry
+    provides GowinDistributedRAM
+    provides GowinShiftRegisterFabric
+    provides GowinClockBuffer
+}
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L94) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `gw1nr_lv9qn88pc6` — object
+
+'/' in a commercial/industrial order code is recorded by the board product.
+
+```text
+device gw1nr_lv9qn88pc6 : GowinGW1NR9 {
+    part GW1NR-LV9QN88PC6
+    inventory GowinLUT4 8640
+    inventory GowinFF 6480
+    inventory GowinMult18 20
+    inventory GowinDSPMacro 10
+    inventory GowinBSRAM 26
+    inventory GowinPLL 2
+}
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L107) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `gw1nr_lv9qn88pc7` — object
+
+The manufacturer BRS/EPM11 reference projects select C7/I6, not C6/I5.
+
+```text
+device gw1nr_lv9qn88pc7 : GowinGW1NR9 {
+    part GW1NR-LV9QN88PC7
+    inventory GowinLUT4 8640
+    inventory GowinFF 6480
+    inventory GowinMult18 20
+    inventory GowinDSPMacro 10
+    inventory GowinBSRAM 26
+    inventory GowinPLL 2
+}
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L117) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinGW1NR9TargetLibrary` — module
+
+```text
+module GowinGW1NR9TargetLibrary
+```
+
+[Exact declaration](../stdlib/target/gowin/gw1nr9.zhl#L126) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+## `std.target.gowin.gw2a`
+
+Import: `import std.target.gowin.gw2a`.
+
+[Component contracts](../docs/target-platform-architecture-description.md) · [Source](../stdlib/target/gowin/gw2a.zhl)
+
+### `GowinGW2ABSRAM` — class
+
+```text
+resource GowinGW2ABSRAM {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 18432
+    capability port_modes simple_dual
+    capability widths 16
+    capability depth_width_16 256
+    capability qualified_depth 256
+    capability synchronous_read true
+    capability output_register optional
+    capability initialization true
+    capability selected_byte_masks unsupported
+    capability same_clock_collision write_first
+    capability candidate_scope target_only
+    capability reset_contents preserve
+    pipeline_config core_registered latency 0 ii 1
+    binding systemverilog gowin_bram_inference
+}
+```
+
+[Exact declaration](../stdlib/target/gowin/gw2a.zhl#L6) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `GowinGW2A` — class
+
+```text
+target GowinGW2A {
+    provides GowinDSPMacro
+    provides GowinGW2ABSRAM
+}
+```
+
+[Exact declaration](../stdlib/target/gowin/gw2a.zhl#L24) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `gw2a_lv18pg256c8` — object
+
+```text
+device gw2a_lv18pg256c8 : GowinGW2A {
+    part GW2A-LV18PG256C8
+    inventory GowinDSPMacro 24
+    inventory GowinGW2ABSRAM 46
+}
+```
+
+[Exact declaration](../stdlib/target/gowin/gw2a.zhl#L28) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
 ## `std.target.intel.cyclone_v`
 
 Import: `import std.target.intel.cyclone_v`.
@@ -5819,6 +7191,411 @@ module IntelCycloneVTargetLibrary
 ```
 
 [Exact declaration](../stdlib/target/intel/cyclone_v.zhl#L61) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+## `std.target.lattice.ecp5`
+
+Import: `import std.target.lattice.ecp5`.
+
+[Component contracts](../docs/target-platform-architecture-description.md) · [Source](../stdlib/target/lattice/ecp5.zhl)
+
+### `Ecp5LUT4` — class
+
+Lattice FPGA-DS-02012-3.4, Table 1.1 and section 2.2.1. Vendor rounds LUT counts to 24K/84K; exact LUT/register site counts below are the pinned Trellis/nextpnr device inventory (24288/83640). One LUT4 and one PFU register per logic site. IO registers are not added. 18x18 multiplier counts are NOT counts of sysDSP slices (two per slice).
+
+```text
+resource Ecp5LUT4 { class logic operation combinational_logic capability inputs 4 binding systemverilog generic_rtl }
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L6) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ecp5FF` — class
+
+```text
+resource Ecp5FF { class register operation register binding systemverilog generic_rtl }
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L7) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ecp5Mult18` — class
+
+```text
+resource Ecp5Mult18 { class multiplier operation multiply limit multiplier_a 18 limit multiplier_b 18 binding systemverilog unsupported }
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L8) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ecp5EBR` — class
+
+```text
+resource Ecp5EBR {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 18432
+    capability port_modes single.simple_dual.true_dual
+    capability widths 1.2.4.8.9.16.18.32.36
+    capability widths_true_dual 1.2.4.8.9.16.18
+    capability depth_width_1 16384
+    capability depth_width_2 8192
+    capability depth_width_4 4096
+    capability depth_width_8 2048
+    capability depth_width_9 2048
+    capability depth_width_16 1024
+    capability depth_width_18 1024
+    capability depth_width_32 512
+    capability depth_width_36 512
+    capability synchronous_read true
+    capability output_register optional
+    capability initialization true
+    capability byte_write_enable true
+    capability selected_byte_masks unsupported
+    capability read_during_write write_first.no_change
+    capability same_clock_collision write_first.no_change
+    capability read_first_shared_address true
+    capability read_first_widths 8.9.16.18.32.36
+    capability cross_clock_collision unspecified
+    capability fifo_registered_read true
+    capability candidate_scope target_only
+    capability reset_contents preserve
+    pipeline_site output location memory_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config core_registered latency 0 ii 1
+    binding systemverilog ecp5_bram_inference
+}
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L9) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ecp5PLL` — class
+
+```text
+resource Ecp5PLL { class clock_generator operation clock_multiply_divide binding systemverilog unsupported }
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L42) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ecp5DLL` — class
+
+```text
+resource Ecp5DLL { class clock_generator operation clock_delay binding systemverilog unsupported }
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L43) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ecp5DSPSlice` — class
+
+A bound node reserves one whole macro/slice. Its one multiplier is hard; pre-add/reduction/addend arithmetic is explicit fabric, never a hard cascade. Supported DSP pipelines bypass input registers; native FIR registers are unsupported.
+
+```text
+resource Ecp5DSPSlice {
+    port a input signed 18
+    port d input signed 18
+    port b input signed 18
+    port c input signed 54
+    port pcin input signed 54
+    port p output signed 54
+    port pcout output signed 54
+    class dsp_mac
+    operation preadd_multiply_accumulate
+    capability signed true
+    capability unsigned true
+    capability unsigned_native true
+    capability preadder true
+    capability accumulator true
+    capability accumulator_modes accumulator_plus_product.accumulator_minus_product.product_minus_accumulator
+    capability physical_architectures multiply.multiply_add.signed_product_reduction.symmetric_fir_cascade.parallel_bilinear
+    capability arithmetic_realization dsp_plus_fabric
+    capability candidate_scope target_only
+    capability pipeline_selection declared_when_explicit
+    capability inventory_unit whole_macro
+    capability dsp_metric_unit mult18x18
+    capability hard_multipliers_per_macro 2
+    capability hard_accumulator_width 54
+    capability hard_preadder_width 18
+    capability input_register_qualification unavailable
+    capability fir_native_pipeline_qualification unavailable
+    capability clock_enable constant_high
+    capability reset synchronous_active_high
+    limit preadder 18
+    limit multiplier_a 18
+    limit multiplier_b 18
+    limit product 36
+    limit accumulator 54
+    pipeline_site multiply location multiply latency 1 ii 1 local true delay_ps 0
+    pipeline_site product_output location multiply_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config unregistered latency 0 ii 1
+    pipeline_config multiply_registered latency 1 ii 1 enable multiply setting mreg 1
+    pipeline_config multiply_output_registered latency 2 ii 1 enable multiply enable product_output setting mreg 1 setting product_oreg 1
+    binding systemverilog ecp5_dsp_fabric
+    physical_primitive MULT18X18D
+    physical_site multiply REG_PIPELINE_CLK
+    physical_site product_output REG_OUTPUT_CLK
+}
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L47) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ecp5Carry` — class
+
+```text
+resource Ecp5Carry { class arithmetic_chain operation carry capability implementation fabric_carry_chain binding systemverilog generic_rtl }
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L91) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ecp5DistributedRAM` — class
+
+```text
+resource Ecp5DistributedRAM { class distributed_memory operation synchronous_ram capability capacity_bits 64 capability widths 1.2.4 capability depth_max 16 capability synchronous_read false capability initialization true binding systemverilog generic_rtl }
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L92) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ecp5ShiftRegisterFabric` — class
+
+```text
+resource Ecp5ShiftRegisterFabric { class shift_register operation delay capability implementation fabric_registers capability hard_shift_register false binding systemverilog generic_rtl }
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L93) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ecp5ClockBuffer` — class
+
+```text
+resource Ecp5ClockBuffer { class clock_buffer operation clock_buffer capability configuration external_tool_owned binding systemverilog unsupported }
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L94) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `LatticeECP5` — class
+
+```text
+target LatticeECP5 {
+    provides Ecp5LUT4
+    provides Ecp5FF
+    provides Ecp5Mult18
+    provides Ecp5EBR
+    provides Ecp5PLL
+    provides Ecp5DLL
+    provides Ecp5DSPSlice
+    provides Ecp5Carry
+    provides Ecp5DistributedRAM
+    provides Ecp5ShiftRegisterFabric
+    provides Ecp5ClockBuffer
+}
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L96) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `lfe5u_25f_8mg285c` — object
+
+```text
+device lfe5u_25f_8mg285c : LatticeECP5 {
+    part LFE5U-25F-8MG285C
+    inventory Ecp5LUT4 24288
+    inventory Ecp5FF 24288
+    inventory Ecp5Mult18 28
+    inventory Ecp5DSPSlice 14
+    inventory Ecp5EBR 56
+    inventory Ecp5PLL 2
+    inventory Ecp5DLL 2
+}
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L109) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `lfe5u_85f_8mg285` — object
+
+OrangeCrab's pinned 85F variant BOM does not specify temperature suffix C/I.
+
+```text
+device lfe5u_85f_8mg285 : LatticeECP5 {
+    part LFE5U-85F-8MG285
+    inventory Ecp5LUT4 83640
+    inventory Ecp5FF 83640
+    inventory Ecp5Mult18 156
+    inventory Ecp5DSPSlice 78
+    inventory Ecp5EBR 208
+    inventory Ecp5PLL 4
+    inventory Ecp5DLL 4
+}
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L120) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `LatticeECP5TargetLibrary` — module
+
+```text
+module LatticeECP5TargetLibrary
+```
+
+[Exact declaration](../stdlib/target/lattice/ecp5.zhl#L130) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+## `std.target.lattice.ice40`
+
+Import: `import std.target.lattice.ice40`.
+
+[Component contracts](../docs/target-platform-architecture-description.md) · [Source](../stdlib/target/lattice/ice40.zhl)
+
+### `Ice40DSP` — class
+
+FPGA-DS-02008 Table 2.1; FPGA-TN-02007; FPGA-TN-02002. https://www.latticesemi.com/view_document?document_id=51968 https://www.latticesemi.com/view_document?document_id=50669 https://www.latticesemi.com/view_document?document_id=47775
+
+```text
+resource Ice40DSP {
+    port a input signed 16
+    port b input signed 16
+    port p output signed 32
+    class dsp_mac
+    operation multiply
+    capability signed true
+    capability unsigned true
+    capability unsigned_native true
+    capability physical_architectures multiply
+    capability arithmetic_realization dsp_plus_fabric
+    capability candidate_scope target_only
+    capability pipeline_selection declared_when_explicit
+    capability inventory_unit whole_macro
+    capability hard_multipliers_per_macro 1
+    capability clock_enable constant_high
+    capability reset synchronous_active_high
+    limit preadder 16
+    limit multiplier_a 16
+    limit multiplier_b 16
+    limit product 32
+    limit accumulator 32
+    pipeline_site product_output location multiply_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config unregistered latency 0 ii 1
+    pipeline_config output_registered latency 1 ii 1 enable product_output setting product_oreg 1
+    binding systemverilog ice40_dsp_fabric
+    physical_primitive SB_MAC16
+}
+```
+
+[Exact declaration](../stdlib/target/lattice/ice40.zhl#L5) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `Ice40EBR` — class
+
+```text
+resource Ice40EBR {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 4096
+    capability port_modes simple_dual
+    capability widths 16
+    capability depth_width_16 256
+    capability qualified_depth 256
+    capability synchronous_read true
+    capability output_register optional
+    capability initialization true
+    capability selected_byte_masks unsupported
+    capability same_clock_collision write_first
+    capability candidate_scope target_only
+    capability reset_contents preserve
+    pipeline_config core_registered latency 0 ii 1
+    binding systemverilog ice40_bram_inference
+}
+```
+
+[Exact declaration](../stdlib/target/lattice/ice40.zhl#L33) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `LatticeIce40` — class
+
+```text
+target LatticeIce40 { provides Ice40DSP provides Ice40EBR }
+```
+
+[Exact declaration](../stdlib/target/lattice/ice40.zhl#L51) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `ice40up5k_sg48i` — object
+
+```text
+device ice40up5k_sg48i : LatticeIce40 { part ICE40UP5K-SG48I inventory Ice40DSP 8 inventory Ice40EBR 30 }
+```
+
+[Exact declaration](../stdlib/target/lattice/ice40.zhl#L52) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+## `std.target.lattice.nexus`
+
+Import: `import std.target.lattice.nexus`.
+
+[Component contracts](../docs/target-platform-architecture-description.md) · [Source](../stdlib/target/lattice/nexus.zhl)
+
+### `NexusDSPBlock` — class
+
+FPGA-DS-02049-2.5 Table 1.1; FPGA-TN-02096-1.7; FPGA-TN-02094-1.8. 56 18x18 multipliers = 14 whole sysDSP blocks; reserve a whole block. https://www.latticesemi.com/view_document?document_id=52780 https://www.latticesemi.com/view_document?document_id=52791 https://www.latticesemi.com/view_document?document_id=52785
+
+```text
+resource NexusDSPBlock {
+    port a input signed 18
+    port b input signed 18
+    port p output signed 36
+    class dsp_mac
+    operation multiply
+    capability signed true
+    capability unsigned true
+    capability unsigned_native true
+    capability physical_architectures multiply
+    capability arithmetic_realization dsp_plus_fabric
+    capability candidate_scope target_only
+    capability pipeline_selection declared_when_explicit
+    capability inventory_unit whole_macro
+    capability hard_multipliers_per_macro 4
+    capability clock_enable constant_high
+    capability reset synchronous_active_high
+    limit preadder 18
+    limit multiplier_a 18
+    limit multiplier_b 18
+    limit product 36
+    limit accumulator 36
+    pipeline_site product_output location multiply_output latency 1 ii 1 local true delay_ps 0
+    pipeline_config unregistered latency 0 ii 1
+    pipeline_config output_registered latency 1 ii 1 enable product_output setting product_oreg 1
+    binding systemverilog nexus_dsp_fabric
+    physical_primitive MULT18X18
+}
+```
+
+[Exact declaration](../stdlib/target/lattice/nexus.zhl#L6) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `NexusEBR` — class
+
+```text
+resource NexusEBR {
+    class block_memory
+    operation synchronous_ram
+    capability capacity_bits 18432
+    capability port_modes simple_dual
+    capability widths 16
+    capability depth_width_16 256
+    capability qualified_depth 256
+    capability synchronous_read true
+    capability output_register optional
+    capability initialization true
+    capability selected_byte_masks unsupported
+    capability same_clock_collision write_first
+    capability candidate_scope target_only
+    capability reset_contents preserve
+    pipeline_config core_registered latency 0 ii 1
+    binding systemverilog nexus_bram_inference
+}
+```
+
+[Exact declaration](../stdlib/target/lattice/nexus.zhl#L34) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `LatticeNexus` — class
+
+```text
+target LatticeNexus { provides NexusDSPBlock provides NexusEBR }
+```
+
+[Exact declaration](../stdlib/target/lattice/nexus.zhl#L52) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
+
+### `lifcl_40_9bg400c` — object
+
+```text
+device lifcl_40_9bg400c : LatticeNexus { part LIFCL-40-9BG400C inventory NexusDSPBlock 14 inventory NexusEBR 84 }
+```
+
+[Exact declaration](../stdlib/target/lattice/nexus.zhl#L53) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
 
 ## `std.target.xilinx.series7`
 
@@ -6059,4 +7836,4 @@ module Xc7z030TargetLibrary
 
 [Exact declaration](../stdlib/target/xilinx/xc7z030.zhl#L19) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
 
-Inventory: 80 source namespaces; 423 top-level declarations.
+Inventory: 102 source namespaces; 541 top-level declarations.

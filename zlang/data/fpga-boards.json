@@ -1,0 +1,301 @@
+{
+  "boards": {
+    "brs-100-gw1nr9-r1.0": {
+      "clock": "clk",
+      "clock_mhz": 27,
+      "device": "GW1NR-LV9QN88PC7/I6",
+      "family": "gowin",
+      "hardware_status": "UNKNOWN",
+      "led_polarity": "active_low",
+      "package": "QFN88P",
+      "pins": {
+        "clk": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "52",
+          "pull_up": false
+        },
+        "led": {
+          "direction": "output",
+          "io_standard": "LVCMOS33",
+          "pad": "16",
+          "pull_up": false
+        },
+        "rst_n": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "3",
+          "pull_up": true
+        }
+      },
+      "programming": "openFPGALoader -b brs-100-gw1nr9 -m (volatile SRAM); on-board USB JTAG; firmware/cable required",
+      "reset": "rst_n",
+      "reset_mode": "synchronous",
+      "reset_polarity": "active_low",
+      "revision": "1.0",
+      "sources": [
+        {
+          "facts": "C7/I6 part, 27 MHz clock pin52, button3, LED16, LVCMOS33",
+          "revision": "a1663a75fcf81a8c876d3191abbd4cc0370a57cb",
+          "url": "https://github.com/BrisbaneSilicon/BRS-100-GW1NR9/tree/a1663a75fcf81a8c876d3191abbd4cc0370a57cb"
+        },
+        {
+          "facts": "revision1.0, 2025-07-01, 3.3V IO",
+          "sha256": "f9c34e45c4cdc63480dc5f759984027ad38ec18f877acaf7d9cf2475bbe5de49",
+          "url": "https://brisbanesilicon.com.au/docs/BRS-100-GW1NR9_Schematic.pdf"
+        }
+      ],
+      "target": "gw1nr_lv9qn88pc7"
+    },
+    "epm11-r1.0": {
+      "clock": "clk",
+      "clock_mhz": 27,
+      "device": "GW1NR-LV9QN88PC7/I6",
+      "family": "gowin",
+      "hardware_status": "UNKNOWN",
+      "led_polarity": "active_low",
+      "package": "QFN88P",
+      "pins": {
+        "clk": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "52",
+          "pull_up": false
+        },
+        "led": {
+          "direction": "output",
+          "io_standard": "LVCMOS33",
+          "pad": "10",
+          "pull_up": false
+        },
+        "rst_n": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "3",
+          "pull_up": true
+        }
+      },
+      "programming": "openFPGALoader -b epm11 -m (volatile SRAM); RP2350 JTAG bridge firmware required",
+      "reset": "rst_n",
+      "reset_mode": "synchronous",
+      "reset_polarity": "active_low",
+      "revision": "1.0",
+      "sources": [
+        {
+          "facts": "C7/I6 part, 27 MHz clock pin52, button3, LED10, LVCMOS33",
+          "revision": "1beb1b53d3c15f3a730e1ea8a70eb766108d2582",
+          "url": "https://github.com/BrisbaneSilicon/EPM11-FPGA/tree/1beb1b53d3c15f3a730e1ea8a70eb766108d2582"
+        },
+        {
+          "facts": "revision1.0, 2026-06-15, 3.3V IO",
+          "sha256": "a8c95d6c266105f39f6e4071b4bd099022ecdfc153050c23538cebf46686daec",
+          "url": "https://brisbanesilicon.com.au/docs/EPM11_Schematic.pdf"
+        }
+      ],
+      "target": "gw1nr_lv9qn88pc7"
+    },
+    "gw1nr9-qn88p-c6i5-reference": {
+      "board_population": "UNKNOWN",
+      "clock": "clk",
+      "clock_mhz": 27,
+      "device": "GW1NR-LV9QN88PC6/I5",
+      "family": "gowin",
+      "hardware_status": "UNKNOWN",
+      "kind": "device_pin_fixture",
+      "led_polarity": "active_low",
+      "package": "QFN88P",
+      "pins": {
+        "clk": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "52",
+          "pull_up": false
+        },
+        "led": {
+          "direction": "output",
+          "io_standard": "LVCMOS33",
+          "pad": "16",
+          "pull_up": false
+        },
+        "rst_n": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "3",
+          "pull_up": true
+        }
+      },
+      "programming": "Not board-qualified; this is a C6/I5 device pin fixture, not evidence of a populated C6/I5 BRS/EPM board.",
+      "reference_board": "BRS-100-GW1NR9 rev1.0 pin layout, reference population C7/I6",
+      "reset": "rst_n",
+      "reset_mode": "synchronous",
+      "reset_polarity": "active_low",
+      "revision": "pin-fixture-v1",
+      "sources": [
+        {
+          "facts": "C7/I6 part, 27 MHz clock pin52, button3, LED16, LVCMOS33",
+          "revision": "a1663a75fcf81a8c876d3191abbd4cc0370a57cb",
+          "url": "https://github.com/BrisbaneSilicon/BRS-100-GW1NR9/tree/a1663a75fcf81a8c876d3191abbd4cc0370a57cb"
+        },
+        {
+          "facts": "revision1.0, 2025-07-01, 3.3V IO",
+          "sha256": "f9c34e45c4cdc63480dc5f759984027ad38ec18f877acaf7d9cf2475bbe5de49",
+          "url": "https://brisbanesilicon.com.au/docs/BRS-100-GW1NR9_Schematic.pdf"
+        },
+        {
+          "facts": "GW1NR9 device/package/grade description; C6/I5 modeled independently from the C7/I6 manufacturer board project",
+          "sha256": "09cc21999adf5053cafb13206df9835feba26f95d14a95bcee08aeabb7d9de6e",
+          "url": "https://cdn.gowinsemi.com.cn/DS117E.pdf"
+        }
+      ],
+      "target": "gw1nr_lv9qn88pc6"
+    },
+    "orangecrab-r0.2-25f": {
+      "clock": "clk",
+      "clock_mhz": 48,
+      "density": 25,
+      "device": "LFE5U-25F-8MG285C",
+      "family": "ecp5",
+      "hardware_status": "UNKNOWN",
+      "led_polarity": "active_low",
+      "package": "CSFBGA285",
+      "pins": {
+        "clk": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "A9",
+          "pull_up": false
+        },
+        "led": {
+          "direction": "output",
+          "io_standard": "LVCMOS33",
+          "pad": "K4",
+          "pull_up": false
+        },
+        "rst_n": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "J17",
+          "pull_up": true
+        }
+      },
+      "programming": "External JTAG cable, volatile SRAM only; USB DFU requires installed board-specific bootloader and image layout (not implemented by this flow)",
+      "reset": "rst_n",
+      "reset_mode": "synchronous",
+      "reset_polarity": "active_low",
+      "revision": "0.2",
+      "sources": [
+        {
+          "facts": "fileFPGA.sch, separately verified r0.2 pin map: clk A9/48MHz, button J17, red LED K4, 3.3V; FPGA PN LFE5U-25F-8MG285C",
+          "revision": "c511d569fe2af39467041f888bc231020f40c6ac",
+          "url": "https://github.com/orangecrab-fpga/orangecrab-hardware/tree/c511d569fe2af39467041f888bc231020f40c6ac/hardware/orangecrab_r0.2"
+        },
+        {
+          "facts": "revision r0.2, 2019-12-08; JTAG 2x5 header differs from r0.2.1 1x5",
+          "sha256": "98baecec2fba4c919a0c985c635850a018fe744b1868156fdf4a5f814ebe293b",
+          "url": "https://raw.githubusercontent.com/orangecrab-fpga/orangecrab-hardware/c511d569fe2af39467041f888bc231020f40c6ac/hardware/orangecrab_r0.2/Production/OrangeCrab-r0.2-sch.pdf"
+        }
+      ],
+      "speed": 8,
+      "target": "lfe5u_25f_8mg285c"
+    },
+    "orangecrab-r0.2.1-25f": {
+      "clock": "clk",
+      "clock_mhz": 48,
+      "density": 25,
+      "device": "LFE5U-25F-8MG285C",
+      "family": "ecp5",
+      "hardware_status": "UNKNOWN",
+      "led_polarity": "active_low",
+      "package": "CSFBGA285",
+      "pins": {
+        "clk": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "A9",
+          "pull_up": false
+        },
+        "led": {
+          "direction": "output",
+          "io_standard": "LVCMOS33",
+          "pad": "K4",
+          "pull_up": false
+        },
+        "rst_n": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "J17",
+          "pull_up": true
+        }
+      },
+      "programming": "External JTAG cable, volatile SRAM only; USB DFU requires installed board-specific bootloader and image layout (not implemented by this flow)",
+      "reset": "rst_n",
+      "reset_mode": "synchronous",
+      "reset_polarity": "active_low",
+      "revision": "0.2.1",
+      "sources": [
+        {
+          "facts": "FPGA.sch: clock A9 48MHz, button J17, LED_R K4, 3.3V banks; 25F PN and 85F/4G BOM variant; 85F temperature suffix unspecified",
+          "revision": "c511d569fe2af39467041f888bc231020f40c6ac",
+          "url": "https://github.com/orangecrab-fpga/orangecrab-hardware/tree/c511d569fe2af39467041f888bc231020f40c6ac/hardware/orangecrab_r0.2.1"
+        },
+        {
+          "facts": "revision r0.2.1, 2020-11-01, sheet2 pin/IO review",
+          "sha256": "28c677396f177f975a2d209f26d73fd0d37bda771dabcbb38d28773b6ae321d3",
+          "url": "https://raw.githubusercontent.com/orangecrab-fpga/orangecrab-hardware/c511d569fe2af39467041f888bc231020f40c6ac/hardware/orangecrab_r0.2.1/Production/OrangeCrab_r0.2.1_sch.pdf"
+        }
+      ],
+      "speed": 8,
+      "target": "lfe5u_25f_8mg285c"
+    },
+    "orangecrab-r0.2.1-85f": {
+      "clock": "clk",
+      "clock_mhz": 48,
+      "density": 85,
+      "device": "LFE5U-85F-8MG285",
+      "family": "ecp5",
+      "hardware_status": "UNKNOWN",
+      "led_polarity": "active_low",
+      "package": "CSFBGA285",
+      "pins": {
+        "clk": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "A9",
+          "pull_up": false
+        },
+        "led": {
+          "direction": "output",
+          "io_standard": "LVCMOS33",
+          "pad": "K4",
+          "pull_up": false
+        },
+        "rst_n": {
+          "direction": "input",
+          "io_standard": "LVCMOS33",
+          "pad": "J17",
+          "pull_up": true
+        }
+      },
+      "programming": "External JTAG cable, volatile SRAM only; USB DFU requires installed board-specific bootloader and image layout (not implemented by this flow)",
+      "reset": "rst_n",
+      "reset_mode": "synchronous",
+      "reset_polarity": "active_low",
+      "revision": "0.2.1",
+      "sources": [
+        {
+          "facts": "FPGA.sch: clock A9 48MHz, button J17, LED_R K4, 3.3V banks; 25F PN and 85F/4G BOM variant; 85F temperature suffix unspecified",
+          "revision": "c511d569fe2af39467041f888bc231020f40c6ac",
+          "url": "https://github.com/orangecrab-fpga/orangecrab-hardware/tree/c511d569fe2af39467041f888bc231020f40c6ac/hardware/orangecrab_r0.2.1"
+        },
+        {
+          "facts": "revision r0.2.1, 2020-11-01, sheet2 pin/IO review",
+          "sha256": "28c677396f177f975a2d209f26d73fd0d37bda771dabcbb38d28773b6ae321d3",
+          "url": "https://raw.githubusercontent.com/orangecrab-fpga/orangecrab-hardware/c511d569fe2af39467041f888bc231020f40c6ac/hardware/orangecrab_r0.2.1/Production/OrangeCrab_r0.2.1_sch.pdf"
+        }
+      ],
+      "speed": 8,
+      "target": "lfe5u_85f_8mg285"
+    }
+  },
+  "schema": "zlang-fpga-boards-v1"
+}

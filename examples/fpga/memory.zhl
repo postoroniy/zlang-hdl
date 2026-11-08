@@ -1,0 +1,35 @@
+module FpgaMemoryCounter {
+    clock clk
+    reset rst_n @clk { mode synchronous polarity active_low power_up unspecified }
+    out reg address:u8=0
+    out reg data:u16=1
+    address <- truncate<8>(address+1)
+    data <- truncate<16>(data+3)
+}
+module FpgaMemoryBank {
+    clock clk
+    reset rst_n @clk { mode synchronous polarity active_low power_up unspecified }
+    in address:u8
+    in data:u16
+    out read_data:u16
+    memory samples:mem<u16,256> {
+        read_latency 1
+        collision read_first
+        reset { contents preserve read_data clear }
+    }
+    samples.read_address=address
+    samples.write_enable=1
+    samples.write_address=address
+    samples.write_data=data
+    read_data=samples.read_data
+}
+module FpgaMemory {
+    clock clk
+    reset rst_n @clk { mode synchronous polarity active_low power_up unspecified }
+    out led:bit
+    counter:FpgaMemoryCounter
+    bank:FpgaMemoryBank
+    bank.address=counter.address
+    bank.data=counter.data
+    led=bank.read_data[15]
+}

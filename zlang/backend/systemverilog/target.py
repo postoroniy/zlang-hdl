@@ -21,6 +21,7 @@ from zlang.ir import module as ir_module
 from zlang.ir.target import ImplementationGraph, ResourceDefinition, ResourceInstance
 from zlang.ir import types as ir_types
 from zlang.target_catalog import load_target
+from zlang.target_fpga_bindings import DSP_BINDINGS, BRAM_BINDINGS
 from zlang.pipeline_scheduling import erase_pipeline_timing
 
 
@@ -86,7 +87,7 @@ def emit_target(module: ir_module.Module, graph: ImplementationGraph, *, simulat
                 f"backend cannot emit selected resource '{node.resource_definition_identity}' on target '{target.identity}'"
             )
         binding = dict(definition.backend_bindings).get("systemverilog")
-        if binding not in {"dsp48e1_explicit", "xilinx_bram_inference"}:
+        if binding not in {"dsp48e1_explicit", "xilinx_bram_inference", *DSP_BINDINGS, *BRAM_BINDINGS}:
             raise sv_emitter.SystemVerilogEmissionError(
                 f"backend cannot emit selected resource '{definition.identity}': "
                 f"unsupported systemverilog binding '{binding or 'missing'}'",
@@ -98,6 +99,9 @@ def emit_target(module: ir_module.Module, graph: ImplementationGraph, *, simulat
     with emission_scope(module.name):
         boundary = sv_boundary._build_top_boundary_plan(module)
         with top_boundary_scope(boundary):
+            if len(emitters) == 1 and emitters <= DSP_BINDINGS.keys():
+                from zlang.backend.systemverilog.fpga_dsp import emit_fpga_dsp
+                return emit_fpga_dsp(module, graph, node_definitions, simulation_model)
             if emitters == {"dsp48e1_explicit"}:
                 if graph.resources and all(dict(item.configuration).get("parallel_bilinear") == 1
                                            for item in graph.resources):
@@ -118,7 +122,7 @@ def emit_target(module: ir_module.Module, graph: ImplementationGraph, *, simulat
                     packed = _emit_dsp48e1_graph(
                         module, graph, node_definitions, simulation_model
                     )
-            elif emitters == {"xilinx_bram_inference"} and len(graph.resources) == 1:
+            elif (emitters == {"xilinx_bram_inference"} or (len(emitters) == 1 and emitters <= BRAM_BINDINGS)) and len(graph.resources) == 1:
                 if dict(graph.resources[0].configuration).get("fifo_memory") == 1:
                     packed = sv_emitter._emit_target_async_fifo(module)
                 else:
@@ -653,6 +657,19 @@ def emit_target_artifact(
             companions=collect_rom_companions(module),
         )
     counts = Counter(item.resource_definition_identity for item in graph.resources)
+    emitted_counts = counts
+    if graph.resources and all(dict(n.configuration).get("realization") == "dsp_plus_fabric"
+                               for n in graph.resources):
+        _, _, definitions = load_target(graph.target_identity)
+        primitives = {r.identity: next(b.primitive for b in r.physical_bindings
+                     if b.emitter in DSP_BINDINGS) for r in definitions
+                     if any(b.emitter in DSP_BINDINGS for b in r.physical_bindings)}
+        emitted_counts = Counter(dict(n.configuration).get("native_primitive", primitives[n.resource_definition_identity]) for n in graph.resources)
+    elif graph.resources and graph.physical_binding_identities and all(any(b in identity for b in BRAM_BINDINGS)
+                                 for identity in graph.physical_binding_identities):
+        # The SV product contains a typed RAM array, not an explicit hard cell.
+        # Actual mapped BRAM counts belong to executed synthesis evidence.
+        emitted_counts = Counter({"inferred_memory_array": len(graph.resources)})
     timing = graph.timing_dag
     selected_cost = dict(
         (name, (value, source)) for name, value, source in graph.selected_cost
@@ -684,7 +701,7 @@ def emit_target_artifact(
         graph.pipeline_configuration_identity,
         graph.active_pipeline_sites,
         graph.physical_binding_identities,
-        tuple(sorted(counts.items())) if not graph.is_generic else (),
+        tuple(sorted(emitted_counts.items())) if not graph.is_generic else (),
         (),
         tuple(
             (name, str(source)) for name, (_, source) in selected_cost.items()

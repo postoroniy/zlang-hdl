@@ -150,7 +150,9 @@ def test_preparation_failure_is_unknown_not_a_proof(tmp_path, monkeypatch):
         # No tool is executed: normalization deliberately fails first. Do not
         # depend on EDA discovery in the tool-less fast lane.
         toolchain=FormalToolchainContext(
-            "sby", "z3", ToolInventory(
+            "sby",
+            "z3",
+            ToolInventory(
                 ("yosys", "sby", "yosys-smtbmc", "z3"),
                 ("yosys", "sby", "yosys-smtbmc", "z3"),
             ),
@@ -196,11 +198,11 @@ def test_missing_tools_respect_scoped_discovery_without_preparation(
 def test_packed_outer_extension_exposes_only_the_high_field(signed, width):
     a, b, low = z3.BitVecs("a b low", width)
     cast = z3.SignExt if signed else z3.ZeroExt
-    high = cast(1, a)+cast(1, b)
+    high = cast(1, a) + cast(1, b)
     original = cast(3, z3.Concat(high, low))
     owner = rewriter()
     normalized = owner.normalize(original)
-    expected = z3.Concat(cast(4, a)+cast(4, b), low)
+    expected = z3.Concat(cast(4, a) + cast(4, b), low)
     assert z3.is_true(z3.simplify(normalized == expected, som=True))
     for lemma in owner.lemmas:
         solver = z3.SolverFor("QF_BV")
@@ -217,11 +219,106 @@ def test_packed_outer_extension_exposes_only_the_high_field(signed, width):
 def test_packed_extension_preserves_overflow_in_the_high_field(signed):
     a, b, low = z3.BitVecs("a b low", 3)
     cast = z3.SignExt if signed else z3.ZeroExt
-    original = cast(4, z3.Concat(a+b, low))
+    original = cast(4, z3.Concat(a + b, low))
     actual = rewriter().normalize(original)
     solver = z3.SolverFor("QF_BV")
     solver.add(actual != original)
     assert solver.check() == z3.unsat
     solver = z3.SolverFor("QF_BV")
-    solver.add(actual != z3.Concat(cast(4, a)+cast(4, b), low))
+    solver.add(actual != z3.Concat(cast(4, a) + cast(4, b), low))
     assert solver.check() == z3.sat
+
+
+def test_obvious_nested_extension_does_not_spend_a_nontrivial_lemma():
+    value = z3.BitVec("nested_exact", 9)
+    owner = rewriter(max_lemmas=0)
+    original = z3.SignExt(7, z3.SignExt(3, value))
+    normalized = owner.normalize(original)
+    assert z3.is_true(z3.simplify(original == normalized))
+    assert not owner.lemmas
+    # The same zero-lemma budget still rejects a nontrivial arithmetic claim.
+    other = z3.BitVec("nontrivial", 9)
+    with pytest.raises(ArithmeticProofUnavailable, match="lemma bound"):
+        owner.normalize(z3.SignExt(7, value + other))
+
+
+def test_arithmetic_fanout_to_predicate_is_a_proof_boundary():
+    from zlang.formal_rtl_cones import RtlArithmeticCones
+
+    def cell(kind, a, b, y):
+        return {
+            "type": kind,
+            "parameters": {
+                "A_WIDTH": 2,
+                "B_WIDTH": 2,
+                "Y_WIDTH": 2,
+                "A_SIGNED": 0,
+                "B_SIGNED": 0,
+            },
+            "port_directions": {"A": "input", "B": "input", "Y": "output"},
+            "connections": {"A": a, "B": b, "Y": y},
+        }
+
+    module = {
+        "ports": {
+            "a": {"direction": "input", "bits": [2, 3]},
+            "b": {"direction": "input", "bits": [4, 5]},
+            "out": {"direction": "output", "bits": [8, 9]},
+        },
+        "cells": {
+            "first": cell("$add", [2, 3], [4, 5], [6, 7]),
+            "last": cell("$add", [6, 7], [2, 3], [8, 9]),
+            "predicate": cell("$lt", [6, 7], [4, 5], [10, 11]),
+        },
+    }
+    assert RtlArithmeticCones(module).roots() == ("first", "last")
+
+
+@pytest.mark.parametrize("kind", ("$shr", "$sshr", "$shl"))
+@pytest.mark.parametrize("signed", (False, True))
+def test_quantizer_logic_reader_shift_amount_width_is_independent(kind, signed):
+    from zlang.formal_rtl_cones import RtlArithmeticCones
+
+    aw, bw, yw = 3, 5, 4
+    a_bits = list(range(2, 2 + aw))
+    b_bits = list(range(10, 10 + bw))
+    y_bits = list(range(20, 20 + yw))
+    cell = {
+        "type": kind,
+        "parameters": {
+            "A_WIDTH": aw,
+            "B_WIDTH": bw,
+            "Y_WIDTH": yw,
+            "A_SIGNED": int(signed),
+            "B_SIGNED": 0,
+        },
+        "port_directions": {"A": "input", "B": "input", "Y": "output"},
+        "connections": {"A": a_bits, "B": b_bits, "Y": y_bits},
+    }
+    module = {
+        "ports": {
+            "a": {"direction": "input", "bits": a_bits},
+            "b": {"direction": "input", "bits": b_bits},
+        },
+        "cells": {"op": cell},
+    }
+    reader = RtlArithmeticCones(module, logic=True)
+    value = reader.vector(tuple(y_bits))
+    leaves = {leaf.bits: leaf.expression for leaf in reader.leaves}
+    for a in range(8):
+        source = a - (1 << aw) if signed and a & (1 << (aw - 1)) else a
+        for b in range(32):
+            if kind == "$shl":
+                expected = (source << b) & 15
+            elif kind == "$sshr" and signed:
+                expected = (source >> b) & 15
+            else:
+                expected = ((source & 15) >> b) & 15
+            actual = z3.simplify(
+                z3.substitute(
+                    value,
+                    (leaves[tuple(a_bits)], z3.BitVecVal(a, aw, ctx=reader.context)),
+                    (leaves[tuple(b_bits)], z3.BitVecVal(b, bw, ctx=reader.context)),
+                )
+            ).as_long()
+            assert actual == expected, (kind, signed, a, b, actual, expected)

@@ -9,6 +9,9 @@ from zlang.ir.timing import TimingKnowledge
 from zlang.async_fifo import build_async_fifo_physical_plan
 
 from zlang import target_catalog as catalog
+from zlang.target_fpga_bindings import fpga_bram_binding
+from zlang.ir import expressions as expr
+from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.target_mapping_identity import _semantic_payload, require_named_resource
 
 
@@ -41,7 +44,8 @@ def _map_async_fifo_memory(module, target, family, resources, template, policy):
     resource = require_named_resource(resources, template)
     catalog.validate_inventory(target, ((resource.identity, 1),))
     capabilities = dict(resource.capabilities)
-    if (
+    fpga = fpga_bram_binding(resource) is not None
+    if not fpga and (
         family.name != "Xilinx7Series"
         or resource.name not in {"RAMB18E1", "RAMB36E1"}
         or capabilities.get("synchronous_read") != "true"
@@ -57,6 +61,8 @@ def _map_async_fifo_memory(module, target, family, resources, template, policy):
             f"resource '{resource.identity}' is not the bounded AMD 7-Series "
             "RAMB18E1/RAMB36E1 FIFO-memory route"
         )
+    if fpga and capabilities.get("fifo_registered_read") != "true":
+        raise catalog.TargetArchitectureError("FPGA memory does not qualify compiler-owned FIFO storage")
     catalog.validate_memory_configuration(
         resource, width=plan.memory.element_type.width,
         depth=plan.depth, port_mode="simple_dual",
@@ -80,7 +86,7 @@ def _map_async_fifo_memory(module, target, family, resources, template, policy):
         (
             *configuration.physical_settings,
             ("pipeline_configuration", configuration.name),
-            ("dorega", 0),
+            *(((("fifo_output_register", 0),) if fpga else (("dorega", 0),))),
             ("depth", plan.depth),
             ("width", plan.memory.element_type.width),
             ("fifo_prefetch_policy", plan.prefetch_policy),
@@ -166,7 +172,22 @@ def _map_synchronous_memory(module, target, family, resources, template, policy)
         raise catalog.TargetArchitectureError(
             "target memory mapping supports only one-cycle synchronous reads"
         )
-    if named_true_dual:
+    fpga = fpga_bram_binding(resource) is not None
+    if fpga:
+        if memory.contents_reset.value != "preserve" or memory.read_data_reset.value != "clear":
+            raise catalog.TargetArchitectureError("FPGA BRAM requires contents preserve and read_data clear")
+        caps = dict(resource.capabilities)
+        collision = memory.collision.value
+        if collision not in caps.get("same_clock_collision", "").split("."):
+            readonly = isinstance(memory.write_enable, expr.Constant) and memory.write_enable.value == 0
+            shared_address = (memory.read_address is not None and memory.write_address is not None
+                              and expression_semantic_identity(memory.read_address)
+                              == expression_semantic_identity(memory.write_address))
+            if not (collision == "read_first" and not named_true_dual
+                    and (readonly or shared_address)
+                    and str(memory.element_type.width) in caps.get("read_first_widths", "").split(".")):
+                raise catalog.TargetArchitectureError("FPGA BRAM collision policy is not qualified for this port/address shape")
+    elif named_true_dual:
         if memory.contents_reset.value != "preserve":
             raise catalog.TargetArchitectureError(
                 "native true-dual block-memory mapping requires "

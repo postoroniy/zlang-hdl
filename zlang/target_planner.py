@@ -327,6 +327,10 @@ def _candidate_cost(graph: ImplementationGraph, evidence: QoREvidence | None) ->
         return CandidateCost.estimate(lut=lut, ff=graph.latency * graph.quantization.type.width,
                                       dsp=len(graph.resources), latency=graph.latency, ii=1)
     if evidence is None:
+        from zlang.target_fpga_bindings import fpga_fabric_cost
+        fpga_cost = fpga_fabric_cost(graph)
+        if fpga_cost is not None:
+            return fpga_cost
         return CandidateCost.estimate(
             lut=max(1, graph.resources[-1].semantic_mappings[-1].expression.type.width
                     if graph.resources[-1].semantic_mappings[-1].expression is not None else 48),
@@ -491,7 +495,7 @@ def plan_target_pipeline(
         templates = tuple(
             item
             for operation in operations
-            for item in load_architecture_templates(operation=operation)
+            for item in load_architecture_templates(operation=operation, target_resources=resources)
         )
         if operations == ("parallel_bilinear",):
             from zlang.bilinear_product import bilinear_products
@@ -525,6 +529,10 @@ def plan_target_pipeline(
                 resource.pipeline_configurations,
                 key=lambda item: (item.latency, item.name),
             ))[:8]
+            if (architecture is not None
+                    and dict(resource.capabilities).get("pipeline_selection") == "declared_when_explicit"):
+                configurations = tuple(c for c in configurations
+                                       if c.name == template.pipeline_configuration)
             for configuration in configurations:
                 name = f"{template.name}/{configuration.name}"
                 try:

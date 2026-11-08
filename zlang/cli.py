@@ -10,6 +10,10 @@ from zlang.cli_command import run_compile_command
 
 def main(argv: Sequence[str] | None = None) -> int:
     effective_argv = list(sys.argv[1:] if argv is None else argv)
+    if effective_argv and effective_argv[0] == "fpga":
+        from zlang.fpga_cli import main as fpga_main
+
+        return fpga_main(effective_argv[1:])
     if effective_argv and effective_argv[0] == "sim":
         from zlang.sim_cli import main as simulation_main
 

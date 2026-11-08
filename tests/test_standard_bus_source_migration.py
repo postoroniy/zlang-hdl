@@ -41,6 +41,31 @@ class StandardBusSourceMigrationTests(unittest.TestCase):
         ))
         self.assertEqual(ir.children[0].name, "RegisteredCSRTarget")
         self.assertEqual(ir.children[0].source_identity, "std.bus.reg")
+        from zlang.compiler import compile_file
+        from zlang.ir.cdc import ClockDomain
+        from zlang.native_simulation import simulate_cycles
+
+        module = compile_file(Path("stdlib/bus/reg.zhl"), top="RegisteredCSRTarget",
+                              root_domain=ClockDomain("clk", "rst")).ir
+        request = {"addr": 4, "write": 1, "wdata": 85, "wstrb": 15}
+        cycles = [{"regbus__request": {"valid": i == 0, "payload": request},
+                   "regbus__response": {"ready": 0}, "csr_rdata": value,
+                   "csr_ready": int(i != 2)} for i, value in enumerate((0, 17, 51))]
+        trace = simulate_cycles(module, cycles, reset=(False,) * 3)
+        self.assertEqual([row["csr_write"] for row in trace], [0, 1, 0])
+        self.assertEqual(trace[1]["regbus__response"]["payload"],
+                         trace[2]["regbus__response"]["payload"])
+        for mask in (0, 1, 14, 15):
+            request = {"addr": 4, "write": 1, "wdata": 85, "wstrb": mask}
+            cycles = [{"regbus__request": {"valid": i == 0, "payload": request},
+                       "regbus__response": {"ready": 0}, "csr_rdata": 17, "csr_ready": 1}
+                      for i in range(3)]
+            masked = simulate_cycles(module, cycles, reset=(False,) * 3)
+            self.assertEqual([row["csr_write"] for row in masked], [0, int(mask == 15), 0])
+            self.assertEqual(masked[1]["regbus__response"]["payload"]["error"],
+                             int(mask not in (0, 15)))
+
+
 
     def test_snapshot_is_protocol_neutral_typed_state(self):
         ir = analyze(parse(

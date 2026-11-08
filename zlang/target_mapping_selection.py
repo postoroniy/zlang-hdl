@@ -11,6 +11,7 @@ from zlang.ir import target as target_ir
 from zlang import target_catalog as catalog
 from zlang.target_mapping_fir import map_manual_architecture
 from zlang import target_mapping_identity as mapping_identity
+from zlang.target_fpga_bindings import finalize_fpga_graph
 
 
 def generic_implementation_graph(module: Module, target: target_ir.TargetInstance | None = None) -> target_ir.ImplementationGraph:
@@ -75,9 +76,12 @@ def select_implementation_graph(
         raise error
     try:
         template = catalog.load_architecture(architecture)
-        return map_manual_architecture(
+        graph = map_manual_architecture(
             module, selected_target, family, resources, template, policy
         )
+        resource = next(r for r in resources
+                        if r.identity == graph.resources[0].resource_definition_identity)
+        return finalize_fpga_graph(graph, resource)
     except catalog.TargetArchitectureError as error:
         if policy is catalog.ArchitectureSelectionMode.PREFERRED:
             return replace(

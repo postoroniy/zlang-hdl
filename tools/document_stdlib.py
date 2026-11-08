@@ -20,6 +20,8 @@ def _slice(lines: list[str], origin) -> str:
 
 def _contract(relative: Path) -> str:
     name = relative.as_posix()
+    if name.startswith(("arch/gowin_", "arch/ecp5_", "arch/gowin/", "arch/lattice/")):
+        return "fpga-architecture-profiles.md"
     if name.startswith("debug/"):
         return "stdlib-debug.md"
     if name.startswith("peripheral/"):

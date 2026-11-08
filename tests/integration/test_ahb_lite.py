@@ -264,10 +264,11 @@ def test_source_bridge_runs_in_generic_semantic_simulator_with_async_release() -
         _bridge_inputs(
             ahb__HSEL=1, ahb__HADDR=0x0C, ahb__HTRANS=2,
         ),
-        _bridge_inputs(ahb__HWDATA=0, regbus__request={"ready": 1}),
+        _bridge_inputs(ahb__HWDATA=17, regbus__request={"ready": 0}),
+        _bridge_inputs(ahb__HWDATA=51, regbus__request={"ready": 1}),
     ]
     resets = [True, False, False, False, False, False, False, False,
-              False, True, False, False, False, False]
+              False, True, False, False, False, False, False]
     trace = simulate_cycles(_bridge_ir(), cycles, reset=resets)
 
     # The attempted address phases on the two synchronized-release edges are
@@ -294,6 +295,8 @@ def test_source_bridge_runs_in_generic_semantic_simulator_with_async_release() -
     assert trace[10]["regbus__request"]["valid"] == 0
     assert trace[11]["regbus__request"]["valid"] == 0
     assert trace[13]["regbus__request"]["valid"] == 1
+
+    assert trace[13]["regbus__request"]["payload"] == trace[14]["regbus__request"]["payload"]
 
 
 def test_source_bridge_uses_inherited_sync_reset_in_native_plan_and_rtl() -> None:
@@ -427,6 +430,7 @@ module tb;
     ahb_HSEL=1; ahb_HTRANS=2; ahb_HADDR=32'h4; ahb_HWRITE=1;
     ahb_HWDATA=32'h11111111; tick;
     ahb_HSEL=0; ahb_HTRANS=0; ahb_HWDATA=32'hdeadc0de;
+    #1; // Settle combinational paths after changing HWDATA; no extra clock edge.
     if (!request_valid || request_addr!=4 || !request_write ||
         request_wdata!=32'hdeadc0de || request_wstrb!=4'hf)
       $fatal(1,"write data phase was not preserved");
@@ -448,6 +452,11 @@ module tb;
     response_valid=0; ahb_HSEL=0; ahb_HTRANS=0;
     if (!request_valid || request_addr!=8 || request_write)
       $fatal(1,"back-to-back address was not captured");
+    ahb_HWDATA=32'h98765432; #1;
+    if(request_wdata!=0) $fatal(1,"read request forwarded unused HWDATA");
+    tick; ahb_HWDATA=32'h12345678; #1;
+    if(!request_valid || request_wdata!=0)
+      $fatal(1,"read request changed under stall");
     request_ready=1; tick; request_ready=0;
 
     // A target error is low-ready/high-response then high-ready/high-response.

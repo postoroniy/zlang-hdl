@@ -26,7 +26,7 @@ default; immutable bundles can also be replayed with `--solver boolector`,
 tests. The examples use the connected direct-SystemVerilog formal route; Clash
 is not required for these commands.
 
-`--check` only checks syntax and types; it does not run Z3. Verification
+`--check` checks syntax and types. Verification
 declarations do not add gates or alter production RTL. `--verify` explicitly
 checks the modeled RTL against those declarations and applicable automatic
 properties; passing compilation alone is not a formal result.
@@ -185,12 +185,10 @@ This buffered connection currently publishes RV stability, not a separate set
 of FIFO accounting observations. It does **not** establish packet conservation,
 ordering, or eventual delivery.
 
-For this same example, an additional `--verify-require proven` attempt on the
-recorded toolchain returns **2 / `unknown`**: the induction stage does not close
-although its BMC stage passes. An induction countertrace is not necessarily
-reachable after reset and is not reported as a DUT counterexample. Do not turn
-this result into either `proven` or a claimed functional defect. Improving that
-proof route is separate from these examples.
+This example's bounded stability result does not establish an unbounded proof.
+`--verify-require proven` accepts only a completed inductive proof; an
+inconclusive result exits nonzero. An induction countertrace need not be
+reachable after reset and is distinct from a reachable DUT counterexample.
 
 ## What the results mean
 

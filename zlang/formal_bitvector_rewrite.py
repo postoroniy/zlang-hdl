@@ -142,6 +142,13 @@ class CheckedBitvectorRewriter:
         key = source.get_id()
         if key in self._rewrites:
             return self._rewrites[key][1]
+        # The normalizer already trusts Z3's exact BV simplifier below _visit.
+        # Do not spend an SMT lemma on an equality it reduces to literal true
+        # (notably nested sign extensions). This introduces no range premise.
+        # Nontrivial obligations retain the original 64-lemma/3s/deadline bounds.
+        if z3.is_false(z3.simplify(source != replacement)):
+            self._rewrites[key] = (source, replacement)
+            return replacement
         if len(self.lemmas) >= self.max_lemmas:
             raise ArithmeticProofUnavailable("RTL widening lemma bound exceeded")
         solver = z3.SolverFor("QF_BV", ctx=source.ctx)

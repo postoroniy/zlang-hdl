@@ -156,6 +156,37 @@ def test_source_frontends_retain_typed_error_state_and_wiring() -> None:
         "wb__ack", "wb__err", "wb__stall", "wb__dat_r",
     }
 
+    from zlang.compiler import compile_file
+    from zlang.ir.cdc import ClockDomain
+    from zlang.native_simulation import simulate_cycles
+
+    root = Path(__file__).resolve().parents[2]
+    domain = ClockDomain("clk", "rst")
+    bridge = compile_file(root / "stdlib/bus/axi_lite.zhl",
+                          top="AXI4LiteToRegBus", root_domain=domain).ir
+    idle = {"axi__aw": {"valid": 0, "payload": {"addr": 8}},
+            "axi__w": {"valid": 0, "payload": {"data": 85, "strb": 15}},
+            "axi__ar": {"valid": 0, "payload": {"addr": 4}},
+            "axi__b": {"ready": 0}, "axi__r": {"ready": 0},
+            "regbus__request": {"ready": 0},
+            "regbus__response": {"valid": 0, "payload": {"rdata": 0, "error": 0}}}
+    cycles = [dict(idle, axi__ar={"valid": 1, "payload": {"addr": 4}}),
+              dict(idle, axi__aw={"valid": 1, "payload": {"addr": 8}},
+                   axi__w={"valid": 1, "payload": {"data": 85, "strb": 15}}), idle]
+    held = simulate_cycles(bridge, cycles, reset=(False,) * 3)
+    assert held[1]["regbus__request"]["valid"] == held[2]["regbus__request"]["valid"] == 1
+    assert held[1]["regbus__request"]["payload"] == held[2]["regbus__request"]["payload"]
+
+    bridge = compile_file(root / "stdlib/bus/apb.zhl",
+                          top="APBToRegBus", root_domain=domain).ir
+    setup = {"apb__psel": 1, "apb__penable": 0, "apb__pwrite": 1,
+             "apb__paddr": 4, "apb__pwdata": 85,
+             "regbus__request": {"ready": 0},
+             "regbus__response": {"valid": 0, "payload": {"rdata": 0, "error": 0}}}
+    trace = simulate_cycles(bridge, [setup, dict(setup, apb__penable=1)], reset=(False, False))
+    assert trace[1]["regbus__request"]["valid"] == 1
+    assert trace[1]["regbus__request"]["payload"]["wstrb"] == 15
+
 
 def _run_sv(source: str, top: str, testbench: str) -> None:
     module = compile_source(source, top=top).ir

@@ -74,8 +74,8 @@ timing. A passive logical tap does not guarantee unchanged routed timing.
 
 Native/RTL tests and actual-RTL passthrough proofs qualify the recorded ZLang
 specializations and wrapper wiring. Passive-tap regressions and wrapper checks are available in this source tree. A test-only input monitor used for wrapper
-checks is not an ILA implementation. Vendor project compilation, `.bit`/`.sof`
-generation and physical board capture are **UNKNOWN** until run with the actual
-part, tool version, generated IP and board. There is no bundled capture engine,
+checks is not an ILA implementation. Generate and validate the ILA/Signal Tap
+core in the vendor project for the actual part, sample clock and board; the
+ZLang passthrough proofs cover the tap wiring, not that vendor core. There is no bundled capture engine,
 OpenOCD client, custom JTAG protocol, automatic instrumentation or ASIC DFT in
 this example. Vendor software owns acquisition and viewing.

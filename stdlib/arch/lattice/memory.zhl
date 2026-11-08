@@ -1,0 +1,24 @@
+import std.target.lattice.nexus
+import std.target.lattice.ice40
+import std.target.lattice.ecp5
+
+
+architecture Ecp5BRAM {
+    operation synchronous_memory
+    require_resource Ecp5EBR 1
+    latency 1
+    ii 1
+    use_pipeline core_registered
+}
+
+architecture Ecp5AsyncFifoBRAM {
+    operation async_fifo_memory
+    require_resource Ecp5EBR 1
+    latency 1
+    ii 1
+    use_pipeline core_registered
+}
+
+architecture LatticeIce40BRAM { operation synchronous_memory require_resource Ice40EBR 1 latency 1 ii 1 use_pipeline core_registered }
+
+architecture LatticeNexusBRAM { operation synchronous_memory require_resource NexusEBR 1 latency 1 ii 1 use_pipeline core_registered }

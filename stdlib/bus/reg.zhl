@@ -34,6 +34,10 @@ module RegisteredCSRTarget<AW=32,DW=32> {
     reg pending_addr : uint<AW> = 0
     reg pending_write : bit = 0
     reg pending_wdata : uint<DW> = 0
+    reg pending_wstrb : bits<DW/8> = 0
+    reg serviced : bit = 0
+    reg response_rdata : uint<DW> = 0
+    reg response_error : bit = 0
 
     accept = regbus.request.transfer
     pending <- mux(accept, 1,
@@ -41,17 +45,29 @@ module RegisteredCSRTarget<AW=32,DW=32> {
     pending_addr <- mux(accept, regbus.request.payload.addr, pending_addr)
     pending_write <- mux(accept, regbus.request.payload.write, pending_write)
     pending_wdata <- mux(accept, regbus.request.payload.wdata, pending_wdata)
+    pending_wstrb <- mux(accept, regbus.request.payload.wstrb, pending_wstrb)
+
+    // The canonical CSR ABI has no byte enables. Never widen a partial write.
+    empty_write = pending_write & (pending_wstrb == zeros<DW/8>)
+    full_write = pending_wstrb == ones<DW/8>
+    partial_write = pending_write & ~empty_write & ~full_write
+    access_rdata = mux(empty_write | partial_write, 0, csr_rdata)
+    access_error = partial_write | (~empty_write & ~csr_ready)
+    access = pending & ~serviced
+    serviced <- mux(accept, 0, mux(pending, 1, serviced))
+    response_rdata <- mux(access, access_rdata, response_rdata)
+    response_error <- mux(access, access_error, response_error)
 
     csr_addr = pending_addr
-    csr_write = pending & pending_write
+    csr_write = access & pending_write & full_write
     csr_wdata = pending_wdata
-    csr_read = pending & ~pending_write
+    csr_read = access & ~pending_write
 
     regbus.request.ready = ~pending
     regbus.response.valid = pending
     regbus.response.payload = RegResponse {
-        rdata = csr_rdata
-        error = pending & ~csr_ready
+        rdata = mux(serviced, response_rdata, access_rdata)
+        error = pending & mux(serviced, response_error, access_error)
     }
 }
 
@@ -85,8 +101,9 @@ module RegBusCSRTarget<AW=32,DW=32> {
     reg response_pending : bit = 0
     reg response_addr : uint<AW> = 0
 
-    write_access : bit = mux(regbus.request.transfer,
-                             regbus.request.payload.write, 0)
+    // Every writable fixture field occupies byte zero; other lanes are reserved.
+    write_access : bit = regbus.request.transfer &
+                       regbus.request.payload.write & regbus.request.payload.wstrb[0]
     read_access : bit = response_pending
 
     inst bank : RegBusCSRBank {

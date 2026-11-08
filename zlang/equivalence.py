@@ -444,49 +444,41 @@ def _fixed_convert_expr(value: expr.FixedConvert) -> str:
     source_fraction = getattr(value.expression.type, "fraction", 0)
     delta = value.type.fraction - source_fraction
     source_signed = isinstance(value.expression.type, (SIntType, FixedType))
-    source = f"$signed({operand})" if source_signed else f"$unsigned({operand})"
+    # Preserve signed minimum, left-shift growth and rounding carry before the
+    # sole final conversion. Unsized Verilog integers must not select a 32-bit
+    # carrier or make a negative rounded result unsigned.
+    width = max(value.expression.type.width + max(delta, 0), value.type.width) + 2
+    cast = "$signed" if source_signed else "$unsigned"
+    source = f"$signed({width}'({cast}({operand})))"
+    zero = sized_decimal(width, 0, signed=True)
+    one = sized_decimal(width, 1, signed=True)
     if delta >= 0:
         converted = source if delta == 0 else f"({source} <<< {delta})"
     else:
         shift = -delta
-        magnitude = (
-            f"(({source}) < 0 ? -({source}) : ({source}))"
-            if source_signed else f"({source})"
-        )
+        magnitude = f"(({source}) < {zero} ? -({source}) : ({source}))" if source_signed else source
         quotient = f"({magnitude} >> {shift})"
-        discarded = f"(({magnitude} & {(1 << shift) - 1}) != 0)"
+        mask = sized_decimal(width, (1 << shift) - 1, signed=True)
+        discarded = f"(({magnitude} & {mask}) != {zero})"
         if value.rounding is expr.FixedRounding.NEAREST_EVEN:
-            rounded = (
-                f"(({magnitude} + {(1 << (shift - 1)) - 1} + "
-                f"(({magnitude} >> {shift}) & 1)) >> {shift})"
-            )
-            converted = (
-                f"(({source}) < 0 ? -({rounded}) : ({rounded}))"
-                if source_signed else rounded
-            )
+            bias = sized_decimal(width, (1 << (shift - 1)) - 1, signed=True)
+            rounded = f"(({magnitude} + {bias} + (({magnitude} >> {shift}) & {one})) >> {shift})"
         elif value.rounding is expr.FixedRounding.AWAY_ZERO:
-            rounded = f"({quotient} + {discarded})"
-            converted = (
-                f"(({source}) < 0 ? -({rounded}) : ({rounded}))"
-                if source_signed else rounded
-            )
+            rounded = f"({quotient} + {width}'($unsigned({discarded})))"
         elif value.rounding is expr.FixedRounding.FLOOR and source_signed:
-            converted = f"(({source}) < 0 ? -({quotient} + {discarded}) : {quotient})"
+            rounded = f"({quotient} + {width}'($unsigned({discarded})))"
         else:
-            converted = (
-                f"(({source}) < 0 ? -({quotient}) : ({quotient}))"
-                if source_signed else quotient
-            )
+            rounded = quotient
+        rounded = f"$signed({width}'({rounded}))"
+        converted = f"(({source}) < {zero} ? -({rounded}) : ({rounded}))" if source_signed else rounded
+        if value.rounding is expr.FixedRounding.FLOOR and source_signed:
+            converted = f"(({source}) < {zero} ? -({rounded}) : $signed({width}'({quotient})))"
+    converted = f"$signed({width}'({converted}))"
     if value.overflow is expr.FixedOverflow.SATURATE:
         minimum = -(1 << (value.type.width - 1)) if target_signed else 0
-        maximum = (
-            (1 << (value.type.width - 1)) - 1
-            if target_signed else (1 << value.type.width) - 1
-        )
-        converted = (
-            f"(({converted}) < {minimum} ? {minimum} : "
-            f"(({converted}) > {maximum} ? {maximum} : ({converted})))"
-        )
+        maximum = (1 << (value.type.width - 1)) - 1 if target_signed else (1 << value.type.width) - 1
+        low, high = (sized_decimal(width, x, signed=True) for x in (minimum, maximum))
+        converted = f"(({converted}) < {low} ? {low} : (({converted}) > {high} ? {high} : ({converted})))"
     sized = f"{value.type.width}'({converted})"
     return f"$signed({sized})" if target_signed else sized
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-import hashlib
 import json
 import math
 import os
@@ -27,6 +26,7 @@ from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Module, PortDirection
 from zlang.sim import Program, SimulationRuntimeError, Simulator, _pack_value
 from zlang.common.subprocess import run_bounded_process, subprocess_text
+from zlang.common.files import file_digest
 from zlang.simulation_comparison_testbench import STIMULUS_FILE,render_testbench
 
 
@@ -411,11 +411,6 @@ def _comparison_directory(path: Path | None) -> Iterator[tuple[Path, bool]]:
     yield destination, True
 
 
-def _sha256(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
-
 def _positive_timeout(value: object, *, name: str) -> float:
     try:
         seconds = (
@@ -516,9 +511,9 @@ def compare_program(
             "native_trace": native_trace,
             "rtl_trace": rtl_trace,
             "files": {
-                "design.sv": _sha256(design_path),
-                "compare_tb.sv": _sha256(testbench_path),
-                STIMULUS_FILE: _sha256(stimulus_path),
+                "design.sv": file_digest(design_path),
+                "compare_tb.sv": file_digest(testbench_path),
+                STIMULUS_FILE: file_digest(stimulus_path),
                 **{
                     companion.logical_path: companion.file_hash
                     for companion in artifact.companions

@@ -49,6 +49,11 @@ VERILATOR = shutil.which("verilator")
 # renderer audit reproduced every prior digest: only those casts changed RTL,
 # with artifact/build hash links changing in manifests. Public ABI, origins,
 # semantic bindings and their counts are unchanged; ProtocolTop is byte-stable.
+# The source-owned bus correctness fixes retain the AXI-Lite grant while
+# stalled, zero unused read write-data/masks, and honor the CSR byte-zero
+# strobe. Replaying the previous bus sources reproduced all four old RTL/JSON
+# digests exactly. Only AxiCsrTop changes: its 77 bindings are identical apart
+# from artifact_hash, and the three other controls remain byte-identical.
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
         "f5d21496e9bf9f2ab7ec2bc22425eed42112200c9ab1de1339bab221973377f9",
@@ -69,8 +74,8 @@ EXPECTED_ARTIFACTS = {
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
-        "caf942ee439d84901a92b1746fafd49a0e690937f58411c84a224a6953fa9e65",
-        "3b70d602e02729b88d14eb9b7217f0015dffe82e861740f4134754d63c439df1",
+        "b0bfb281622939bd972d3ad34e24a69b1d7ba8052fcf4525c0435c6ab9a47348",
+        "ec4e0cc9616e4ff542dffda2a328de130cd31c8d3c9ee7cd0da005b3f711301a",
         77,
     ),
 }

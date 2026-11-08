@@ -1,0 +1,77 @@
+module RamReadFirst {
+    clock clk reset rst
+    in ra,wa:u8 in we:bit in data:u16 out q:u16
+    memory bank:mem<u16,256> {
+        read_latency 1 collision read_first
+        reset { contents preserve read_data clear }
+    }
+    bank.read_address=wa
+    bank.write_address=wa bank.write_enable=we bank.write_data=data
+    q=bank.read_data
+}
+
+module RamWriteFirst {
+    clock clk reset rst
+    in ra,wa:u8 in we:bit in data:u16 out q:u16
+    memory bank:mem<u16,256> {
+        read_latency 1 collision write_first
+        reset { contents preserve read_data clear }
+    }
+    bank.read_address=ra
+    bank.write_address=wa bank.write_enable=we bank.write_data=data
+    q=bank.read_data
+}
+
+module RamNoChange {
+    clock clk reset rst
+    in ra,wa:u8 in we:bit in data:u16 out q:u16
+    memory bank:mem<u16,256> {
+        read_latency 1 collision no_change
+        reset { contents preserve read_data clear }
+    }
+    bank.read_address=ra
+    bank.write_address=wa bank.write_enable=we bank.write_data=data
+    q=bank.read_data
+}
+
+module RamTrueDual {
+    clock clk reset rst
+    in a_re,a_we,b_re,b_we:bit
+    in a_addr,b_addr:u8 in a_data,b_data:u16
+    out a_q,b_q:u16
+    memory bank:mem<u16,256> {
+        read_write_port a read_write_port b read_latency 1
+        collision write_first write_priority a > b
+        reset { contents preserve read_data clear }
+    }
+    bank.a.read_enable=a_re bank.a.write_enable=a_we bank.a.address=a_addr bank.a.write_data=a_data
+    bank.b.read_enable=b_re bank.b.write_enable=b_we bank.b.address=b_addr bank.b.write_data=b_data
+    a_q=bank.a.read_data b_q=bank.b.read_data
+}
+
+module RamTrueDualNoChange {
+    clock clk reset rst
+    in a_re,a_we,b_re,b_we:bit
+    in a_addr,b_addr:u8 in a_data,b_data:u16
+    out a_q,b_q:u16
+    memory bank:mem<u16,256> {
+        read_write_port a read_write_port b read_latency 1
+        collision no_change write_priority a > b
+        reset { contents preserve read_data clear }
+    }
+    bank.a.read_enable=a_re bank.a.write_enable=a_we bank.a.address=a_addr bank.a.write_data=a_data
+    bank.b.read_enable=b_re bank.b.write_enable=b_we bank.b.address=b_addr bank.b.write_data=b_data
+    a_q=bank.a.read_data b_q=bank.b.read_data
+}
+
+module AsyncFifoStorage {
+    clock source_clock
+    reset source_reset @ source_clock
+    clock destination_clock
+    reset destination_reset @ destination_clock
+
+    in  source      : rv<u8> @ source_clock
+    out destination : rv<u8> @ destination_clock
+
+    connect source -> destination { crossing async_fifo(4) }
+}

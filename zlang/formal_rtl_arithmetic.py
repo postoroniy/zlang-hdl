@@ -157,6 +157,20 @@ def normalize_rtl_arithmetic(
     if set(design["modules"]) != {top}:
         raise ArithmeticProofUnavailable("RTL arithmetic requires one flattened module")
     module = design["modules"][top]
+    from zlang.formal_fpga_quantizer import checked_fpga_quantizers
+    quantizers = checked_fpga_quantizers(design, top, root, deadline, _yosys)
+    if quantizers:
+        # Verified combinational replacement, with its real input/output bits
+        # still connected. Flatten it before normalizing arithmetic on both
+        # legs; otherwise one leg retains an unnormalized helper hierarchy.
+        (root / "quantizer-bound.json").write_text(json.dumps(design, sort_keys=True))
+        _yosys(f"read_json quantizer-bound.json; hierarchy -check -top {top}; "
+               "flatten; opt_clean; check -assert; write_json -noscopeinfo quantizer-flat.json",
+               root, deadline, "quantizer-flat")
+        design = json.loads((root / "quantizer-flat.json").read_text())
+        if set(design["modules"]) != {top}:
+            raise ArithmeticProofUnavailable("quantizer rewrite left an opaque module")
+        module = design["modules"][top]
     cones = RtlArithmeticCones(module)
     rewriter = CheckedBitvectorRewriter(deadline=deadline)
     replacements, helpers = [], []
@@ -282,6 +296,7 @@ def normalize_rtl_arithmetic(
         "solver": z3.get_version_string(),
         "assumptions_added": 0,
         "roots": records,
+        **({"checked_quantizers": quantizers} if quantizers else {}),
         "widening_lemmas": [
             asdict(lemma) | {"result": "unsat"} for lemma in rewriter.lemmas
         ],

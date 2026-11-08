@@ -38,7 +38,7 @@ module APBToRegBus<AW=32,DW=32> {
     apb.pslverr = mux(regbus.response.valid, regbus.response.payload.error, 0)
 
     regbus.request.valid = access
-    regbus.request.payload = RegRequest{addr=addr write=write wdata=wdata wstrb=0}
+    regbus.request.payload = RegRequest{addr=addr write=write wdata=wdata wstrb=mux(write, ones<DW/8>, zeros<DW/8>)}
     regbus.response.ready = response_phase
 
     // Concise FSM is syntax-only: this becomes the same enum register and

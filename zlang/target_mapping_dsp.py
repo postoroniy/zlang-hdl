@@ -14,6 +14,7 @@ from zlang.ir.traversal import walk_expression
 
 from zlang import target_catalog as catalog
 from zlang import target_mapping_identity as mapping_identity
+from zlang.target_fpga_bindings import fpga_dsp_binding
 
 
 def map_auto_signed_product_configuration(
@@ -88,17 +89,21 @@ def map_auto_signed_product_configuration(
 
     link = next((item for item in resource.dedicated_links
                  if item.name == template.dedicated_link), None)
-    if len(reduction.terms) > 1 and link is None:
+    if (len(reduction.terms) > 1 and link is None
+            and fpga_dsp_binding(resource, template.operation) is None):
         raise catalog.TargetArchitectureError(
             f"architecture '{template.identity}' requires unavailable dedicated connection "
             f"'{template.dedicated_link}'"
         )
+    fabric = fpga_dsp_binding(resource, template.operation) is not None
+    if fabric and template.dedicated_link is not None:
+        raise catalog.TargetArchitectureError("DSP + fabric has no dedicated cascade")
     required_edges = len(reduction.terms) - 1
     capacity = dict(((rid, kind), count)
                     for rid, kind, count in target.dedicated_capacities).get(
         (resource.identity, link.name if link else ""), 0
     )
-    if capacity < required_edges:
+    if capacity < required_edges and not fabric:
         raise catalog.TargetArchitectureError(
             f"architecture '{template.identity}' dedicated connection requires capacity "
             f"{required_edges}, target provides {capacity}"
@@ -114,8 +119,8 @@ def map_auto_signed_product_configuration(
     for index, term in enumerate(reduction.terms):
         product = term.product_expression
         left, right = product.left, product.right
-        left_width = catalog._dsp_signed_width(left.type)
-        right_width = catalog._dsp_signed_width(right.type)
+        left_width = catalog._dsp_physical_width(left.type, resource)
+        right_width = catalog._dsp_physical_width(right.type, resource)
         if left_width <= multiplier_a and right_width <= multiplier_b:
             a_value, b_value = left, right
         elif right_width <= multiplier_a and left_width <= multiplier_b:
@@ -126,7 +131,7 @@ def map_auto_signed_product_configuration(
                 f"{left.type.width}x{right.type.width} exceed multiplier ports "
                 f"{multiplier_a}x{multiplier_b}"
             )
-        product_width = catalog._dsp_signed_width(product.type)
+        product_width = catalog._dsp_physical_width(product.type, resource)
         if product_width > product_limit:
             raise catalog.TargetArchitectureError(
                 f"architecture '{template.identity}' product {index} width exceeded: "
@@ -135,7 +140,7 @@ def map_auto_signed_product_configuration(
         stage_type = (
             product.type if index == 0 else reduction.joins[index - 1].result_type
         )
-        stage_width = catalog._dsp_signed_width(stage_type)
+        stage_width = catalog._dsp_physical_width(stage_type, resource)
         if stage_width > accumulator_limit:
             raise catalog.TargetArchitectureError(
                 f"architecture '{template.identity}' accumulator width exceeded at stage {index}: "
@@ -181,7 +186,7 @@ def map_auto_signed_product_configuration(
         f"product_accumulator{index}", link.source_port,
         f"product_accumulator{index + 1}", link.destination_port,
         link.width, link.placement_relation, link.latency, link.fabric_fallback,
-    ) for index in range(required_edges))
+    ) for index in range(required_edges)) if not fabric else ()
     useful_latency = 1 + configuration.latency
     graph = target_ir.ImplementationGraph(
         semantic_region_identity=reduction.semantic_identity,
@@ -257,13 +262,13 @@ def map_auto_multiply_configuration(
     a_limit = resource.limit("multiplier_a")
     b_limit = resource.limit("multiplier_b")
     if (
-        catalog._dsp_signed_width(left.type) <= a_limit
-        and catalog._dsp_signed_width(right.type) <= b_limit
+        catalog._dsp_physical_width(left.type, resource) <= a_limit
+        and catalog._dsp_physical_width(right.type, resource) <= b_limit
     ):
         a_value, b_value = left, right
     elif (
-        catalog._dsp_signed_width(right.type) <= a_limit
-        and catalog._dsp_signed_width(left.type) <= b_limit
+        catalog._dsp_physical_width(right.type, resource) <= a_limit
+        and catalog._dsp_physical_width(left.type, resource) <= b_limit
     ):
         a_value, b_value = right, left
     else:
@@ -272,7 +277,7 @@ def map_auto_multiply_configuration(
             f"{left.type.width}x{right.type.width} exceed multiplier ports "
             f"{a_limit}x{b_limit}"
         )
-    product_width = catalog._dsp_signed_width(value.type)
+    product_width = catalog._dsp_physical_width(value.type, resource)
     if product_width > resource.limit("product"):
         raise catalog.TargetArchitectureError(
             f"architecture '{template.identity}' physical product width "
@@ -287,7 +292,7 @@ def map_auto_multiply_configuration(
             *configuration.physical_settings,
             ("pipeline_configuration", configuration.name),
             ("accumulator_mode", "accumulator_plus_product"),
-            ("preadd_physical_width", catalog._dsp_signed_width(a_value.type)),
+            ("preadd_physical_width", catalog._dsp_physical_width(a_value.type, resource)),
             ("term_ordinal", 0),
         )),
         (
@@ -476,10 +481,10 @@ def map_auto_multiply_add_configuration(
         assert multiplier is not None
         a_value, d_value, b_value = preadd.left, preadd.right, multiplier
         if (
-            catalog._dsp_signed_width(a_value.type) > a_limit
-            or catalog._dsp_signed_width(d_value.type) > a_limit
-            or catalog._dsp_signed_width(preadd.type) > a_limit
-            or catalog._dsp_signed_width(b_value.type) > b_limit
+            catalog._dsp_physical_width(a_value.type, resource) > a_limit
+            or catalog._dsp_physical_width(d_value.type, resource) > a_limit
+            or catalog._dsp_physical_width(preadd.type, resource) > a_limit
+            or catalog._dsp_physical_width(b_value.type, resource) > b_limit
         ):
             raise catalog.TargetArchitectureError(
                 f"architecture '{template.identity}' preadd/multiply widths exceed "
@@ -487,8 +492,8 @@ def map_auto_multiply_add_configuration(
             )
     else:
         left, right = product.left, product.right
-        left_width = catalog._dsp_signed_width(left.type)
-        right_width = catalog._dsp_signed_width(right.type)
+        left_width = catalog._dsp_physical_width(left.type, resource)
+        right_width = catalog._dsp_physical_width(right.type, resource)
         if left_width <= a_limit and right_width <= b_limit:
             a_value, b_value = left, right
         elif right_width <= a_limit and left_width <= b_limit:
@@ -499,14 +504,14 @@ def map_auto_multiply_add_configuration(
                 f"{left.type.width}x{right.type.width} exceed multiplier ports "
                 f"{a_limit}x{b_limit}"
             )
-    product_width = catalog._dsp_signed_width(product.type)
+    product_width = catalog._dsp_physical_width(product.type, resource)
     if product_width > resource.limit("product"):
         raise catalog.TargetArchitectureError(
             f"architecture '{template.identity}' physical product width {product_width} "
             f"exceeds {resource.limit('product')}"
         )
-    addend_width = catalog._dsp_signed_width(addend.type) if addend is not None else 1
-    value_width = catalog._dsp_signed_width(value.type)
+    addend_width = catalog._dsp_physical_width(addend.type, resource) if addend is not None else 1
+    value_width = catalog._dsp_physical_width(value.type, resource)
     if (
         addend_width > resource.limit("accumulator")
         or value_width > resource.limit("accumulator")
@@ -525,9 +530,9 @@ def map_auto_multiply_add_configuration(
             ("pipeline_configuration", configuration.name),
             ("accumulator_mode", mode),
             ("preadd_physical_width", (
-                catalog._dsp_signed_width(preadd.type)
+                catalog._dsp_physical_width(preadd.type, resource)
                 if preadd is not None
-                else catalog._dsp_signed_width(a_value.type)
+                else catalog._dsp_physical_width(a_value.type, resource)
             )),
             ("term_ordinal", 0),
         )),
@@ -569,7 +574,7 @@ def map_auto_multiply_add_configuration(
         legality_evidence=(
             f"{mode}; product {product_width}<={resource.limit('product')}",
             (
-                f"preadd {catalog._dsp_signed_width(preadd.type)}<={a_limit}"
+                f"preadd {catalog._dsp_physical_width(preadd.type, resource)}<={a_limit}"
                 if preadd is not None
                 else f"addend {addend_width}<={resource.limit('accumulator')}"
             ),

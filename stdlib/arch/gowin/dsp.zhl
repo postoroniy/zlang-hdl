@@ -1,0 +1,182 @@
+import std.target.gowin.arora_v
+import std.target.gowin.gw1nr9
+
+
+// Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+architecture GowinMultiply {
+    operation multiply
+    require_resource GowinDSPMacro 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinMultiplyMREG {
+    operation multiply
+    require_resource GowinDSPMacro 1
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+architecture GowinMultiplyMREGOREG {
+    operation multiply
+    require_resource GowinDSPMacro 1
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+// Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+architecture GowinMultiplyAddFabric {
+    operation multiply_add
+    require_resource GowinDSPMacro 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinMultiplyAddFabricMREG {
+    operation multiply_add
+    require_resource GowinDSPMacro 1
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+architecture GowinMultiplyAddFabricMREGOREG {
+    operation multiply_add
+    require_resource GowinDSPMacro 1
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+// Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+architecture GowinSignedProductFabric {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 2
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinSignedProductFabricMREG {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 2
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+architecture GowinSignedProductFabricMREGOREG {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 2
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+architecture GowinSignedProductFabric4 {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinSignedProductFabric4MREG {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 4
+    latency 2
+    ii 1
+    use_pipeline multiply_registered
+}
+architecture GowinSignedProductFabric4MREGOREG {
+    operation signed_product_reduction
+    require_resource GowinDSPMacro 4
+    latency 3
+    ii 1
+    use_pipeline multiply_output_registered
+}
+
+architecture GowinParallelProducts1 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 1
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinParallelProducts2 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 2
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinParallelProducts3 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 3
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinParallelProducts4 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinParallelProducts5 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 5
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinParallelProducts6 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 6
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinParallelProducts7 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 7
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinParallelProducts8 {
+    operation parallel_bilinear
+    require_resource GowinDSPMacro 8
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+
+// Exact bounded DSP + fabric profiles; no dedicated cascade is claimed.
+architecture GowinSymmetricFirFabric {
+    operation symmetric_fir_cascade
+    require_resource GowinDSPMacro 4
+    latency 1
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinSymmetricFirFabricDelay2 {
+    operation symmetric_fir_cascade
+    require_resource GowinDSPMacro 4
+    latency 2
+    ii 1
+    use_pipeline unregistered
+}
+architecture GowinSymmetricFirFabricDelay3 {
+    operation symmetric_fir_cascade
+    require_resource GowinDSPMacro 4
+    latency 3
+    ii 1
+    use_pipeline unregistered
+}
+
+architecture GowinMultiply9 { operation multiply require_resource GowinDSPMacro 1 latency 1 ii 1 use_pipeline multiply9_unregistered }
+
+architecture GowinMultiply9OREG { operation multiply require_resource GowinDSPMacro 1 latency 2 ii 1 use_pipeline multiply9_output_registered }
+
+architecture GowinAroraVMultiply { operation multiply require_resource GowinAroraVDSP 1 latency 1 ii 1 use_pipeline unregistered }
+
+architecture GowinAroraVMultiplyOREG { operation multiply require_resource GowinAroraVDSP 1 latency 2 ii 1 use_pipeline output_registered }

@@ -26,6 +26,12 @@ the held RegBus error through `PSLVERR` on the access completion. Wishbone uses
 mutually exclusive normal `ACK` and abnormal `ERR` termination; either one
 retires the single outstanding request.
 
+Each presented ready/valid request retains its complete payload until transfer.
+AXI4-Lite retains its selected read or write during RegBus backpressure; a later
+AW/W pair cannot preempt a stalled read. AXI4 subordinate backend requests
+retain their slot token even when another transaction retires. AHB-Lite read
+requests use zero write data, independent of the unused `HWDATA` input.
+
 AHB-Lite preserves the protocol's pipelined address/data relationship. The
 bridge captures an accepted address/control phase, consumes write data in the
 following data phase, and holds `HREADYOUT` low while its one RegBus request is
@@ -133,6 +139,8 @@ The AXI4-Lite and APB profiles use one clock/reset and one outstanding
 operation. `AXI4LiteToRegBus` buffers AW and W independently and joins them
 after both transfers; AR returns one held R response. `APBToRegBus` implements
 setup/access phases and holds controls stable while waiting for PREADY.
+This APB profile has no `PSTRB`: writes select every RegBus byte lane and reads
+use zero write strobes.
 Top-level aggregate endpoints expose typed public leaves (for example,
 `axi_aw_valid` and `apb_psel`); `connect axi -> frontend.axi` delegates a
 same-role endpoint to a child.
@@ -144,3 +152,15 @@ properties needing hidden or unsupported state are explicitly skipped or
 rejected under the selected policy. The AXI4-Lite/APB/RegBus profiles do not
 provide full AXI4 behavior. The separate `axi_burst` and `axi4` modules have their
 own bounded contracts and qualification limits, described above.
+
+The fixture bank's writable fields occupy byte zero. `RegBusCSRTarget` applies
+`WSTRB[0]`; writes selecting only other lanes, including zero-strobe writes,
+leave those fields unchanged. Its `PULSE` field is write-only and reads as zero.
+
+`RegisteredCSRTarget` captures a request, presents exactly one canonical CSR
+read or write in its first response cycle, and retains that cycle's data/error
+if the response is stalled. Its canonical CSR ports do not include byte
+strobes. Full-word writes execute once; zero-strobe writes complete successfully
+without a CSR access. Other partial writes return an error without a CSR access.
+Callers requiring byte-granular updates need a register-specific merge/filter
+adapter; this transport does not provide a generic byte-merge policy.
