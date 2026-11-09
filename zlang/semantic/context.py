@@ -229,6 +229,15 @@ class ExpressionScope:
     instance_protocol_transfers: dict[
         tuple[str, str], ir_expr.Expression
     ] = field(default_factory=dict)
+    instance_protocol_inputs: dict[
+        tuple[str, str], ir_expr.Expression
+    ] = field(default_factory=dict)
+    instance_protocol_bindings: dict[
+        tuple[str, str], tuple[ast.Expression, HardwareType]
+    ] = field(default_factory=dict)
+    instance_protocol_ports: dict[
+        tuple[str, str], ir_module.Port
+    ] = field(default_factory=dict)
     instance_csr_state_paths: dict[
         tuple[str, ...], tuple[str, HardwareType, str | None]
     ] = field(default_factory=dict)

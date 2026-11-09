@@ -24,6 +24,7 @@ from . import observations as semantic_observations
 from .errors import SemanticError
 from .hierarchical_connections import HierarchicalConnectionProduct
 from .connection_validation import render_assignment_target
+from .instance_outputs import resolve_child_protocol_input
 
 
 @dataclass(frozen=True)
@@ -224,9 +225,13 @@ class AssignmentAnalyzer:
                     signal_type = (
                         child_port.type if signal is ir_interfaces.ReadyValidSignal.PAYLOAD else ir_types.BitType()
                     )
-                    bound = module_context.expressions.check_typed_boundary(
-                        assignment.expression, value_symbols, signal_type,
-                        module_context,
+                    observation_key = (root, ".".join(parts[1:]))
+                    bound = resolve_child_protocol_input(
+                        observation_key, value_symbols, module_context,
+                        primary=semantic_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"assignment {assignment.target}", module_context,
+                        ),
                     )
                     if bound.type != signal_type:
                         raise SemanticError(

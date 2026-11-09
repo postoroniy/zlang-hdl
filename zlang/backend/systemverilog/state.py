@@ -13,32 +13,12 @@ from zlang.ir import state as ir_state
 from zlang.backend import identifiers as identifiers
 from zlang.backend.systemverilog import context as emission_context
 from zlang.backend.systemverilog import sequential as sv_sequential
+from zlang.backend.systemverilog import memory as sv_memory
 from zlang import memory_planning as memory_planning
 
 
 from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
 from zlang.backend.systemverilog import rendering as sv_rendering
-
-
-def _memory_byte_mask_concatenation(
-    signal: str,
-    *,
-    element_width: int,
-    lane_count: int,
-) -> str:
-    """Render an exact-width byte mask, including one partial MSB lane."""
-
-    expected_lanes = (element_width + 7) // 8
-    if lane_count != expected_lanes:
-        raise SystemVerilogEmissionError(
-            "memory write-mask width does not match its element width"
-        )
-    high_lane_width = element_width - (lane_count - 1) * 8
-    return ", ".join(
-        f"{{{high_lane_width if lane == lane_count - 1 else 8}"
-        f"{{{signal}[{lane}]}}}}"
-        for lane in reversed(range(lane_count))
-    )
 
 
 def _ported_memory_fragments(
@@ -148,7 +128,7 @@ def _ported_memory_fragments(
             f"  logic [{width - 1}:0] {prefix}_write_mask_expanded;",
             f"  logic [{width - 1}:0] {prefix}_write_merged;",
         ))
-        expanded = _memory_byte_mask_concatenation(
+        expanded = sv_memory.byte_mask_concatenation(
             f"{prefix}_write_mask", element_width=width, lane_count=lanes
         )
         assert port.write_data is not None
@@ -455,6 +435,8 @@ def _append_unified_schedule_wiring(
         logic.append(f"  assign {name}_push_data = {data};")
 
     for memory in module.memories:
+        if not memory.scheduled:
+            continue
         name = sv_rendering._identifier(memory.name)
         resource_id = memory.semantic_id
         read_actions = [
@@ -504,7 +486,7 @@ def _append_unified_schedule_wiring(
         logic.append(f"  assign {name}_write_data = {write_data};")
         if write_mask is not None:
             logic.append(f"  assign {name}_write_mask = {write_mask};")
-            expanded = _memory_byte_mask_concatenation(
+            expanded = sv_memory.byte_mask_concatenation(
                 f"{name}_write_mask",
                 element_width=sv_rendering._width(memory.element_type),
                 lane_count=memory.write_mask_width,
@@ -547,13 +529,14 @@ def _append_unified_state(
     )
 
     for memory in module.memories:
-        if not memory.ported:
-            continue
-        memory_declarations, memory_logic = _ported_memory_fragments(
-            module, memory, render
-        )
-        declarations.extend(memory_declarations)
-        logic.extend(memory_logic)
+        if memory.ported:
+            memory_declarations, memory_logic = _ported_memory_fragments(
+                module, memory, render
+            )
+            declarations.extend(memory_declarations)
+            logic.extend(memory_logic)
+        elif not memory.scheduled:
+            logic.extend(sv_memory.global_memory_fragments(module, memory, render))
 
     def action_enable(group, action) -> str:
         fire = local_names.rule(group.rule_name, "fire")
@@ -642,12 +625,8 @@ def _append_unified_state(
             f"  assign {name}_underflow = 1'b0;",
         ))
     for memory in module.memories:
-        if memory.ported:
-            continue
         if not memory.scheduled:
-            raise SystemVerilogEmissionError(
-                "mixed legacy and scheduled memory resources are not implemented"
-            )
+            continue
         if memory.read_latency != 1:
             raise SystemVerilogEmissionError(
                 "scheduled memory emission requires read_latency 1"
@@ -690,6 +669,8 @@ def _append_unified_state(
     )
 
     for memory in module.memories:
+        if not memory.scheduled:
+            continue
         initialize_contents = (
             memory.contents_reset is ir_storage.MemoryResetPolicy.PRESERVE
             or memory.initial_value is not None
@@ -733,7 +714,7 @@ def _append_unified_state(
         )
         domain_memories = tuple(
             item for item in module.memories
-            if item.domain == physical_domain.clock
+            if item.domain == physical_domain.clock and item.scheduled
         )
         for register in unreset_registers:
             updates = register_update_lines(register, "    ")

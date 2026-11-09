@@ -32,6 +32,7 @@ class HierarchicalConnectionProduct:
         tuple[str, str, ir_expr.Expression], ...
     ]
     assigned_outputs: frozenset[tuple[str, object | None, object | None]]
+    protocol_endpoints: tuple[ir_module.ProtocolEndpoint, ...]
 
 
 class HierarchicalConnectionAnalyzer:
@@ -42,7 +43,7 @@ class HierarchicalConnectionAnalyzer:
         preparation: module_pipeline.DeclarationPreparationProduct,
         hardware: module_pipeline.HardwareInterfaceProduct,
         state_storage: module_pipeline.StateStoragePreparationProduct,
-        behavior: module_pipeline.ModuleBehaviorProduct,
+        known_modules: dict[str, ast.Module],
         instances: Any,
         endpoint_resolver: HierarchicalEndpointResolver,
     ) -> HierarchicalConnectionProduct:
@@ -61,7 +62,7 @@ class HierarchicalConnectionAnalyzer:
         aggregate_protocol_connections: list[
             ir_module.AggregateProtocolConnection
         ] = []
-        assigned_outputs = set(behavior.assigned_outputs)
+        assigned_outputs: set[tuple[str, object | None, object | None]] = set()
         concrete_hierarchical_endpoint = endpoint_resolver.concrete
         endpoint = endpoint_resolver.protocol
         request_response_endpoint = endpoint_resolver.request_response
@@ -229,7 +230,7 @@ class HierarchicalConnectionAnalyzer:
             )
             if len(parts) != 2 or len(name_origins) < 2:
                 return
-            child_module = behavior.known_modules.get(declaration.module)
+            child_module = known_modules.get(declaration.module)
             if child_module is None:
                 return
             member = parts[1]
@@ -942,6 +943,7 @@ class HierarchicalConnectionAnalyzer:
             tuple(aggregate_protocol_connections),
             instance_protocol_transfers,
             frozenset(assigned_outputs),
+            tuple(endpoint_resolver.protocol_endpoints),
         )
 
 
@@ -1101,44 +1103,4 @@ def delegated_instance_transfer_projections(
     return tuple(
         (owner, path, value)
         for (owner, path), value in sorted(projections.items())
-    )
-
-
-def predeclare_delegated_instance_transfer_projections(
-    module: ast.Module,
-    child_irs: dict[str, ir_module.Module],
-    top_aggregates: tuple[ir_module.AggregateProtocolEndpoint, ...],
-) -> tuple[tuple[str, str, ir_expr.Expression], ...]:
-    """Expose only syntactically unambiguous delegation transfers early.
-
-    Full role, specialization, and connection validation remains in
-    :class:`HierarchicalConnectionAnalyzer`.  This early product exists solely
-    because rule guards precede the finalized hierarchy product.
-    """
-
-    connections = tuple(
-        ir_module.AggregateProtocolConnection(
-            (
-                declaration.destination
-                if "." in declaration.source
-                else declaration.source
-            ),
-            (
-                declaration.source
-                if "." in declaration.source
-                else declaration.destination
-            ),
-            top.protocol,
-            top.specialization_identity,
-            delegation=True,
-        )
-        for declaration in module.connections
-        for top in top_aggregates
-        if (
-            (declaration.source == top.name and "." in declaration.destination)
-            or (declaration.destination == top.name and "." in declaration.source)
-        )
-    )
-    return delegated_instance_transfer_projections(
-        child_irs, connections, top_aggregates
     )

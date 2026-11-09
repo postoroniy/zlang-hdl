@@ -839,10 +839,19 @@ class EdgeProgramFinalizer:
             refresh = refresh_values.get(name)
             if not register["resettable"] and refresh is None:
                 refresh = builder.constant(0, 1)
-            if (
+            if effective_reset is not None and name in self._preserve_read_registers:
+                # Preserve the entire read pipeline on reset, including stages
+                # whose ordinary next value is the preceding stage. Merely
+                # omitting clear would still shift those stages during reset.
+                previous = builder.emit(
+                    "load_state", register["width"], attributes={"name": name},
+                )
+                value = builder.select(
+                    effective_reset, previous, value, register["width"],
+                )
+            elif (
                 effective_reset is not None
                 and register["resettable"]
-                and name not in self._preserve_read_registers
             ):
                 initial = sum(
                     int(limb) << (64 * index)

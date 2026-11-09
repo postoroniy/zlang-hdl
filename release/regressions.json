@@ -1002,6 +1002,72 @@
       "tests": [
         "tests/integration/test_reference_fixed_conversion.py::test_reference_fixed_conversion_exact_carrier"
       ]
+    },
+    {
+      "id": "ZL-074",
+      "source_paths": [
+        "tests/integration/test_hierarchy_observation_correctness.py",
+        "tests/semantic/test_generated_local_scopes.py",
+        "zlang/semantic/module_preparation.py"
+      ],
+      "status": "included",
+      "summary": "Structural generation gives each immutable local its own iteration scope, preserving child wiring, nested binders and source origins; duplicate immutable declarations fail with a diagnostic.",
+      "tests": [
+        "tests/integration/test_hierarchy_observation_correctness.py::test_generated_locals_match_the_independent_lane_oracle",
+        "tests/semantic/test_generated_local_scopes.py::test_generated_locals_have_distinct_identity_and_original_source_spans"
+      ]
+    },
+    {
+      "id": "ZL-075",
+      "source_paths": [
+        "tests/integration/test_hierarchy_observation_correctness.py",
+        "tests/semantic/test_hierarchy_input_observations.py",
+        "zlang/semantic/assignment_analysis.py",
+        "zlang/semantic/expression_names_members.py",
+        "zlang/semantic/hierarchical_connections.py",
+        "zlang/semantic/instance_outputs.py",
+        "zlang/semantic/module_behavior.py"
+      ],
+      "status": "included",
+      "summary": "Read-only child protocol observations use their exact incoming driver, and transfer is available to aliases and guards. Explicit delayed bindings are typed once so observers share state and latency; conflicting, cyclic and unavailable drivers fail closed.",
+      "tests": [
+        "tests/integration/test_hierarchy_observation_correctness.py::test_actual_rtl_matches_independent_reference_unbounded",
+        "tests/semantic/test_hierarchy_input_observations.py::test_observers_share_the_original_delayed_driver_and_advance_its_allocator",
+        "tests/semantic/test_hierarchy_input_observations.py::test_payload_valid_ready_and_transfer_accept_direct_and_local_observations"
+      ]
+    },
+    {
+      "id": "ZL-076",
+      "source_paths": [
+        "tests/integration/test_memory_controller_colocation.py",
+        "tests/lsp/test_semantic_diagnostic_locations.py",
+        "tests/semantic/test_memory_controller_colocation.py",
+        "zlang/backend/systemverilog/memory.py",
+        "zlang/backend/systemverilog/state.py",
+        "zlang/backend/systemverilog/state_planning.py",
+        "zlang/backend/systemverilog/storage.py",
+        "zlang/semantic/storage_validation.py"
+      ],
+      "status": "included",
+      "summary": "Globally controlled RAM can coexist with user registers and rules through unified state emission, preserving pre-edge operands, independent global writes, masks, collision policies and read latency. Legacy standalone RAM keeps its existing emitted bytes.",
+      "tests": [
+        "tests/integration/test_memory_controller_colocation.py::test_global_memory_controller_native_and_rtl_match_independent_snapshot_oracle",
+        "tests/integration/test_memory_controller_colocation.py::test_memory_controller_independent_full_state_relation_is_proven",
+        "tests/lsp/test_semantic_diagnostic_locations.py::test_semantic_error_points_to_its_source_after_unsaved_edits",
+        "tests/semantic/test_memory_controller_colocation.py::test_memory_and_controller_preserve_typed_state_and_round_trip"
+      ]
+    },
+    {
+      "id": "ZL-077",
+      "source_paths": [
+        "tests/integration/test_memory_controller_colocation.py",
+        "zlang/simulation_edge_lowering.py"
+      ],
+      "status": "included",
+      "summary": "Native edge lowering holds every preserved RAM read-pipeline stage during reset rather than shifting later stages. Known and unknown data retain the existing store/observation semantics; Rust runtime and native ABI v13 are unchanged.",
+      "tests": [
+        "tests/integration/test_memory_controller_colocation.py::test_native_reset_preserves_every_read_stage_and_u_x_tags"
+      ]
     }
   ],
   "previous_tag": "v0.1.0a23",

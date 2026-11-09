@@ -10,14 +10,12 @@ from .errors import SemanticError
 from . import context as semantic_context
 from . import compile_time_evaluation
 from .assignment_analysis import AssignmentAnalyzer
-from .connection_endpoints import HierarchicalEndpointResolver
 from .connection_validation import (
     ConnectionAnalyzer,
     OutputConnectivityValidator,
     ProtocolDependencyValidator,
     render_assignment_target,
 )
-from .hierarchical_connections import HierarchicalConnectionAnalyzer
 from . import hierarchy as semantic_hierarchy
 from . import module_pipeline
 from . import expression_domains
@@ -50,7 +48,7 @@ class ModuleHierarchyAnalyzer:
         module = preparation.module
         pure_context = preparation.expression_context
         symbols = state_storage.symbols
-        protocol_endpoints = list(state_storage.protocol_endpoints)
+        protocol_endpoints = list(behavior.connections.protocol_endpoints)
         resource_symbols = state_storage.storage_declarations.resource_symbols
         register_symbols = state_storage.register_symbols
         module_context = state_storage.expression_context
@@ -64,31 +62,11 @@ class ModuleHierarchyAnalyzer:
         instance_product = behavior.instances
         child_irs = dict(instance_product.child_irs)
 
-        endpoint_resolver = HierarchicalEndpointResolver(
-            module=module,
-            expression_context=module_context,
-            symbols=symbols,
-            instances=instance_product.instances,
-            child_irs=child_irs,
-            protocol_endpoints=protocol_endpoints,
-        )
-
-        connection_product = (
-            HierarchicalConnectionAnalyzer().analyze(
-                preparation,
-                hardware,
-                state_storage,
-                behavior,
-                instance_product,
-                endpoint_resolver,
-            )
-        )
-        module_context.scope.instance_protocol_transfers.update(
-            {
-                (owner, path): expression
-                for owner, path, expression
-                in connection_product.instance_protocol_transfers
-            }
+        connection_product = replace(
+            behavior.connections,
+            assigned_outputs=(
+                behavior.connections.assigned_outputs | behavior.assigned_outputs
+            ),
         )
         connections = list(connection_product.connections)
         assigned_outputs = set(connection_product.assigned_outputs)
@@ -319,6 +297,9 @@ class ModuleHierarchyAnalyzer:
                 instance_protocol_transfers=dict(
                     module_context.scope.instance_protocol_transfers
                 ),
+                instance_protocol_inputs=dict(module_context.scope.instance_protocol_inputs),
+                instance_protocol_bindings=dict(module_context.scope.instance_protocol_bindings),
+                instance_protocol_ports=dict(module_context.scope.instance_protocol_ports),
                 instance_csr_state_paths=dict(
                     module_context.scope.instance_csr_state_paths
                 ),

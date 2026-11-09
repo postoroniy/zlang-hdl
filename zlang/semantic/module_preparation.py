@@ -103,9 +103,95 @@ def select_compile_time_module_items(
         *[item.name for item in module.protocols],
         *[item.name for item in module.type_aliases],
         *[item.name for item in module.structs],
+        *[item.name for item in module.parameters],
         *module.clocks,
         *module.resets,
     }
+    owned_names = {
+        *[item.name for item in module.ports],
+        *[item.name for item in module.registers],
+        *[item.name for item in module.fsms],
+        *[item.name for item in module.instances],
+        *[item.name for item in module.fifos],
+        *[item.name for item in module.memories],
+        *[item.name for item in module.roms],
+        *[item.name for item in module.aggregate_interfaces],
+        *[item.name for item in module.request_responses],
+        *module.clocks, *module.resets,
+    }
+    allocated_names = set(visible_names)
+    generate_ordinal = 0
+
+    def local_names(items: tuple[object, ...]) -> set[str]:
+        names: set[str] = set()
+        for item in items:
+            if isinstance(item, ast.Assignment):
+                if ("." not in item.target and "[" not in item.target
+                        and item.target not in owned_names):
+                    names.add(item.target)
+            elif isinstance(item, ast.CompileTimeIfDecl):
+                names.update(local_names(item.when_true))
+                names.update(local_names(item.when_false))
+        return names
+
+    def rename(value: object, names: dict[str, str]) -> object:
+        if not names:
+            return value
+        if isinstance(value, ast.NameExpr):
+            return replace(value, name=names.get(value.name, value.name))
+        if isinstance(value, ast.InstanceDecl):
+            return replace(value, bindings=tuple(
+                replace(binding, expression=rename(binding.expression, names))
+                for binding in value.bindings
+            ))
+        if isinstance(value, ast.SpecializationArgument):
+            argument = value.value
+            if isinstance(argument, (str, ast.TypeName)):
+                syntax = argument if isinstance(argument, ast.TypeName) else ast.TypeName(argument)
+                try:
+                    type_resolver.resolve(syntax)
+                except SemanticError:
+                    text = re.sub(
+                        r"[A-Za-z_][A-Za-z0-9_]*",
+                        lambda match: names.get(match.group(), match.group()),
+                        syntax.text,
+                    )
+                    argument = replace(argument, text=text) if isinstance(argument, ast.TypeName) else text
+            return replace(value, value=argument)
+        if isinstance(value, ast.StructConstructExpr):
+            return replace(value, fields=tuple(
+                replace(field, expression=(
+                    ast.NameExpr(names[field.name], origin=value.origin)
+                    if field.expression is None and field.name in names
+                    else rename(field.expression, names)
+                ))
+                for field in value.fields
+            ))
+        if isinstance(value, ast.StructFieldValue) and value.expression is None:
+            if value.name in names:
+                return replace(value, expression=ast.NameExpr(names[value.name]))
+            return value
+        if isinstance(value, (ast.GenerateExpr, ast.MapExpr, ast.IndexedSumExpr)):
+            return replace(value, expression=rename(
+                value.expression, {k: v for k, v in names.items() if k != value.index}
+            ))
+        if isinstance(value, ast.TaggedUnionMatchArm):
+            names = {k: v for k, v in names.items() if k not in value.binders}
+        if isinstance(value, tuple):
+            return tuple(rename(item, names) for item in value)
+        if is_dataclass(value):
+            changes = {}
+            for field in fields(value):
+                if not field.init or field.name == "origin":
+                    continue
+                item = getattr(value, field.name)
+                if field.name in {"target", "function"} and isinstance(item, str):
+                    head, separator, tail = item.partition(".")
+                    changes[field.name] = names.get(head, head) + separator + tail
+                else:
+                    changes[field.name] = rename(item, names)
+            return replace(value, **changes)
+        return value
 
     def substitute_path(text: str, index: str, replacement: int) -> str:
         pattern = re.compile(
@@ -124,6 +210,8 @@ def select_compile_time_module_items(
     def substitute_index(value: object, index: str, replacement: int) -> object:
         if isinstance(value, ast.NameExpr) and value.name == index:
             return ast.NumberExpr(replacement, origin=value.origin)
+        if isinstance(value, (ast.GenerateExpr, ast.MapExpr, ast.IndexedSumExpr)) and value.index == index:
+            return value
         if isinstance(value, tuple):
             return tuple(substitute_index(item, index, replacement) for item in value)
         if is_dataclass(value):
@@ -139,7 +227,12 @@ def select_compile_time_module_items(
             return replace(value, **changes)
         return value
 
-    def select(items: tuple[object, ...], active_binders: tuple[str, ...] = ()) -> None:
+    def select(
+        items: tuple[object, ...], active_binders: tuple[str, ...] = (),
+        names: dict[str, str] | None = None,
+    ) -> None:
+        nonlocal generate_ordinal
+        names = names or {}
         for item in items:
             if isinstance(item, ast.CompileTimeIfDecl):
                 validate_branch(item.when_true)
@@ -149,7 +242,7 @@ def select_compile_time_module_items(
                     if compile_time_evaluation.compile_time_condition(item.condition, {}, context)
                     else item.when_false
                 )
-                select(branch, active_binders)
+                select(branch, active_binders, names)
             elif isinstance(item, ast.GenerateBlock):
                 if item.index in visible_names or item.index in active_binders:
                     raise SemanticError(
@@ -185,19 +278,63 @@ def select_compile_time_module_items(
                                 getattr(item, "origin", None), "compile-time module item", context
                             ),
                         )
+                ordinal = generate_ordinal
+                generate_ordinal += 1
+                scoped_names = local_names(item.items)
+                parameter_names = {parameter.name for parameter in module.parameters}
+                conflict = next((name for name in sorted(scoped_names) if name in parameter_names), None)
+                if conflict is not None:
+                    raise SemanticError(
+                        f"generated local '{conflict}' conflicts with a compile-time parameter",
+                        primary=observations.declaration_origin(
+                            item.origin, "compile-time module item", context
+                        ),
+                    )
+                if item.index in scoped_names:
+                    raise SemanticError(
+                        f"generated local '{item.index}' shadows its generation binder",
+                        primary=observations.declaration_origin(
+                            item.origin, "compile-time module item", context
+                        ),
+                    )
                 for value in range(start, stop):
+                    iteration_names = dict(names)
+                    for name in sorted(scoped_names):
+                        stem = f"__generate_{ordinal}_{str(value).replace('-', 'm')}_{name}"
+                        candidate, suffix = stem, 0
+                        while candidate in allocated_names:
+                            suffix += 1
+                            candidate = f"{stem}_{suffix}"
+                        allocated_names.add(candidate)
+                        iteration_names[name] = candidate
                     select(
                         tuple(
                             substitute_index(child, item.index, value)
                             for child in item.items
                         ),
                         (*active_binders, item.index),
+                        iteration_names,
                     )
             else:
-                selected.append(item)
+                selected.append(rename(item, names))
 
     select(module.ordered_items)
-    return normalize_selected_module_items(module, tuple(selected), type_resolver)
+    normalized = normalize_selected_module_items(module, tuple(selected), type_resolver)
+    declared: set[str] = set()
+    for declaration in normalized.assignments:
+        name = declaration.target
+        if "." in name or "[" in name or name in owned_names:
+            continue
+        if name in declared:
+            raise SemanticError(
+                f"immutable local '{name}' is declared more than once",
+                primary=observations.declaration_origin(
+                    declaration.name_origin or declaration.origin,
+                    f"value {name}", context,
+                ),
+            )
+        declared.add(name)
+    return normalized
 
 
 def normalize_qualified_imports(

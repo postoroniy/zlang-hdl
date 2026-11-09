@@ -23,6 +23,7 @@ from . import symbols as semantic_symbols
 from . import type_resolution
 from .storage_symbols import FifoSymbol, MemorySymbol, RomSymbol
 from .errors import SemanticError
+from .instance_outputs import resolve_child_protocol_input
 from .expression_support import _expand_immutable_locals, _try_resolve_instance_array_index
 
 if TYPE_CHECKING:
@@ -328,6 +329,16 @@ def _check_protocol_field(
         field_path.append(field_root.name)
         field_path.reverse()
         if len(field_path) >= 3:
+            key = (field_path[0], ".".join(field_path[1:]))
+            incoming = context.scope.instance_protocol_inputs.get(key)
+            if incoming is not None:
+                return incoming
+            binding = context.scope.instance_protocol_bindings.get(key)
+            if binding is not None:
+                return resolve_child_protocol_input(
+                    key, inputs, context,
+                    primary=expression_origins.semantic_origin(expression, context),
+                )
             transfer = context.scope.instance_protocol_transfers.get(
                 (field_path[0], ".".join(field_path[1:]))
             )
@@ -342,6 +353,24 @@ def _check_protocol_field(
                     field_path[0], scalar_name, signal_type,
                     domain=signal_domain,
                 )
+            port = context.scope.instance_protocol_ports.get(
+                (field_path[0], ".".join(field_path[1:-1]))
+            )
+            if port is not None:
+                if field_path[-1] == "transfer":
+                    return context.expressions.check(ast.BinaryExpr(
+                        ast.BinaryOperator.BIT_AND,
+                        ast.FieldExpr(expression.expression, "valid", origin=expression.origin),
+                        ast.FieldExpr(expression.expression, "ready", origin=expression.origin),
+                        origin=expression.origin,
+                    ), inputs, None, context)
+                if field_path[-1] in {"payload", "valid", "ready"}:
+                    raise SemanticError(
+                        f"child input '{'.'.join(field_path)}' has no observable "
+                        "direct driver; buffered/CDC input observations require "
+                        "an explicit endpoint-side output",
+                        primary=expression_origins.semantic_origin(expression, context),
+                    )
     if (
         isinstance(expression.expression, ast.FieldExpr)
         and isinstance(expression.expression.expression, ast.NameExpr)

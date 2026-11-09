@@ -58,7 +58,7 @@ def requires_unified_state(module: ir_module.Module) -> bool:
         or module.rules
         or module.next_assignments
         or any(fifo.scheduled for fifo in module.fifos)
-        or any(memory.scheduled for memory in module.memories)
+        or module.memories
         or module.roms
     ):
         return False
@@ -69,8 +69,8 @@ def requires_unified_state(module: ir_module.Module) -> bool:
     ):
         return True
     if (
-        any(fifo.scheduled for fifo in module.fifos)
-        or any(memory.scheduled for memory in module.memories)
+        bool(module.memories)
+        or any(fifo.scheduled for fifo in module.fifos)
         or bool(module.roms)
         or bool(module.request_responses)
         or bool(module.aggregate_protocol_endpoints)

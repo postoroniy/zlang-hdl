@@ -22,6 +22,8 @@ from . import context as semantic_context
 from . import callables as semantic_callables
 from . import instances as semantic_instances
 from . import hierarchical_connections
+from .connection_endpoints import HierarchicalEndpointResolver
+from . import instance_outputs
 from . import limits as semantic_limits
 from . import module_pipeline
 from . import observations as _observations
@@ -90,19 +92,26 @@ class ModuleBehaviorAnalyzer:
                 analysis_needs=analysis_needs,
             )
         ).analyze()
-        # Rule guards are checked before the final hierarchy product is built.
-        # Delegation already has a complete typed top/child contract here, so
-        # publish its derived transfer value without duplicating connection
-        # validation or backend wiring decisions.
+        # Connectivity depends on the elaborated child contracts, not on local
+        # values or rule execution. Resolve it once, before aliases and guards
+        # observe either side of an endpoint, and retain the validated product.
+        endpoint_resolver = HierarchicalEndpointResolver(
+            module, module_context, symbols, instance_product.instances,
+            dict(instance_product.child_irs), list(state_storage.protocol_endpoints),
+        )
+        connection_product = hierarchical_connections.HierarchicalConnectionAnalyzer().analyze(
+            preparation, hardware, state_storage, instance_specializer.known_modules,
+            instance_product, endpoint_resolver,
+        )
         module_context.scope.instance_protocol_transfers.update({
             (owner, path): expression
             for owner, path, expression
-            in hierarchical_connections.predeclare_delegated_instance_transfer_projections(
-                module,
-                dict(instance_product.child_irs),
-                state_storage.aggregate_protocol_endpoints,
-            )
+            in connection_product.instance_protocol_transfers
         })
+        instance_outputs.publish_child_input_observations(
+            module, dict(instance_product.child_irs), connection_product,
+            module_context,
+        )
         constant_local_cache = instance_specializer.constant_locals
         # Locals are pure bindings, but next-state expressions may use them.  Make
         # the bindings available before checking register transitions; the later
@@ -541,4 +550,5 @@ class ModuleBehaviorAnalyzer:
             tuple(elastic_pipeline_regions),
             frozenset(assigned_outputs),
             semantic_equivalences.analyze_equivalences(module.equivalences),
+            connection_product,
         )

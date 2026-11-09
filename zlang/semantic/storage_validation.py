@@ -394,16 +394,6 @@ class StorageDeclarationAnalyzer:
                     declaration.origin, "storage declaration", preparation.expression_context
                 ),
             )
-        if memory_declarations and not scheduled_memory_names and (
-            module.registers or module.next_assignments or module.rules
-        ):
-            declaration = next(iter(memory_declarations.values()))
-            raise SemanticError(
-                "memory resources cannot yet be mixed with user registers or rules",
-                primary=observations.declaration_origin(
-                    declaration.origin, "storage declaration", preparation.expression_context
-                ),
-            )
 
         return StorageDeclarationProduct(
             resource_symbols,

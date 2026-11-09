@@ -29,6 +29,7 @@ from . import hierarchy as semantic_hierarchy
 from . import module_interfaces
 from . import module_pipeline
 from .errors import SemanticError
+from . import instance_outputs
 from . import expression_support
 from . import observations as semantic_observations
 from . import type_resolution
@@ -790,7 +791,7 @@ class InstanceElaborator:
                     specialization_identity=specialization_identity,
                 ))
                 _validate_child_outputs(self.base, physical_name, child_ir)
-                _validate_child_protocol_outputs(self.base, physical_name, child_ir)
+                instance_outputs.publish_child_protocol_outputs(self.base, physical_name, child_ir)
                 _project_child_csr_outputs(self.base, physical_name, child_ir)
             self._publish_child_value(declaration, child_ir, array_length)
 
@@ -1103,40 +1104,6 @@ def _validate_child_outputs(
         context.scope.instance_output_domains[key] = port.domain
 
 
-def _validate_child_protocol_outputs(
-    base: InstanceAnalysisContext,
-    physical_name: str,
-    child: ir_module.Module,
-) -> None:
-    for port in child.ports:
-        if port.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID:
-            continue
-        logical_bases = [port.name]
-        logical_bases.extend(
-            f"{aggregate.name}.{member.name}"
-            for aggregate in child.aggregate_protocol_endpoints
-            for member in aggregate.members
-            if port.name == f"{aggregate.name}__{member.name}"
-        )
-        outgoing = (
-            (
-                ir_interfaces.ReadyValidSignal.PAYLOAD,
-                ir_interfaces.ReadyValidSignal.VALID,
-            )
-            if port.direction is ir_module.PortDirection.OUTPUT
-            else (ir_interfaces.ReadyValidSignal.READY,)
-        )
-        for signal in outgoing:
-            scalar_name = ir_interfaces.ready_valid_field_name(port.name, signal)
-            signal_type = (
-                port.type
-                if signal is ir_interfaces.ReadyValidSignal.PAYLOAD
-                else ir_types.BitType()
-            )
-            projection = (scalar_name, signal_type, port.domain)
-            for logical_base in logical_bases:
-                key = (physical_name, f"{logical_base}.{signal.value}")
-                base.expression_context.scope.instance_protocol_outputs[key] = projection
 
 
 def _project_child_csr_outputs(

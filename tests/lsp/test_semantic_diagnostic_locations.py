@@ -417,11 +417,11 @@ CASES = [
         module Bad {
           clock c reset r reg x:u8=0
           §memory m:mem<u8,2>{read_latency 1 collision read_first}
-          m.read_address=0 m.write_enable=0 m.write_address=0 m.write_data=0
+          m.read_address=0 m.write_enable=0 m.write_address=0
         }
     """,
-        "memory resources cannot yet be mixed with user registers",
-        id="mixed-memory-state",
+        "has no 'write_data' control assignment",
+        id="memory-state-missing-control",
     ),
     pytest.param(
         """

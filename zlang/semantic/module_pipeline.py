@@ -98,6 +98,7 @@ class ModuleBehaviorProduct:
     elastic_pipeline_regions: tuple[Any, ...]
     assigned_outputs: frozenset[tuple[str, object | None, object | None]]
     equivalences: tuple[Any, ...]
+    connections: Any
 
 
 @dataclass(frozen=True)

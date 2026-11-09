@@ -11,6 +11,15 @@ incompatible input explicitly.
 
 ## Unreleased
 
+- Preserve per-iteration immutable locals in structural generation and reject
+  duplicate immutable declarations instead of silently retaining the first (ZL-074).
+- Resolve read-only child protocol inputs and derived `transfer` before aliases
+  and guards, sharing the exact typed driver and any declared delay (ZL-075).
+- Allow globally controlled RAM alongside user registers/rules without losing
+  controller state, write independence, collision policy or read latency (ZL-076).
+- Hold the complete native RAM read pipeline during reset when `read_data` is
+  preserved; retain existing U/X behavior and native ABI v13 (ZL-077).
+
 - Keep full-history secret detection strict while recognizing the exact reviewed
   compiler-source digest in the FPGA qualification inventory (CI-002).
 
