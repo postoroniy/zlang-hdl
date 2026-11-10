@@ -54,7 +54,7 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
     )
     assert report == {
         "schema": 1,
-        "entries": 54,
+        "entries": 67,
         "included": [
             "BUS-001",
             "BUS-002",
@@ -68,6 +68,7 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
             "FORMAL-003",
             "FORMAL-004",
             "FORMAL-005",
+            "FORMAL-006",
             "LOCK-001",
             "LSP-001",
             "LSP-002",
@@ -78,6 +79,8 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
             "SIM-004",
             "SIM-005",
             "SIM-006",
+            "SIM-007",
+            "SIM-008",
             "VSIX-001",
             "VSIX-002",
             "VSIX-003",
@@ -110,11 +113,21 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
             "ZL-075",
             "ZL-076",
             "ZL-077",
+            "ZL-078",
+            "ZL-079",
+            "ZL-080",
+            "ZL-081",
+            "ZL-082",
+            "ZL-083",
+        "ZL-084",
+            "ZL-085",
+            "ZL-086",
+            "ZL-087",
         ],
         "dispositions": {
             "deferred": 0,
             "excluded_experiment": 0,
-            "included": 54,
+            "included": 67,
             "private_only": 0,
         },
     }
@@ -194,6 +207,7 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
         "FORMAL-003",
         "FORMAL-004",
         "FORMAL-005",
+            "FORMAL-006",
         "LOCK-001",
         "LSP-001",
         "LSP-002",
@@ -204,6 +218,8 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
         "SIM-004",
         "SIM-005",
         "SIM-006",
+        "SIM-007",
+        "SIM-008",
         "VSIX-001",
         "VSIX-002",
         "VSIX-003",
@@ -236,6 +252,16 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
         "ZL-075",
         "ZL-076",
         "ZL-077",
+        "ZL-078",
+        "ZL-079",
+        "ZL-080",
+        "ZL-081",
+        "ZL-082",
+        "ZL-083",
+        "ZL-084",
+            "ZL-085",
+            "ZL-086",
+            "ZL-087",
     ]
 
     deferred = next(entry for entry in payload["entries"] if entry["id"] == "EDITOR-001")
@@ -269,5 +295,5 @@ def test_cli_reports_the_validated_inclusion_count(capsys: pytest.CaptureFixture
         "--previous-tag", "v0.1.0a23",
     ]) == 0
     assert capsys.readouterr().out == (
-        "release regressions valid: 54 entries, 54 included\n"
+        "release regressions valid: 67 entries, 67 included\n"
     )

@@ -1,4 +1,4 @@
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, TimeoutExpired
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from zlang.backend.systemverilog import emit_artifact_with_source_map
+from zlang.common.subprocess import ProcessCleanupError
 from zlang.common.tool_inventory import ToolInventory
 from zlang.compiler import compile_source
 from zlang.formal import FormalToolchainContext, run_verilog_formal
@@ -102,13 +103,44 @@ def _run_with(
         )
 
 
-def test_nonzero_tool_or_configuration_error_is_unknown() -> None:
+def test_nonzero_tool_or_configuration_error_is_unknown(tmp_path: Path) -> None:
     result = _run_with(CompletedProcess(
         ("sby",), 2, stdout="ERROR: parser failed before engine startup\n", stderr="",
     ), status=("ERROR", 16, 0))
     assert result.status is FormalStatus.UNKNOWN
     assert result.counterexample is None
     assert "ERROR status" in (result.reason or "")
+
+    context = SimpleNamespace(engine="sby", route="smtbmc", solver="z3", missing=(),
+                              versions=(), execution_binding=None)
+    timeout = TimeoutExpired(("sby",), 1, output=b"apparent PASS\n", stderr=b"partial error\n")
+    timeout.cleanup_error = RuntimeError("lifetime uncertain")
+    failures = (ProcessCleanupError(("sby",), RuntimeError("lifetime uncertain"),
+                                   returncode=0, stdout=b"apparent PASS\n", stderr=b"partial error\n"),
+                timeout)
+    for index, failure in enumerate(failures):
+        directory = tmp_path / str(index)
+        with patch("zlang.formal.resolve_formal_toolchain", return_value=context), patch(
+            "zlang.formal.run_bounded_process", side_effect=failure,
+        ) as run, patch("zlang.formal._read_sby_status") as status, patch(
+            "zlang.formal._sby_trace_files",
+        ) as traces:
+            result = run_verilog_formal("module top; endmodule", top="top", property_id="p",
+                                        depth=2, timeout_seconds=1, work_directory=directory)
+        assert result.status is FormalStatus.UNKNOWN and result.counterexample is None
+        assert "lifetime uncertain" in result.reason
+        assert run.call_args.kwargs["cleanup_owned_session"] is True
+        script = (directory / "top.sby").read_text().split("[script]", 1)[1]
+        guard = "select -assert-any t:$assert t:$check r:FLAVOR=assert %i %u"
+        assert script.index("hierarchy -top top") < script.index(guard) < script.index("prep -top top")
+        assert script.count(guard) == 1
+        status.assert_not_called()
+        traces.assert_not_called()
+        assert (directory / "solver.stdout.log").read_text() == "apparent PASS\n"
+        assert (directory / "solver.stderr.log").read_text() == "partial error\n"
+        assert "lifetime uncertain" in (directory / "solver.cleanup.log").read_text()
+        if failure is timeout:
+            assert (directory / "solver.timeout.log").read_text() == "apparent PASS\npartial error\n"
 
 
 def test_explicit_failure_is_failed_even_when_output_mentions_pass() -> None:

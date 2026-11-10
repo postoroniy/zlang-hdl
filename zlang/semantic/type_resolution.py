@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ast as pyast
+from copy import copy
 from dataclasses import replace
 import re
 from fractions import Fraction
@@ -28,6 +29,10 @@ if TYPE_CHECKING:
 _UNSIGNED_PATTERN = re.compile(r"u([1-9][0-9]*)\Z")
 _SIGNED_PATTERN = re.compile(r"s([1-9][0-9]*)\Z")
 _GENERIC_PATTERN = re.compile(r"(u|uint|sint|bits)<(.+)>\Z")
+
+
+class UnresolvedTypeParameterError(SemanticError):
+    """A declared generic type/value needed by a signature is not bound yet."""
 
 def apply_compile_time_real_intrinsic(
     name: str,
@@ -395,6 +400,14 @@ class TypeResolver:
                 )
             raise
 
+    def for_query(self) -> "TypeResolver":
+        """Resolve a non-publishing type probe without mutating its parent."""
+        query = copy(self)
+        query._resolved = dict(self._resolved)
+        query._active = list(self._active)
+        query._definition_context = None
+        return query
+
     def _resolve_syntax(
         self, syntax: ast.TypeSyntax, *, source_unit: str | None
     ) -> ir_types.HardwareType:
@@ -503,12 +516,15 @@ class TypeResolver:
                     # The module owner supplies only earlier required value
                     # parameters. This is a specialization requirement, not an
                     # undeclared name; ordinary compilation still fails closed.
-                    raise SemanticError(
+                    raise UnresolvedTypeParameterError(
                         f"unresolved compile-time parameter '{node.id}' in {description}",
                         code="ZL-GENERIC-SPECIALIZATION-REQUIRED",
                         fixes=("provide concrete value specialization arguments",),
                     )
-                raise SemanticError(
+                error = (UnresolvedTypeParameterError
+                         if allow_resolver_parameters and node.id in self._parameters
+                         and self._parameters[node.id].kind == "value" else SemanticError)
+                raise error(
                     f"unresolved compile-time parameter '{node.id}' in {description}"
                 )
             if isinstance(node, pyast.UnaryOp) and isinstance(node.op, (pyast.UAdd, pyast.USub)):
@@ -697,6 +713,28 @@ class TypeResolver:
         parts.append(name[begin:-1].strip())
         return name[:start], tuple(parts)
 
+    def _resolve_struct_fields(
+        self, declaration: ast.StructDecl, resolver: TypeResolver,
+    ) -> tuple[ir_types.StructField, ...]:
+        if not declaration.fields:
+            raise SemanticError(
+                f"struct '{declaration.name}' must contain at least one field",
+                primary=self.declaration_origin(declaration),
+            )
+        field_names: set[str] = set()
+        fields: list[ir_types.StructField] = []
+        for field in declaration.fields:
+            if field.name in field_names:
+                raise SemanticError(
+                    f"duplicate field '{field.name}' in struct '{declaration.name}'",
+                    primary=self.declaration_origin(
+                        declaration, span=field.name_origin or field.origin,
+                    ),
+                )
+            field_names.add(field.name)
+            fields.append(ir_types.StructField(field.name, resolver.resolve(field.type_name)))
+        return tuple(fields)
+
     def _resolve_named(self, name: str) -> ir_types.HardwareType:
         if name in self._resolved:
             return self._resolved[name]
@@ -714,6 +752,34 @@ class TypeResolver:
                 self._resolved[name] = resolved_tuple
                 return resolved_tuple
             generic = self._generic_parts(name)
+            if generic is None and name in self._structs and self._structs[name].parameters:
+                declaration = self._structs[name]
+                values: dict[str, int] = {}
+                arguments: list[str] = []
+                for parameter in declaration.parameters:
+                    with diagnostic_source(self.declaration_origin(
+                        declaration, span=parameter.origin,
+                    )):
+                        if parameter.kind != "value" or parameter.default is None:
+                            raise SemanticError(
+                                f"missing required {parameter.kind} argument "
+                                f"'{parameter.name}' for struct '{name}'",
+                                code="ZL-GENERIC-SPECIALIZATION-REQUIRED",
+                                fixes=("provide concrete struct specialization arguments",),
+                            )
+                        value = self._eval_constant_integer(
+                            str(parameter.default),
+                            description=f"struct '{name}' value parameter '{parameter.name}'",
+                            local_values=values,
+                            allow_resolver_parameters=False,
+                        )
+                    values[parameter.name] = value
+                    arguments.append(str(value))
+                # Reuse explicit specialization for concrete field types and
+                # nominal identity. Defaults cannot capture caller parameters.
+                result = self._resolve_named(f"{name}<{','.join(arguments)}>")
+                self._resolved[name] = result
+                return result
             if generic is not None and generic[0] in self._structs:
                 base, arguments = generic
                 declaration = self._structs[base]
@@ -750,7 +816,10 @@ class TypeResolver:
                     ),
                     source_digests=self._source_digests,
                 )
-                fields = tuple(ir_types.StructField(field.name, nested.resolve(field.type_name)) for field in declaration.fields)
+                # Field recursion must retain the specialization ancestry even
+                # though each struct owns its parameter bindings.
+                nested._active = self._active
+                fields = self._resolve_struct_fields(declaration, nested)
                 result = ir_types.StructType(
                     f"{base}<{','.join(canonical_arguments)}>", fields
                 )
@@ -760,24 +829,7 @@ class TypeResolver:
                 result = self._enums[name]
             elif name in self._structs:
                 declaration = self._structs[name]
-                if not declaration.fields:
-                    raise SemanticError(
-                        f"struct '{name}' must contain at least one field",
-                        primary=self.declaration_origin(declaration),
-                    )
-                field_names: set[str] = set()
-                fields: list[ir_types.StructField] = []
-                for field in declaration.fields:
-                    if field.name in field_names:
-                        raise SemanticError(
-                            f"duplicate field '{field.name}' in struct '{name}'",
-                            primary=self.declaration_origin(
-                                declaration, span=field.name_origin or field.origin,
-                            ),
-                        )
-                    field_names.add(field.name)
-                    fields.append(ir_types.StructField(field.name, self.resolve(field.type_name)))
-                result = ir_types.StructType(name, tuple(fields))
+                result = ir_types.StructType(name, self._resolve_struct_fields(declaration, self))
             elif name in self._tagged_union_declarations:
                 declaration = self._tagged_union_declarations[name]
                 if not declaration.variants:
@@ -847,7 +899,7 @@ class TypeResolver:
                 name in self._parameters
                 and self._parameters[name].kind == "type"
             ):
-                raise SemanticError(
+                raise UnresolvedTypeParameterError(
                     f"unknown type '{name}': generic type parameter requires "
                     "a concrete specialization",
                     code="ZL-GENERIC-SPECIALIZATION-REQUIRED",

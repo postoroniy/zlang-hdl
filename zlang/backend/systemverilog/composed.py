@@ -15,6 +15,7 @@ from zlang.ir import expressions as ir_expr
 from zlang.ir.expressions import Expression
 from zlang.ir import interfaces as ir_interfaces
 from zlang.ir import module as ir_module
+from zlang.ir import types as ir_types
 from zlang.ir.traversal import walk_expression
 from zlang.backend import expression_materialization as materialization
 from zlang.backend import identifiers
@@ -893,6 +894,35 @@ def _emit_composed_component(
         )
         declarations.extend(materialized_declarations)
         logic.extend(materialized_assignments)
+    def render_input(
+        owner: str, port: str, expression: ir_expr.Expression,
+        type_: ir_types.HardwareType, signal_name: str | None = None,
+    ) -> str:
+        if expression.type.width != type_.width:
+            raise SystemVerilogEmissionError(
+                f"child input '{owner}.{port}' has width {expression.type.width}, "
+                f"expected {type_.width}"
+            )
+        rendered = render(expression)
+        direct_projection = isinstance(expression, (
+            ir_expr.FieldAccess, ir_expr.TupleProject, ir_expr.VectorIndex,
+            ir_expr.Slice, ir_expr.UnionTag, ir_expr.UnionField,
+        )) and isinstance(expression.expression, (
+            ir_expr.InputRef, ir_expr.RegisterRef, ir_expr.InstanceOutputRef,
+            ir_expr.ReadyValidRef, ir_expr.RequestResponseRef,
+            ir_expr.MemoryRef, ir_expr.RomRef,
+        ))
+        if rendered.isidentifier() or isinstance(expression, ir_expr.Constant) or direct_projection:
+            return rendered
+        # Port expressions are not reliably context-sized by all supported SV
+        # frontends. Seal the already-typed value before the instance boundary;
+        # this adds no state, conversion, latency or new physical port.
+        signal = local_names.child_signal(owner, port, signal_name)
+        signed = " signed" if isinstance(type_, (ir_types.SIntType, ir_types.FixedType)) else ""
+        declarations.append(f"  logic{signed} {packed_range(type_.width)}{signal};")
+        logic.append(f"  assign {signal} = {rendered};")
+        return signal
+
     rom_declarations, rom_lines = sv_storage._emit_rom_logic(module, render)
     declarations.extend(rom_declarations)
     logic.extend(rom_lines)
@@ -1087,7 +1117,7 @@ def _emit_composed_component(
                         raise SystemVerilogEmissionError(
                             f"child '{owner}' input '{port.name}' is unbound"
                         )
-                    signal = render(expression)
+                    signal = render_input(owner, port.name, expression, port.type)
                 else:
                     signal = local_names.child_signal(owner, port.name)
                     declarations.append(
@@ -1121,7 +1151,11 @@ def _emit_composed_component(
                             f"child-owned signal '{owner}.{port.name}."
                             f"{signal_name}' cannot be bound"
                         )
-                    signal = render(bound)
+                    signal = render_input(
+                        owner, port.name, bound,
+                        port.type if signal_name == "payload" else ir_types.BitType(),
+                        signal_name,
+                    )
                 if signal is None and child_output:
                     signal = local_names.child_signal(owner, port.name, signal_name)
                     width = (

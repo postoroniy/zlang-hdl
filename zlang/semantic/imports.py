@@ -101,23 +101,59 @@ class ImportAnalyzer:
         module: ast.Module,
         imported: tuple[ast.Module, ...],
         root_owner: str,
+        *,
+        source_unit: str | None = None,
+        source_digest: str | None = None,
+        records: tuple[module_resolution.ModuleSourceRecord, ...] = (),
     ) -> None:
+        indexed = {
+            id(unit): record
+            for record in records
+            for unit in (record.ast, *record.ast.submodules)
+        }
+
         def register(
-            owners: dict[str, str], name: str, owner: str, label: str,
-            *, root_duplicate: bool = True,
+            owners: dict[str, tuple[str, SourceOrigin | None]],
+            declaration: object, source: ast.Module, label: str,
+            *, root: bool = False, root_duplicate: bool = True,
         ) -> None:
+            name = declaration.name
+            owner = source.source_identity or (root_owner if root else source.name)
+            record = indexed.get(id(source))
+            unit = source.source_identity or (
+                record.logical_path if record is not None else source_unit if root else None
+            )
+            digest = source.source_hash or (
+                record.digest if record is not None else source_digest if root else None
+            )
+            span = getattr(declaration, "name_origin", None) or getattr(declaration, "origin", None)
+            origin = SourceOrigin(span, f"{label} {name}", unit, digest) if span is not None else None
             previous = owners.get(name)
             if previous is not None:
+                previous_owner, previous_origin = previous
                 location = (
                     f"in '{root_owner}'"
-                    if root_duplicate and previous == owner == root_owner
-                    else f"from '{previous}' and '{owner}'"
+                    if root_duplicate and previous_owner == owner == root_owner
+                    else f"from '{previous_owner}' and '{owner}'"
                 )
+                previous_location = previous_owner
+                if previous_origin is not None:
+                    previous_location += (
+                        f":{previous_origin.span.start_line}:"
+                        f"{previous_origin.span.start_column}"
+                    )
                 raise SemanticError(
                     f"conflicting {label} declaration '{name}' {location}",
                     code="ZL-IMPORT-CONFLICT",
+                    primary=origin,
+                    physical_source=record.source_path if record is not None else None,
+                    notes=(
+                        f"previous declaration: {previous_location}",
+                        "import aliases change local spelling, not declaration identity",
+                    ),
+                    fixes=("use distinct declaration names across the import closure",),
                 )
-            owners[name] = owner
+            owners[name] = owner, origin
 
         for label, attribute in (
             ("type alias", "type_aliases"),
@@ -128,21 +164,22 @@ class ImportAnalyzer:
             ("protocol", "protocols"),
             ("module interface", "module_interfaces"),
         ):
-            owners: dict[str, str] = {}
+            owners: dict[str, tuple[str, SourceOrigin | None]] = {}
             for declaration in getattr(module, attribute):
-                register(owners, declaration.name, root_owner, label)
+                register(owners, declaration, module, label, root=True)
             for source in imported:
-                owner = source.source_identity or source.name
                 for declaration in getattr(source, attribute):
-                    register(owners, declaration.name, owner, label)
+                    register(owners, declaration, source, label)
 
-        owners: dict[str, str] = {}
-        for source in (module, *module.submodules, *imported):
+        owners: dict[str, tuple[str, SourceOrigin | None]] = {}
+        root_sources = (module, *module.submodules)
+        root_ids = {id(source) for source in root_sources}
+        for source in (*root_sources, *imported):
             if source.declaration_only:
                 continue
-            owner = source.source_identity or root_owner
             register(
-                owners, source.name, owner, "module", root_duplicate=False
+                owners, source, source, "module", root=id(source) in root_ids,
+                root_duplicate=False,
             )
 
     @staticmethod
@@ -241,7 +278,10 @@ class ImportAnalyzer:
         )
         if imported:
             owner = source_unit or f"compilation:{module.name}"
-            self._reject_conflicts(module, imported, owner)
+            self._reject_conflicts(
+                module, imported, owner, source_unit=source_unit,
+                source_digest=source_digest, records=ordered,
+            )
             module = self._merge(module, imported)
         source_digests = {item.logical_path: item.digest for item in resolved}
         dependencies = dict(source_digests)

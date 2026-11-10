@@ -799,6 +799,11 @@ class HierarchyDependencyValidator:
                 for output in current.outputs:
                     if output.protocol is not InterfaceProtocol.WIRE:
                         continue
+                    if output.registered:
+                        # A public register exposes pre-edge state. Its rule
+                        # guards and operands affect the next state only.
+                        summary[output.name] = frozenset()
+                        continue
                     dependencies: set[str] = set()
                     dependencies.update(*(
                         summarize_expression(assignment.expression)

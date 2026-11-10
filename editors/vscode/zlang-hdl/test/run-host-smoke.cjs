@@ -25,6 +25,16 @@ function executableOnPath(name) {
   throw new Error(`${name} is unavailable on PATH`);
 }
 
+function vscodeDownloadOptions(environment = process.env) {
+  const options = { version: toolchain.vscodeStable.version };
+  const cachePath = environment.ZLANG_VSCODE_CACHE_PATH;
+  if (cachePath !== undefined) {
+    assert.ok(path.isAbsolute(cachePath), 'ZLANG_VSCODE_CACHE_PATH must be absolute');
+    options.cachePath = cachePath;
+  }
+  return options;
+}
+
 function hostLaunchArguments({ extensions, userData, installed, workspace }) {
   return [
     // The downloaded VS Code test host is an isolated, ephemeral CI process.
@@ -58,7 +68,7 @@ function assertCleanTransportLogs(userData) {
       if(entry.isDirectory())visit(file);
       else if(entry.isFile()&&entry.name.endsWith('.log')){
         assert.doesNotMatch(fs.readFileSync(file,'utf8'),
-          /Unexpected SIGPIPE|Error: (?:write )?EPIPE|DAP session is disconnected/,
+          /Unexpected SIGPIPE|Error: (?:write )?EPIPE|DAP session is disconnected|compiler integration fail(?:ed|ure)|compiler worker (?:exceeded|exited unexpectedly)/,
           `VS Code transport failed despite successful functional checks: ${file}`);
       }
     }
@@ -108,10 +118,11 @@ async function main() {
       'zlang.waveform.wcp.enabled':true,
       'zlang.waveform.wcp.port':port,
     }, null, 2)}\n`);
-    const executable = await downloadAndUnzipVSCode(toolchain.vscodeStable.version);
+    const downloadOptions = vscodeDownloadOptions();
+    const executable = await downloadAndUnzipVSCode(downloadOptions);
     await runVSCodeCommand(
       extensionInstallArguments({ vsix, extensions }),
-      { version: toolchain.vscodeStable.version },
+      downloadOptions,
     );
     const installedNames = fs.readdirSync(extensions).filter((name) =>
       name === 'postoroniy.zlang-hdl-0.1.0'
@@ -150,7 +161,7 @@ async function main() {
   }
 }
 
-module.exports = { extensionInstallArguments, hostLaunchArguments, assertCleanTransportLogs, retainHostFailure };
+module.exports = { vscodeDownloadOptions, extensionInstallArguments, hostLaunchArguments, assertCleanTransportLogs, retainHostFailure };
 
 if (require.main === module) {
   main().catch((error) => { console.error(error); process.exitCode = 1; });

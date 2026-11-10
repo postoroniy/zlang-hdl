@@ -6,9 +6,11 @@ import json
 import subprocess
 import time
 
+import pytest
 import z3
 
 from zlang.formal_rtl_cones import RtlArithmeticCones
+from zlang.formal_bitvector_rewrite import ArithmeticProofUnavailable
 
 
 def test_yosys_arithmetic_encoding_matches_exhaustive_rtl(tmp_path):
@@ -171,3 +173,76 @@ def test_unused_empty_contract_is_pruned_but_connected_blackbox_fails_closed(tmp
         if not connected:
             design = json.loads((tmp_path/str(connected)/"rtl_arithmetic/original.json").read_text())
             assert set(design["modules"]) == {"miter"}
+
+
+def test_bounded_lane_of_wide_retained_state_keeps_exact_upstream_bits():
+    bank = list(range(2, 578))
+    module = {"ports": {}, "cells": {"bank": {
+        "type": "$dff", "port_directions": {"Q": "output"},
+        "connections": {"Q": bank},
+    }}}
+    reader = RtlArithmeticCones(module)
+    lane = tuple(bank[504:540])
+    # Include a signed high-field extension, independently of the parent bank.
+    value = reader.vector(lane + (lane[-1],) * 18)
+    assert len(reader.leaves) == 1
+    leaf, = reader.leaves
+    assert leaf.bits == lane and leaf.expression.size() == 36
+    for raw in (0, 1, (1 << 35) - 1, 1 << 35, (1 << 36) - 1):
+        actual = z3.simplify(z3.substitute(value, (leaf.expression,
+            z3.BitVecVal(raw, 36, ctx=reader.context)))).as_long()
+        signed = raw if raw < 1 << 35 else raw - (1 << 36)
+        assert actual == signed & ((1 << 54) - 1)
+    changed = reader.vector(tuple(bank[503:539]))
+    assert reader.leaves[-1].bits != lane
+    assert changed.get_id() != leaf.expression.get_id()
+    with pytest.raises(ArithmeticProofUnavailable, match="connection width"):
+        reader.vector(tuple(bank))
+    # An oversized arithmetic producer cannot be silently made a retained leaf.
+    arithmetic = {"ports": {}, "cells": {"wide": {
+        "type": "$add", "port_directions": {"Y": "output"},
+        "connections": {"Y": bank},
+    }}}
+    with pytest.raises(ArithmeticProofUnavailable, match="word width bound"):
+        RtlArithmeticCones(arithmetic).vector(lane)
+
+
+@pytest.mark.parametrize("mutated", (False, True))
+def test_wide_state_signed_lane_actual_rtl_proof_and_high_field_mutation(tmp_path, mutated):
+    from zlang.formal_rtl_arithmetic import run_rtl_arithmetic_formal
+    from zlang.ir.formal import ProofMode, FormalStatus
+
+    high, low = (538, 503) if mutated else (539, 504)
+    source = f"""module miter(input clk,rst,input [575:0] payload);
+ reg [575:0] bank;
+ wire signed [53:0] result=$signed(bank[{high}:{low}])+54'sd3;
+ wire signed [53:0] expected=$signed({{{{18{{bank[539]}}}},bank[539:504]}})-(-54'sd3);
+ reg started=0;
+ always @(posedge clk) begin
+   started<=1;
+   if(!started) assume(rst);
+   if(rst) bank<=0; else bank<=payload;
+   if(started) assert(result==expected);
+ end
+ endmodule
+"""
+    result = run_rtl_arithmetic_formal(source, top="miter", property_id="wide.lane",
+        mode=ProofMode.PROVE, depth=8, timeout_seconds=30, solver="z3",
+        systemverilog=True, flatten=True, work_directory=tmp_path)
+    assert result.status is (FormalStatus.FAILED if mutated else FormalStatus.PROVEN), result.reason
+    proof = json.loads((tmp_path / "rtl_arithmetic/proof.json").read_text())
+    assert proof["assumptions_added"] == 0
+    assert all(len(binding["bits"]) <= 128 for root in proof["roots"] for binding in root["bindings"])
+
+def test_wide_lane_preserves_explicit_quantizer_input_boundaries():
+    bank = list(range(2, 578))
+    module = {"ports": {}, "cells": {"bank": {
+        "type": "$dff", "port_directions": {"Q": "output"},
+        "connections": {"Q": bank},
+    }}}
+    lane = tuple(bank[504:540])
+    reader = RtlArithmeticCones(module, logic=True, input_words=(tuple(bank),))
+    assert reader.vector(lane).size() == 36
+    assert reader.leaves[0].bits == lane
+    with pytest.raises(ArithmeticProofUnavailable, match="word width bound"):
+        RtlArithmeticCones(module, logic=True).vector(lane)

@@ -871,3 +871,77 @@ int main(int argc, char** argv) {{
         timeout=30,
     )
     assert run.returncode == 0, run.stdout + run.stderr
+
+
+@pytest.mark.parametrize("registered", (False, True))
+def test_state_session_registered_output_vector_binding_is_per_physical_owner(
+    registered: bool,
+) -> None:
+    storage = "out reg q:vec<2,u4>=repeat(0)" if registered else (
+        "out q:vec<2,u4> reg held:vec<2,u4>=repeat(0) q=held"
+    )
+    compilation = compile_source(
+        "module SessionLane {clock clk reset rst " + storage + "}"
+        "module SessionTop {clock clk reset rst out left_value,right_value:vec<2,u4> "
+        "inst left:SessionLane inst right:SessionLane "
+        "left_value=left.q right_value=right.q}",
+        top="SessionTop",
+    )
+    catalog = build_simulation_state_catalog(
+        compilation.ir, selected_ir_identity=compilation.selected_ir_identity
+    )
+    session = SimulationStateSession.from_compilation(compilation)
+    assert session.catalog == catalog
+    name = "q" if registered else "held"
+    left = _binding(catalog, SimulationStateKind.REGISTER, name, ("SessionTop", "left"))
+    right = _binding(catalog, SimulationStateKind.REGISTER, name, ("SessionTop", "right"))
+    assert left.binding_id != right.binding_id
+    assert left.specialization_identity == right.specialization_identity
+    session.preload({left.binding_id: [1, 2], right.binding_id: [3, 4]})
+    assert session.read(left.binding_id) == [1, 2]
+    assert session.read(right.binding_id) == [3, 4]
+    session.write(left.binding_id, 15, index=1)
+    assert session.read(left.binding_id, index=1) == 15
+    assert session.read(right.binding_id) == [3, 4]
+    snapshot = session.snapshot()
+    snapshot[left.binding_id][0] = 9
+    assert session.read(left.binding_id) == [1, 15]
+    before = session.snapshot()
+    with pytest.raises(SimulationStateError, match="does not fit exact type"):
+        session.preload({left.binding_id: [0, 0], right.binding_id: [0]})
+    assert session.snapshot() == before
+    assert session.step({}) == {"left_value": [1, 15], "right_value": [3, 4]}
+    assert session.snapshot() == before
+    session.step({}, reset=True)
+    assert session.read(left.binding_id) == [0, 0]
+    assert session.read(right.binding_id) == [0, 0]
+    assert session.catalog == catalog
+
+
+
+def test_state_session_registered_output_preserves_root_catalog_and_updates() -> None:
+    compilation = compile_source("""
+        module SessionRoot {
+          clock clk reset rst in load:bit in value:u4 out reg q:u4=3
+          when load { q <- value }
+        }
+    """)
+    catalog = build_simulation_state_catalog(
+        compilation.ir, selected_ir_identity=compilation.selected_ir_identity
+    )
+    session = SimulationStateSession.from_compilation(compilation)
+    binding = _binding(catalog, SimulationStateKind.REGISTER, "q", ("SessionRoot",))
+    assert session.catalog == catalog
+    assert session.read(binding.binding_id) == 3
+    session.write(binding.binding_id, 9)
+    assert session.step({"load": 0, "value": 5}) == {"q": 9}
+    assert session.read(binding.binding_id) == 9
+    session.step({"load": 1, "value": 5})
+    assert session.read(binding.binding_id) == 5
+    before = session.snapshot()
+    with pytest.raises(SimulationStateError, match="does not fit exact type"):
+        session.write(binding.binding_id, 16)
+    assert session.snapshot() == before
+    session.step({"load": 0, "value": 0}, reset=True)
+    assert session.read(binding.binding_id) == 3
+    assert session.catalog == catalog

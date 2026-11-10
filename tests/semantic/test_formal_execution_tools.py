@@ -112,6 +112,21 @@ def test_same_version_binary_replacement_invalidates_selection_and_bundle_keys(w
         return verification_result_cache_key(bundle, job, config=VerificationRunConfig(),
                                              tool_versions=(('z3', 'same version'),))
     first_bundle = bundle_key()
+    # Neither bound-Z3 nor an unbound engine may replay pre-lifetime-policy results.
+    from zlang import formal_execution_tools
+    assert formal_execution_tools.EXECUTION_TOOL_POLICY == "zlang-formal-execution-tools-v3"
+    for solver in ("z3", "boolector"):
+        selected_config = FormalExplorationConfig(solver=solver)
+        run_config = VerificationRunConfig(solver=solver)
+        current_selection = selection_key(selected_config)
+        current_bundle = verification_result_cache_key(
+            bundle, job, config=run_config, tool_versions=((solver, "same version"),))
+        for prior in ("zlang-formal-execution-tools-v1", "zlang-formal-execution-tools-v2"):
+            with monkeypatch.context() as old_policy:
+                old_policy.setattr(formal_execution_tools, "EXECUTION_TOOL_POLICY", prior)
+                assert selection_key(selected_config) != current_selection
+                assert verification_result_cache_key(
+                    bundle, job, config=run_config, tool_versions=((solver, "same version"),)) != current_bundle
     _script(selected, 'echo different-binary')
     with pytest.raises(FormalError, match='changed after discovery'):
         selection_key(config)

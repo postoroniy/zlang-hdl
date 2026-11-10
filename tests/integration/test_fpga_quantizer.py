@@ -102,7 +102,8 @@ def test_corrupted_quantizer_is_not_replaced(mutation, tmp_path):
         assert solver.check() == z3.sat
 
 
-def test_checked_quantizer_source_inventory_changes_cache_policy(monkeypatch):
+@pytest.mark.parametrize("checker_name", ("formal_fpga_quantizer.py", "formal_rtl_cones.py"))
+def test_checked_quantizer_source_inventory_changes_cache_policy(monkeypatch, checker_name):
     from pathlib import Path
     from zlang.compiler import compile_file
     from zlang.formal_joint_value import rtl_arithmetic_policy
@@ -116,7 +117,7 @@ def test_checked_quantizer_source_inventory_changes_cache_policy(monkeypatch):
         architecture_mode="required",
     )
     before = rtl_arithmetic_policy(product.implementation_graph, "z3")
-    checker = root / "zlang/formal_fpga_quantizer.py"
+    checker = root / "zlang" / checker_name
     original = Path.read_bytes
     assert (
         before["checker_sources"][checker.name] == sha256(original(checker)).hexdigest()

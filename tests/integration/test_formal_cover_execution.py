@@ -71,6 +71,21 @@ endmodule
     assert "depth 4" in (unreached.reason or "")
     assert (unreached_work / "solver.stdout.log").is_file()
 
+    empty_obligations = {
+        "comment-only": "module EmptyCover(input a); // cover(a);\nendmodule",
+        "assume-only": "module EmptyCover(input a); always @* assume(a); endmodule",
+        "unreachable": "module EmptyCover(input a); endmodule module unused(input a); always @* cover(a); endmodule",
+        "wrong-flavor": "module EmptyCover(input a); always @* assert(a); endmodule",
+    }
+    for name, source in empty_obligations.items():
+        work = tmp_path / ("empty-" + name)
+        result = run_verilog_cover(source, top="EmptyCover", property_id="cover.empty." + name,
+                                   depth=8, timeout_seconds=30, work_directory=work)
+        assert result.status is CoverStatus.UNKNOWN, (name, result.reason)
+        assert result.witness is None
+        output = (work / "solver.stdout.log").read_text() + (work / "solver.stderr.log").read_text()
+        assert "selection is empty" in output
+
 
 @pytest.mark.skipif(
     not all(shutil.which(tool) for tool in TOOLS),

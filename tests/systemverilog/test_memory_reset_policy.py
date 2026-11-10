@@ -11,6 +11,7 @@ def _global_memory(
     contents: str | None = None,
     read_data: str | None = None,
     masked: bool = False,
+    named_control: bool = False,
 ) -> str:
     reset = (
         ""
@@ -23,7 +24,7 @@ def _global_memory(
     )
     mask_port = "in mask:bits<2>" if masked else ""
     mask_binding = "table.write_mask=mask" if masked else ""
-    return f"""
+    source = f"""
 module MemoryProfile {{
   clock clk reset rst
   in address:u2 in write_enable:bit in data:u16 {mask_port}
@@ -40,6 +41,34 @@ module MemoryProfile {{
   {mask_binding}
   q=table.read_data
 }}
+"""
+    if not named_control:
+        return source
+    # Keep the legacy/global fixture intact and add a legal named-memory child
+    # within this same source scenario and compiler invocation.
+    return source + """
+module NamedReadState {
+  clock clk reset rst
+  in address:u2 in write_enable:bit in data:u16
+  out named_a,named_b:u16
+  memory named:mem<u16,4> {
+    read_port a read_port b write_port writer
+    read_latency 4 collision read_first
+    reset { contents clear read_data preserve }
+  }
+  named.a.address=address named.b.address=address
+  named.writer.address=address named.writer.enable=write_enable
+  named.writer.data=data
+  named_a=named.a.data named_b=named.b.data
+}
+module ReadStateControls {
+  clock clk reset rst
+  in address:u2 in write_enable:bit in data:u16
+  out q,named_a,named_b:u16
+  legacy:MemoryProfile {address=address write_enable=write_enable data=data}
+  ports:NamedReadState {address=address write_enable=write_enable data=data}
+  q=legacy.q named_a=ports.named_a named_b=ports.named_b
+}
 """
 
 
@@ -94,9 +123,20 @@ def test_registered_preserve_profile_initializes_once_and_holds_on_reset() -> No
             latency=1,
             contents="preserve",
             read_data="preserve",
+            named_control=True,
         )
     )
 
+    for port in ("a", "b"):
+        assert text.count(f"    named_{port}_read_data = '0;") == 1
+        assert f"named_{port}_read_data <= '0;" not in text
+        for stage in range(3):
+            assert text.count(f"    named_{port}_read_stage_{stage} = '0;") == 1
+            assert f"named_{port}_read_stage_{stage} <= '0;" not in text
+    # Contents clearing is independent of preserved read-state initialization.
+    assert "named_cells_a[named_reset_index] <= '0;" in text
+    assert "named_cells_a[named_reset_index] = '0;" not in text
+    assert "  always_ff @(posedge clk) begin" not in text
     assert "    zlang_table_read_data = '0;" in text
     assert "zlang_table_cells[zlang_memory_reset_index] = '0;" in text
     assert "zlang_table_read_data <= '0;" not in text

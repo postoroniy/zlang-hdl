@@ -664,3 +664,39 @@ def test_diagnostic_location_boundary_fills_only_missing_origin():
         raise error
     assert raised.value is error
     assert error.primary == origin
+
+
+@pytest.mark.parametrize("aliased", (False, True))
+@pytest.mark.parametrize("declaration,name", (
+    ("struct Packet { value:u8 }", "Packet"),
+    ("fn choose(value:u8)->u8 {value}", "choose"),
+))
+def test_import_conflict_tracks_unsaved_definition_locations(tmp_path, aliased, declaration, name):
+    sources = tmp_path / "src"
+    sources.mkdir()
+    manifest = tmp_path / "zlang.toml"
+    manifest.write_text('schema=1\n[project]\nname="demo"\nversion="1"\nsource-root="src"\n')
+    (sources / "left.zhl").write_text("// first owner\n" + declaration)
+    leaf = sources / "right.zhl"
+    original = "// second owner\n\n" + declaration + "\n"
+    leaf.write_text(original)
+    root = sources / "top.zhl"
+    source = (
+        f"import demo.left{' as a' if aliased else ''}\n"
+        f"import demo.right{' as b' if aliased else ''}\nmodule Top {{}}\n"
+    )
+    root.write_text(source)
+    update_project_lock(manifest)
+    server = LspServer()
+    publications = _publish(server, root, source, 1)
+    diagnostic = next(item for item in publications[path_to_uri(leaf)] if item["code"] == "ZL-IMPORT-CONFLICT")
+    assert diagnostic["range"]["start"] == {"line": 2, "character": declaration.index(name)}
+    assert publications.get(path_to_uri(root), []) == []
+    shifted = "// shifted\r\n\r\n/* 🔧 */ " + declaration + "\r\n"
+    _publish(server, leaf, shifted, 1)
+    publications = _publish(server, root, source + "\n", 2)
+    diagnostic = next(item for item in publications[path_to_uri(leaf)] if item["code"] == "ZL-IMPORT-CONFLICT")
+    before_name = "/* 🔧 */ " + declaration[:declaration.index(name)]
+    assert diagnostic["range"]["start"] == {"line": 2, "character": len(before_name.encode("utf-16-le")) // 2}
+    assert diagnostic["data"]["source_unit"] == "demo.right"
+    assert leaf.read_text() == original

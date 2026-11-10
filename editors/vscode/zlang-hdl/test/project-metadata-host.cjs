@@ -78,4 +78,51 @@ async function checkProjectMetadata(scratch, settled, {excludeRecursive=false} =
   }
 }
 
-module.exports = {checkProjectMetadata};
+async function checkImportConflictLocations(scratch, settled) {
+  const project = path.join(scratch, 'import-conflict-locations');
+  const src = path.join(project, 'src');
+  fs.mkdirSync(src, {recursive:true});
+  const manifest = path.join(project, 'zlang.toml');
+  fs.writeFileSync(manifest,
+    'schema=1\n[project]\nname="collision"\nversion="1"\nsource-root="src"\n');
+  fs.writeFileSync(path.join(src, 'left.zhl'), 'struct Collision { value:u8 }\n');
+  const rightPath = path.join(src, 'right.zhl');
+  const disk = '// second declaration\n\nstruct Collision { value:u8 }\n';
+  fs.writeFileSync(rightPath, disk);
+  const rootPath = path.join(src, 'top.zhl');
+  const rootText = 'import collision.left as a\nimport collision.right as b\nmodule Top {}\n';
+  fs.writeFileSync(rootPath, rootText);
+  const server = vscode.workspace.getConfiguration('zlang').get('lsp.path');
+  const locked = spawnSync(path.join(path.dirname(server), 'zlang'),
+    ['lock', 'update', '--project', manifest], {encoding:'utf8'});
+  assert.equal(locked.status, 0, locked.stderr);
+  const root = await vscode.workspace.openTextDocument(vscode.Uri.file(rootPath));
+  await vscode.window.showTextDocument(root, {preview:false});
+  const rightUri = vscode.Uri.file(rightPath);
+  const conflict = () => vscode.languages.getDiagnostics(rightUri)
+    .find(item => item.code === 'ZL-IMPORT-CONFLICT');
+  await settled('closed import conflict on declaration, not root',
+    () => conflict()?.range.start.line === 2, 15000);
+  assert.equal(conflict().range.start.character, 7);
+  assert.equal(vscode.languages.getDiagnostics(root.uri).length, 0);
+  const right = await vscode.workspace.openTextDocument(rightUri);
+  const overlay = '// unsaved\r\n// second declaration\r\n\r\n/* 🔧 */ struct Collision { value:u8 }\r\n';
+  const replace = async (document, text) => {
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(document.uri, new vscode.Range(document.positionAt(0),
+      document.positionAt(document.getText().length)), text);
+    assert.equal(await vscode.workspace.applyEdit(edit), true);
+  };
+  await replace(right, overlay);
+  await replace(root, rootText+'\n');
+  await settled('unsaved import conflict uses UTF-16 declaration range', () =>
+    conflict()?.range.start.line === 3
+    && conflict().range.start.character === overlay.split('\r\n')[3].indexOf('Collision'), 15000);
+  assert.equal(fs.readFileSync(rightPath, 'utf8'), disk, 'host must not save the overlay');
+  await replace(right, disk.replace('Collision', 'Other'));
+  await replace(root, rootText+'\n\n');
+  await settled('repaired import clears its old diagnostic', () =>
+    vscode.languages.getDiagnostics(rightUri).length === 0, 15000);
+}
+
+module.exports = {checkProjectMetadata,checkImportConflictLocations};

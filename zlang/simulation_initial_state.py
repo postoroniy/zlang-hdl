@@ -8,6 +8,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 
 from zlang.simulation_logic import LogicVector
+from zlang.simulation_runtime_plan import hierarchical_register_runtime_names
 from zlang.simulation_state import (
     SimulationStateError,
     SimulationStateKind,
@@ -33,16 +34,17 @@ def resolve_initial_registers(
         raise SimulationRuntimeError(
             f"initial-register catalog is unavailable: {error}"
         ) from error
+    register_names = hierarchical_register_runtime_names(module)
     aliases: dict[str, list[tuple[str, object]]] = defaultdict(list)
     for binding in catalog.bindings:
         if binding.object_kind is not SimulationStateKind.REGISTER:
             continue
         relative = (*binding.physical_instance_path[1:], binding.object_name)
-        native_name = ".".join(relative)
+        relative_name = ".".join(relative)
         full_name = ".".join((*binding.physical_instance_path, binding.object_name))
-        aliases[native_name].append((native_name, binding))
-        aliases[full_name].append((native_name, binding))
-        aliases[binding.object_name].append((native_name, binding))
+        aliases[relative_name].append((relative_name, binding))
+        aliases[full_name].append((relative_name, binding))
+        aliases[binding.object_name].append((relative_name, binding))
     result: dict[str, LogicVector] = {}
     for raw_name, raw_value in values.items():
         if not isinstance(raw_name, str) or not raw_name:
@@ -58,10 +60,14 @@ def resolve_initial_registers(
             raise SimulationRuntimeError(
                 f"ambiguous initial register '{raw_name}'; use one of: {owners}"
             )
-        native_name, binding = next(iter(unique.items()))
+        logical_name, binding = next(iter(unique.items()))
+        native_leaf = register_names[
+            (binding.physical_instance_path, binding.object_name)
+        ]
+        native_name = ".".join((*binding.physical_instance_path[1:], native_leaf))
         if native_name in result:
             raise SimulationRuntimeError(
-                f"initial register '{native_name}' is specified more than once"
+                f"initial register '{logical_name}' is specified more than once"
             )
         width = int(binding.packed_width)
         try:

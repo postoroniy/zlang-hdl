@@ -673,6 +673,15 @@ def selection_regions_for_transition(
         )
         for group in groups for action in group.actions
     }
+    # With disjoint owners and no FIFO admission, every enabled group can
+    # commit. A global product of independent selection variables adds work
+    # but no constraint. Keep the same axes and BDD/region limits so these
+    # direct fire functions yield the identical canonical regions.
+    independent = not fifos and not any(
+        groups_may_conflict(group, prior)
+        for index, group in enumerate(groups) for prior in groups[:index]
+    )
+    fire_functions: list[int] = []
     selected = [bdd.variable(axis) for axis in selection_axes]
     formula = 1
     empty: list[int] = []
@@ -701,6 +710,9 @@ def selection_regions_for_transition(
                 elif action.kind is StateActionKind.FIFO_POP:
                     pops[fifo] = lor(pops[fifo], effect)
         enabled = land(bdd.variable(guard_axes[index]), active)
+        if independent:
+            fire_functions.append(enabled)
+            continue
         formula = land(formula, lor(bdd.negate(selected[index]), enabled))
         for earlier in range(index):
             conflict = 0
@@ -726,14 +738,14 @@ def selection_regions_for_transition(
             lor(bdd.negate(pushes[index]), lor(bdd.negate(full[index]), pops[index])),
         )
 
-    fire_functions: list[int] = []
-    for index in range(len(groups)):
-        choice_axis = selection_axes[index]
-        yes = bdd.cofactor(formula, choice_axis, True)
-        no = bdd.cofactor(formula, choice_axis, False)
-        can_choose = bdd.exists_choices(yes, index + 1)
-        fire_functions.append(can_choose)
-        formula = lor(land(can_choose, yes), land(bdd.negate(can_choose), no))
+    if not independent:
+        for index in range(len(groups)):
+            choice_axis = selection_axes[index]
+            yes = bdd.cofactor(formula, choice_axis, True)
+            no = bdd.cofactor(formula, choice_axis, False)
+            can_choose = bdd.exists_choices(yes, index + 1)
+            fire_functions.append(can_choose)
+            formula = lor(land(can_choose, yes), land(bdd.negate(can_choose), no))
 
     order = {
         None: -1, False: 0, True: 1,

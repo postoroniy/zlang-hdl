@@ -54,6 +54,11 @@ VERILATOR = shutil.which("verilator")
 # strobe. Replaying the previous bus sources reproduced all four old RTL/JSON
 # digests exactly. Only AxiCsrTop changes: its 77 bindings are identical apart
 # from artifact_hash, and the three other controls remain byte-identical.
+# ZL-078 seals compound child inputs with stateless typed wires before the
+# instance boundary. Replaying the previous composed owner reproduced all
+# four old RTL/manifest digests exactly. Only AxiCsrTop gains those wires;
+# its public ABI, source maps and 77 bindings remain fixed apart from
+# artifact hashes. The other three controls remain byte-identical.
 EXPECTED_ARTIFACTS = {
     ("hierarchical_protocol.zhl", "ProtocolTop"): (
         "f5d21496e9bf9f2ab7ec2bc22425eed42112200c9ab1de1339bab221973377f9",
@@ -74,8 +79,8 @@ EXPECTED_ARTIFACTS = {
         29,
     ),
     ("axi_csr_top.zhl", "AxiCsrTop"): (
-        "b0bfb281622939bd972d3ad34e24a69b1d7ba8052fcf4525c0435c6ab9a47348",
-        "ec4e0cc9616e4ff542dffda2a328de130cd31c8d3c9ee7cd0da005b3f711301a",
+        "096bd467220025a2f8ced179e94b4ed971678112e0afa4699de7e83d79d08426",
+        "01f2b81e1277be55465a798a7b379021a9720f0b8dde7a05eabd55c3b7d542b0",
         77,
     ),
 }

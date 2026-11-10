@@ -11,6 +11,52 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a24 — 2026-11-16
+
+- Initialize preserved named-port RAM read results and pipeline stages to zero,
+  independently of contents reset, while retaining runtime reset holds (ZL-087).
+
+- Keep saved waveform reload notifications reliable when native file watchers are
+  unavailable, with bounded stat observations, duplicate-event suppression and
+  complete disposal (VSIX-001).
+
+- Preserve scheduled RAM NO_CHANGE read state and block reset-time WRITE_FIRST bypass (ZL-085).
+- Accept rule-backed registered child feedback while retaining true combinational cycle rejection (ZL-086).
+- Retain child-signature diagnostics and isolate inferred scalar/array type queries (ZL-084).
+- Bound formal engine cleanup, reject uncertain lifetimes and absent proof/cover
+  obligations, and invalidate older execution-policy caches (FORMAL-006). Proof
+  and cover execution requires Linux CPython with pidfd process support.
+
+- Infer exact child input types through sibling outputs and parent locals,
+  preserving input-driven widths, compile-time branch selection and final
+  binding/cycle validation (ZL-084).
+
+- Resolve defaulted struct types through their canonical specialization, retaining
+  declaration-scoped defaults and rejecting recursive or invalid fields (ZL-082).
+- Render exact numeric endpoint comparisons without strict Verilator range
+  warnings while preserving four-state RTL behavior; invalidate old proof
+  preparations before cache reuse (ZL-083).
+- Keep simulation failure diagnostics bounded without expanding retained
+  hardware graphs, preserving the original error and selected identity (SIM-008).
+
+- Resolve registered-output initialization and state access through the existing
+  compiler-owned native storage names, preserving logical aliases and hierarchy
+  isolation (SIM-007).
+
+- Parse dotted field comparisons before angle-specialized calls without confusing
+  them with qualified callees (ZL-080).
+- Preserve exact connected bounded slices of wide retained state during arithmetic
+  proof preparation, keeping existing limits and quantizer boundaries (ZL-081).
+
+- Avoid symbolic state-scheduler exhaustion for disjoint conditional owners,
+  preserving exact selection regions and existing compiler limits (ZL-079).
+
+- Preserve exact typed widths and signedness for compound hierarchical inputs
+  with stateless Direct-SV temporaries (ZL-078).
+- Point import-conflict diagnostics at the declaration in its source file,
+  including unsaved editor buffers and UTF-16 positions (LSP-001).
+- Align the reviewed Playwright pin with the 1.65.0 editor dependency (CI-001).
+
 - Preserve per-iteration immutable locals in structural generation and reject
   duplicate immutable declarations instead of silently retaining the first (ZL-074).
 - Resolve read-only child protocol inputs and derived `transfer` before aliases
@@ -37,8 +83,6 @@ incompatible input explicitly.
   UltraPlus, Lattice Nexus, Gowin GW2A and Arora V, plus a shared-pool Gowin
   9×9 multiplier mode. Preserve the existing GW1NR9/Lattice ECP5 profiles and
   Direct-SV/native ABI contracts. New targets do not imply new board flows.
-
-## 0.1.0a24 — 2026-11-08
 
 - Clarify Gowin/Lattice support contracts and consolidate qualification records;
   correct the manual font-license bookmark to its own final-page heading.

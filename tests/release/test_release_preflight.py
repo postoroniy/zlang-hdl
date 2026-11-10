@@ -168,6 +168,7 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "FORMAL-003",
         "FORMAL-004",
         "FORMAL-005",
+            "FORMAL-006",
         "LOCK-001",
         "LSP-001",
         "LSP-002",
@@ -178,6 +179,8 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "SIM-004",
         "SIM-005",
         "SIM-006",
+        "SIM-007",
+        "SIM-008",
         "VSIX-001",
         "VSIX-002",
         "VSIX-003",
@@ -210,16 +213,26 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "ZL-075",
         "ZL-076",
         "ZL-077",
+        "ZL-078",
+        "ZL-079",
+        "ZL-080",
+        "ZL-081",
+        "ZL-082",
+        "ZL-083",
+        "ZL-084",
+            "ZL-085",
+            "ZL-086",
+            "ZL-087",
     ]
     assert report["dependency_floor"]["schema"] == 1
     assert report["dependency_floor"]["previous_ref"] == "v0.1.0a23"
     assert report["dependency_floor"]["compared"] > 0
     assert report["dependency_floor"]["downgrades"] == []
-    assert report["regressions"]["entries"] == 54
+    assert report["regressions"]["entries"] == 67
     assert report["regressions"]["dispositions"] == {
         "deferred": 0,
         "excluded_experiment": 0,
-        "included": 54,
+        "included": 67,
         "private_only": 0,
     }
     assert report["identities"]["release/regressions.json"] == hashlib.sha256(

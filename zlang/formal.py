@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Mapping
 
 from zlang.common.tool_inventory import ToolInventory, discover_tool_inventory
-from zlang.common.subprocess import run_bounded_process, subprocess_text
+from zlang.common.subprocess import ProcessCleanupError, run_bounded_process, subprocess_text
 from zlang.formal_execution_tools import FormalToolBinding, binding_identity, execution_environment
 from zlang.formal_trace import TraceBinding, decode_vcd_trace
 from zlang.ir.comparison_window import ComparisonWindow
@@ -400,6 +400,21 @@ def _execution_error_reason(
     return diagnostic if not reason else f"{reason}\n{diagnostic}"
 
 
+def _execution_failure_output(error, root, *, persist):
+    """Retain original streams and separate lifetime uncertainty from proof."""
+    stdout, stderr = subprocess_text(error.stdout), subprocess_text(error.stderr)
+    cleanup = getattr(error, "cleanup_error", None)
+    diagnostic = "" if cleanup is None else f"process cleanup failed: {type(cleanup).__name__}: {cleanup}"
+    if persist:
+        (root / "solver.stdout.log").write_text(stdout)
+        (root / "solver.stderr.log").write_text(stderr)
+        if isinstance(error, subprocess.TimeoutExpired):
+            (root / "solver.timeout.log").write_text(stdout + stderr)
+        if diagnostic:
+            (root / "solver.cleanup.log").write_text(diagnostic + "\n")
+    return stdout + stderr, diagnostic
+
+
 def run_verilog_formal(source: str, *, top: str, property_id: str,
                        mode: ProofMode = ProofMode.BMC, depth: int = 20,
                        solver: str = "z3", engine: str = "sby",
@@ -456,6 +471,8 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
             *engine_route.sby_options, "", "[engines]",
             engine_route.engine_line(solver=solver), "", "[script]",
             f"read_verilog {'-sv ' if systemverilog else ''}-formal {verilog.name}",
+            f"hierarchy -top {top}",
+            "select -assert-any t:$assert t:$check r:FLAVOR=assert %i %u",
             f"prep -top {top}" + (" -flatten" if flatten else ""),
             "", "[files]", verilog.name,
             *auxiliary_names, "",
@@ -464,15 +481,14 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
             with execution_environment(context.execution_binding) as environment:
                 completed = run_bounded_process(("sby", "-f", config.name), cwd=root,
                                            capture_output=True, text=True,
-                                           timeout=timeout_seconds, env=environment)
+                                           timeout=timeout_seconds, env=environment,
+                                           cleanup_owned_session=True)
         except subprocess.TimeoutExpired as error:
             # Python may retain TimeoutExpired partial streams as bytes even
             # when subprocess.run was requested with text=True.  Normalize
             # each stream before concatenation so a real solver timeout is a
             # structured UNKNOWN result, never a secondary TypeError.
-            partial = subprocess_text(error.stdout) + subprocess_text(error.stderr)
-            if work_directory is not None:
-                (root / "solver.timeout.log").write_text(partial)
+            partial, cleanup = _execution_failure_output(error, root, persist=work_directory is not None)
             return FormalResult(
                 property_id, FormalStatus.UNKNOWN, mode, engine, solver, depth,
                 source_origin=source_origin, tool_versions=context.versions,
@@ -480,10 +496,18 @@ def run_verilog_formal(source: str, *, top: str, property_id: str,
                     "formal execution timed out after "
                     f"{timeout_seconds} seconds"
                 )
-                + (f": {partial[-500:]}" if partial else ""),
+                + (f": {partial[-500:]}" if partial else "")
+                + (f"; {cleanup}" if cleanup else ""),
                     partial,
                     diagnostic_sources,
                 ),
+            )
+        except ProcessCleanupError as error:
+            partial, cleanup = _execution_failure_output(error, root, persist=work_directory is not None)
+            return FormalResult(
+                property_id, FormalStatus.UNKNOWN, mode, engine, solver, depth,
+                source_origin=source_origin, tool_versions=context.versions,
+                reason=_execution_error_reason(cleanup, partial, diagnostic_sources),
             )
         output = (completed.stdout or "") + (completed.stderr or "")
         if work_directory is not None:
@@ -631,6 +655,8 @@ def run_verilog_cover(
             *engine_route.sby_options, "", "[engines]",
             engine_route.engine_line(solver=solver), "", "[script]",
             f"read_verilog {'-sv ' if systemverilog else ''}-formal {verilog.name}",
+            f"hierarchy -top {top}",
+            "select -assert-any t:$cover t:$check r:FLAVOR=cover %i %u",
             f"prep -top {top}", "", "[files]", verilog.name,
             *auxiliary_names, "",
         )))
@@ -643,11 +669,10 @@ def run_verilog_cover(
                     text=True,
                     timeout=timeout_seconds,
                     env=environment,
+                    cleanup_owned_session=True,
                 )
         except subprocess.TimeoutExpired as error:
-            partial = subprocess_text(error.stdout) + subprocess_text(error.stderr)
-            if work_directory is not None:
-                (root / "solver.timeout.log").write_text(partial)
+            partial, cleanup = _execution_failure_output(error, root, persist=work_directory is not None)
             return CoverResult(
                 property_id,
                 CoverStatus.UNKNOWN,
@@ -659,7 +684,15 @@ def run_verilog_cover(
                 reason=_execution_error_reason((
                     f"cover execution timed out after {timeout_seconds} seconds"
                     + (f": {partial[-500:]}" if partial else "")
+                    + (f"; {cleanup}" if cleanup else "")
                 ), partial, diagnostic_sources),
+            )
+        except ProcessCleanupError as error:
+            partial, cleanup = _execution_failure_output(error, root, persist=work_directory is not None)
+            return CoverResult(
+                property_id, CoverStatus.UNKNOWN, engine, solver, depth,
+                source_origin=source_origin, tool_versions=context.versions,
+                reason=_execution_error_reason(cleanup, partial, diagnostic_sources),
             )
         output = (completed.stdout or "") + (completed.stderr or "")
         if work_directory is not None:

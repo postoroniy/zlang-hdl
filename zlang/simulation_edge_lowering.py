@@ -279,6 +279,8 @@ class EdgeProgramLowerer:
                 f"scheduled memory '{semantic_memory['name']}' has no read state"
             )
         old_reads = [next_values[name] for name in read_names]
+        if semantic_memory["collision"] == "no_change":
+            captured = builder.select(collision, old_reads[0], old_read, memory["width"])
         next_values[read_names[0]] = builder.select(
             read_fire, captured, old_reads[0], memory["width"]
         )

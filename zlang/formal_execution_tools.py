@@ -20,7 +20,8 @@ import tempfile
 from zlang.ir.formal import FormalError
 
 
-EXECUTION_TOOL_POLICY = "zlang-formal-execution-tools-v1"
+# Result reuse requires the owned-session acceptance and bounded cleanup contract.
+EXECUTION_TOOL_POLICY = "zlang-formal-execution-tools-v3"
 
 
 def _sha256(path: Path) -> str:

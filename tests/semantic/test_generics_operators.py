@@ -343,3 +343,149 @@ def test_aliases_inside_generic_struct_specializations_are_canonicalized() -> No
     )
     assert str(result.ir.ports[0].type) == "Box<fixed<18,16>>"
     assert result.ir.ports[0].type == result.ir.ports[1].type
+
+
+@pytest.mark.parametrize(
+    ("declarations", "bare", "explicit"),
+    (
+        ("struct Item<W=16>{data:uint<W>}", "Item", "Item<16>"),
+        ("struct Item<W=16,N=W+1>{data:bits<N>}", "Item", "Item<16,17>"),
+        ("struct Item<N=8,W=index_width(N)>{data:uint<W>}", "Item", "Item<8,3>"),
+        ("struct Item<W=17%16>{data:uint<W>}", "Item", "Item<1>"),
+        ("struct Item<W=16>{data:uint<W>} type DefaultItem=Item",
+         "DefaultItem", "Item<16>"),
+        ("struct Item<W=16>{data:uint<W>} struct Box<type T>{item:T}",
+         "Box<Item>", "Box<Item<16>>"),
+        ("struct Item<W=16>{data:uint<W>} struct Box<W=16>{item:Item<W>}",
+         "Box", "Box<16>"),
+        ("struct Item<W=16>{data:u8}", "Item", "Item<16>"),
+    ),
+)
+def test_bare_defaulted_struct_types_match_explicit_specialization(
+    declarations: str, bare: str, explicit: str,
+) -> None:
+    from zlang.backend.systemverilog import emit_artifact
+
+    def compile_type(spelling: str):
+        return compile_source(
+            declarations + " module Repro {in value:" + spelling
+            + " out result:" + spelling + " result=value}",
+        )
+
+    implicit = compile_type(bare)
+    specified = compile_type(explicit)
+    assert implicit.ir.ports[0].type == specified.ir.ports[0].type
+    assert str(implicit.ir.ports[0].type) == explicit
+    assert implicit.selected_ir_identity == specified.selected_ir_identity
+    assert emit_artifact(implicit.ir).text == emit_artifact(specified.ir).text
+
+
+def test_bare_struct_defaults_do_not_capture_caller_parameters() -> None:
+    result = compile_source(
+        "struct Item<W=16,N=W+1>{data:uint<N>} "
+        "module Repro<W=8,N=9>{in value:Item out data:u17 data=value.data}"
+    )
+    assert str(result.ir.ports[0].type) == "Item<16,17>"
+    assert result.ir.ports[0].type.fields[0].type.width == 17
+
+
+def test_struct_constructor_inference_still_precedes_value_defaults() -> None:
+    result = compile_source(
+        "struct Item<W=16>{data:uint<W>} "
+        "module Repro{in value:u8 out result:Item<8> result=Item{data=value}}"
+    )
+    assert str(result.ir.ports[1].type) == "Item<8>"
+
+
+@pytest.mark.parametrize(
+    ("parameters", "message"),
+    (("W", "missing required value argument 'W'"),
+     ("type T", "missing required type argument 'T'")),
+)
+def test_bare_struct_required_parameters_fail_closed(
+    parameters: str, message: str,
+) -> None:
+    with pytest.raises(SemanticError, match=message) as error:
+        compile_source(
+            "struct Item<" + parameters + ">{data:u8} "
+            "module Repro<W=16>{in value:Item out result:u8 result=value.data}"
+        )
+    assert error.value.diagnostic.code == "ZL-GENERIC-SPECIALIZATION-REQUIRED"
+
+
+@pytest.mark.parametrize(
+    ("parameters", "message"),
+    (
+        ("W=Later,Later=16", "unresolved compile-time parameter 'Later'"),
+        ("W=W", "unresolved compile-time parameter 'W'"),
+        ("W=N,N=W", "unresolved compile-time parameter 'N'"),
+        ("W=Missing", "unresolved compile-time parameter 'Missing'"),
+        ("W=0", "must be positive"),
+        ("W=-1", "must be positive"),
+        ("W=4/0", "zero"),
+        ("W=4%0", "zero"),
+    ),
+)
+def test_invalid_bare_struct_defaults_keep_declaration_origin(
+    parameters: str, message: str,
+) -> None:
+    with pytest.raises(SemanticError, match=message) as error:
+        compile_source(
+            "struct Item<" + parameters + ">{data:uint<W>}\n"
+            "module Repro<W=8,N=9,Later=32,Missing=4>{\n"
+            "in value:Item out data:u8 data=truncate<8>(value.data)}",
+            source_unit="struct-defaults.zhl",
+        )
+    origin = error.value.diagnostic.primary
+    assert origin is not None
+    assert origin.source_unit == "struct-defaults.zhl"
+    assert origin.span.start_line == 1
+    assert origin.span.start_column == 13
+
+
+@pytest.mark.parametrize(
+    "declarations",
+    (
+        "struct Item<W=16>{next:Item}",
+        "struct Item<W=16>{next:Other} struct Other<W=16>{next:Item}",
+    ),
+)
+def test_recursive_bare_struct_defaults_fail_without_recursive_resolver_growth(
+    declarations: str,
+) -> None:
+    with pytest.raises(SemanticError, match="cyclic type alias"):
+        compile_source(declarations + " module Repro{in value:Item}")
+
+
+def test_bare_struct_defaults_do_not_relax_explicit_struct_argument_rules() -> None:
+    for spelling in ("Item<16>", "Item<16,8,4>"):
+        with pytest.raises(SemanticError, match="expects 2 parameters"):
+            compile_source(
+                "struct Item<W=16,N=W+1>{data:uint<N>} module Repro{in value:"
+                + spelling + "}"
+            )
+
+
+def test_unused_required_struct_templates_remain_lazy() -> None:
+    result = compile_source(
+        "struct Item<W>{data:uint<W>} struct Box<type T>{data:T} "
+        "module Repro{in value:u8 out result:u8 result=value}"
+    )
+    assert result.ir.ports[0].type.width == 8
+
+
+@pytest.mark.parametrize("spelling", ("Item", "Item<16>"))
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    (("", "must contain at least one field"),
+     ("data:u8 data:u8", "duplicate field 'data'")),
+)
+def test_defaulted_struct_specializations_preserve_field_validation(
+    spelling: str, fields: str, message: str,
+) -> None:
+    with pytest.raises(SemanticError, match=message) as error:
+        compile_source(
+            "struct Item<W=16>{" + fields + "}\nmodule Repro{in value:" + spelling + "}",
+            source_unit="struct-fields.zhl",
+        )
+    assert error.value.diagnostic.primary.span.start_line == 1

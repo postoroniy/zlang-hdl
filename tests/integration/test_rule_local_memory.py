@@ -15,14 +15,40 @@ from zlang.compiler import compile_source
 VERILATOR = shutil.which("verilator")
 
 SOURCE = """
-module RuleMemory {
+module WriteFirstMemory {
   clock clk reset rst
-  in rd:bit in wr:bit in address:u2 in data:u8
-  out q:u8
+  in rd:bit in wr:bit in address:u2 in data:u8 out q:u8
   memory table:mem<u8,4> { read_latency 1 collision write_first }
   rule fetch when rd { table.read(address) }
   rule store when wr { table.write(address,data) }
   q=table.read_data
+}
+module NoChangeMemory {
+  clock clk reset rst
+  in rd:bit in wr:bit in address:u2 in data:u8 out q:u8
+  memory table:mem<u8,4> { read_latency 1 collision no_change }
+  rule fetch when rd { table.read(address) }
+  rule store when wr { table.write(address,data) }
+  q=table.read_data
+}
+module PreservedReadMemory {
+  clock clk reset rst
+  in wr:bit in address:u2 in data:u8 out q:u8
+  memory table:mem<u8,4> {
+    write_port wr read_port rd read_latency 0 collision write_first
+    reset { contents preserve read_data preserve }
+  }
+  table.wr.enable=wr table.wr.address=address table.wr.data=data
+  table.rd.address=address q=table.rd.data
+}
+module RuleMemory {
+  clock clk reset rst
+  in rd:bit in wr:bit in address:u2 in data:u8
+  out q:u8 out held_q:u8 out bypass_q:u8
+  inst updated:WriteFirstMemory { rd wr address data }
+  inst held:NoChangeMemory { rd wr address data }
+  inst preserved:PreservedReadMemory { wr address data }
+  q=updated.q held_q=held.q bypass_q=preserved.q
 }
 """
 
@@ -39,8 +65,15 @@ int main() {
   d.rd=0; d.address=0; tick(d); if (d.q != 7) return 3;
   d.rd=1; d.wr=1; d.address=1; d.data=9; tick(d); if (d.q != 9) return 4;
   d.rd=0; d.wr=0; tick(d); if (d.q != 9) return 5;
-  d.rst=1; tick(d); if (d.q != 0) return 6;
-  d.rst=0; d.rd=1; d.address=1; tick(d); return d.q == 0 ? 0 : 7;
+  d.rst=1; d.wr=1; d.data=255; tick(d);
+  if (d.q != 0 || d.bypass_q != 9) return 6;
+  d.rst=0; d.rd=1; d.wr=0; d.address=1; tick(d); if (d.q != 0 || d.held_q != 0) return 7;
+  d.rd=0; d.wr=1; d.address=0; d.data=13; tick(d); if (d.q != 0 || d.held_q != 0) return 8;
+  d.address=1; d.data=37; tick(d); if (d.q != 0 || d.held_q != 0) return 9;
+  d.rd=1; d.wr=0; d.address=0; tick(d); if (d.q != 13 || d.held_q != 13) return 10;
+  d.rd=1; d.wr=1; d.address=1; d.data=99; tick(d); if (d.q != 99 || d.held_q != 13) return 11;
+  d.rd=0; d.wr=0; tick(d); if (d.q != 99 || d.held_q != 13) return 12;
+  d.rd=1; tick(d); return (d.q == 99 && d.held_q == 99) ? 0 : 13;
 }
 """
 
@@ -67,7 +100,7 @@ def _simulate(files: tuple[Path, ...] | list[Path], root: Path) -> None:
 
 @pytest.mark.skipif(VERILATOR is None, reason="Verilator unavailable")
 def test_rule_local_memory_direct_sv_lints_and_simulates(tmp_path: Path) -> None:
-    module = compile_source(SOURCE).ir
+    module = compile_source(SOURCE, top="RuleMemory").ir
     first = emit_experimental(module)
     assert emit_experimental(module) == first
     artifact = emit_artifact(module)

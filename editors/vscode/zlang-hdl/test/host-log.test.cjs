@@ -5,7 +5,7 @@ const {test}=require('node:test');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
-const {assertCleanTransportLogs, retainHostFailure}=require('./run-host-smoke.cjs');
+const {vscodeDownloadOptions, assertCleanTransportLogs, retainHostFailure}=require('./run-host-smoke.cjs');
 
 test('a green host exit cannot hide SIGPIPE or EPIPE in nested VS Code logs',t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'host-log-test.'));
@@ -16,7 +16,10 @@ test('a green host exit cannot hide SIGPIPE or EPIPE in nested VS Code logs',t=>
   const file=path.join(logs,'exthost.log');
   fs.writeFileSync(file,'debugger and waveform passed\n');
   assert.doesNotThrow(()=>assertCleanTransportLogs(root));
-  for(const error of ['Error: Unexpected SIGPIPE','Error: write EPIPE','Error: EPIPE','DAP session is disconnected']){
+  for(const error of ['Error: Unexpected SIGPIPE','Error: write EPIPE','Error: EPIPE','DAP session is disconnected',
+    'compiler integration failed; see the language-server log',
+    'compiler worker exceeded the bounded request time',
+    'compiler worker exited unexpectedly']){
     fs.writeFileSync(file,'debugger and waveform passed\n'+error+'\n');
     assert.throws(()=>assertCleanTransportLogs(root),/transport failed/);
   }
@@ -40,4 +43,46 @@ test('failed host retains watcher/LSP logs outside disposable TMPDIR but not wor
   const summary = JSON.parse(fs.readFileSync(path.join(evidence, 'failure.json')));
   assert.match(summary.error, /lock recheck timeout/);
   assert.match(summary.sha256, /^[0-9a-f]{64}$/);
+});
+
+test('shared host cache changes neither the pinned version nor the default download options', () => {
+  const version = require('../editor-toolchain.json').vscodeStable.version;
+  assert.deepEqual(vscodeDownloadOptions({}), {version});
+  const cachePath = path.join(os.tmpdir(), 'qualified-vscode-cache');
+  assert.deepEqual(vscodeDownloadOptions({ZLANG_VSCODE_CACHE_PATH:cachePath}),
+    {version, cachePath});
+  for (const cache of ['', 'relative-cache']) {
+    assert.throws(() => vscodeDownloadOptions({ZLANG_VSCODE_CACHE_PATH:cache}),
+      /must be absolute/);
+  }
+});
+
+
+test('diagnostic barrier requires the unique error then a fresh repair publication', async () => {
+  const {checkDiagnosticRoundTrip} = require('./diagnostic-barrier.cjs');
+  const original = 'module Original { in x:u8 out y:u8=x }\n';
+  const error = {severity:0, message:"unknown type 'HostSmokeDiagnosticBarrierMissingType'"};
+  for (const mode of ['normal', 'stale-empty', 'wrong-error', 'missing-repair']) {
+    let text = original, observedError = false;
+    const edits = [];
+    const run = checkDiagnosticRoundTrip({
+      readText: () => text,
+      replace: async value => {text=value; edits.push(value);},
+      diagnostics: () => {
+        if (mode === 'stale-empty') return [];
+        if (mode === 'wrong-error') return [{...error, message:'unrelated failure'}];
+        if (text !== original || mode === 'missing-repair') return [error];
+        return [];
+      },
+      wait: async (description, predicate) => {
+        assert.equal(predicate(), true, description);
+        if (description === 'fresh diagnostic barrier error') observedError = true;
+      },
+      errorSeverity:0,
+    });
+    if (mode === 'normal') {await run; assert.equal(observedError, true);}
+    else await assert.rejects(run, /fresh diagnostic barrier (?:error|repair)/);
+    assert.equal(text, original);
+    assert.equal(edits.length, 2);
+  }
 });

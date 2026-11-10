@@ -163,6 +163,31 @@ module CombinationalRead {
     assert "assign zlang_table_rd_read_data" in text
     assert "? wd" in text
 
+    # Preserve the original clear-policy observations above. The memory emitter
+    # admits one bank per module, so the preserve-policy control is a separate
+    # source and native execution within this existing scenario.
+    preserved_source = source.replace(
+        "write_port wr read_port rd read_latency 0 collision new",
+        "write_port wr read_port rd read_latency 0 collision new\n"
+        "    reset { contents preserve read_data preserve }",
+    )
+    preserved = compile_source(preserved_source).ir
+    preserved_results = simulate_storage_cycles(
+        preserved,
+        [
+            {"we": 1, "wa": 1, "wd": 7, "ra": 1},
+            {"we": 0, "wa": 0, "wd": 0, "ra": 1},
+            {"we": 1, "wa": 1, "wd": 99, "ra": 1},
+        ],
+        reset=[False, False, True],
+    )
+    assert [item["q"] for item in preserved_results] == [7, 7, 7]
+    preserved_read = next(
+        line for line in emit_experimental(preserved).splitlines()
+        if line.startswith("  assign zlang_table_rd_read_data =")
+    )
+    assert "!rst" in preserved_read
+
 
 def test_memory_uniform_init_is_used_at_power_up_and_runtime_reset() -> None:
     source = """

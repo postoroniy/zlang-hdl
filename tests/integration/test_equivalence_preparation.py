@@ -21,8 +21,9 @@ from zlang.formal_candidate import (
     prepared_candidate_equivalence_from_data,
     prepared_candidate_equivalence_to_data,
 )
+from zlang.formal_artifact_provider import FormalArtifactProvider
 from zlang.formal_configuration import EQUIVALENCE_PREPARATION_SCHEMA
-from zlang.formal_exploration import FormalExplorationConfig
+from zlang.formal_exploration import FormalExplorationConfig, FormalPolicy
 from zlang.ir.equivalence import EquivalenceMode, EquivalenceStatus
 from zlang.ir.formal import FormalResult, FormalStatus
 from zlang.pipeline_scheduling import erase_pipeline_timing
@@ -117,6 +118,145 @@ def test_pre_flatten_frozen_bundle_is_rejected():
     data["schema"] = "zlang-prepared-candidate-equivalence-v2"
     with pytest.raises(ValueError, match="schema"):
         prepared_candidate_equivalence_from_data(data)
+
+
+def _endpoint_candidate():
+    compiled = compile_source("module Endpoint {in value:u3 out y:bit y=value<=7}")
+    value = compiled.ir.assignments[0].expression
+    return SimpleNamespace(
+        expression=value, implementation_identity=compiled.selected_ir_identity,
+        semantic_identity=compiled.selected_ir_identity,
+    )
+
+
+def _endpoint_verifier(candidate, root):
+    return SemanticEquivalenceDirectSystemVerilogCandidateVerifier(
+        candidate.expression, candidate_class="value",
+        artifact_provider=FormalArtifactProvider(root),
+    )
+
+
+def _unexpected_cached_generation(*args, **kwargs):
+    pytest.fail("an exact warm cache unexpectedly regenerated its artifact/proof")
+
+
+def test_old_endpoint_policy_provider_cache_requires_current_emission(tmp_path, monkeypatch):
+    import zlang.backend.systemverilog.expression as renderer
+    import zlang.formal_candidate as preparation
+
+    candidate, config = _endpoint_candidate(), FormalExplorationConfig()
+    cache = tmp_path / "provider-cache"
+    # Seed through the real provider/codec, using the historical rendering
+    # policy in memory. No cache envelope or source file is hand-edited.
+    with monkeypatch.context() as old:
+        old.setattr(preparation, "EQUIVALENCE_PREPARATION_SCHEMA",
+                    "zlang-equivalence-flattened-preparation-v2")
+        old.setattr("zlang.formal_configuration.EQUIVALENCE_PREPARATION_SCHEMA",
+                    "zlang-equivalence-flattened-preparation-v2")
+        old.setattr(renderer, "_render_endpoint_comparison", lambda *_: None)
+        first = _endpoint_verifier(candidate, cache).prepare(candidate, config)
+        assert " <= " in first.implementation_artifact.text
+        assert "(^" not in first.implementation_artifact.text
+        warm = _endpoint_verifier(candidate, cache)
+        old.setattr(warm, "_prepare_candidate_equivalence", _unexpected_cached_generation)
+        assert warm.prepare(candidate, config) == first
+    previous = {path: path.read_bytes() for path in cache.rglob("*.json")}
+    assert previous
+    current = _endpoint_verifier(candidate, cache)
+    original, emissions = current._prepare_candidate_equivalence, []
+
+    def emit_current(*args):
+        emissions.append(True)
+        return original(*args)
+
+    monkeypatch.setattr(current, "_prepare_candidate_equivalence", emit_current)
+    second = current.prepare(candidate, config)
+    assert emissions == [True]
+    assert "(^" in second.implementation_artifact.text
+    assert second.property_identity == first.property_identity
+    assert second.reference_artifact_hash == first.reference_artifact_hash
+    assert second.implementation_artifact_hash != first.implementation_artifact_hash
+    assert second.backend_identity != first.backend_identity
+    repeated = _endpoint_verifier(candidate, cache)
+    monkeypatch.setattr(repeated, "_prepare_candidate_equivalence", _unexpected_cached_generation)
+    assert repeated.prepare(candidate, config) == second
+    assert all(path.read_bytes() == content for path, content in previous.items())
+
+
+def test_old_endpoint_policy_proof_index_cannot_replay_stale_proven(tmp_path, monkeypatch):
+    import zlang.backend.systemverilog.expression as renderer
+    import zlang.formal_candidate as preparation
+    from zlang.formal_exploration import _execute_stage
+
+    candidate = _endpoint_candidate()
+    cache = tmp_path / "proof-cache"
+    config = FormalExplorationConfig(
+        FormalPolicy.REQUIRED_PROVEN, bmc_depth=8, timeout_seconds=30,
+        cache_directory=cache, work_directory=tmp_path / "work",
+    )
+    route = "semantic_equivalence_direct_systemverilog"
+    with monkeypatch.context() as old:
+        old.setattr(preparation, "EQUIVALENCE_PREPARATION_SCHEMA",
+                    "zlang-equivalence-flattened-preparation-v2")
+        old.setattr("zlang.formal_configuration.EQUIVALENCE_PREPARATION_SCHEMA",
+                    "zlang-equivalence-flattened-preparation-v2")
+        old.setattr(renderer, "_render_endpoint_comparison", lambda *_: None)
+        first_verifier = _endpoint_verifier(candidate, cache)
+        first_bundle = first_verifier.prepare(candidate, config)
+        first, state, invalid, first_recipe = _execute_stage(
+            candidate, config, first_verifier, route=route,
+        )
+        assert first.status is FormalStatus.PROVEN, first.reason
+        assert state == "executed" and not invalid
+        # A fresh verifier/provider must use the connected preparation index
+        # before generating either an identity or RTL; prove that path is warm.
+        warm = _endpoint_verifier(candidate, cache)
+        old.setattr(warm, "cache_identity", _unexpected_cached_generation)
+        repeated, state, invalid, recipe = _execute_stage(candidate, config, warm, route=route)
+        assert repeated.status is FormalStatus.PROVEN
+        assert state == "hit" and not invalid and recipe == first_recipe
+    previous = {path: path.read_bytes() for path in cache.rglob("*.json")}
+    assert previous
+    current = _endpoint_verifier(candidate, cache)
+    original, emissions = current._prepare_candidate_equivalence, []
+
+    def emit_current(*args):
+        emissions.append(True)
+        return original(*args)
+
+    monkeypatch.setattr(current, "_prepare_candidate_equivalence", emit_current)
+    second, state, invalid, second_recipe = _execute_stage(candidate, config, current, route=route)
+    assert second.status is FormalStatus.PROVEN, second.reason
+    assert state == "executed" and not invalid and emissions == [True]
+    assert second.implementation_artifact_hash != first.implementation_artifact_hash
+    assert second.backend_identity != first.backend_identity
+    assert second_recipe != first_recipe
+    second_bundle = current.prepare(candidate, config)
+    assert "(^" in second_bundle.implementation_artifact.text
+    assert second_bundle.property_identity == first_bundle.property_identity
+    assert second_bundle.reference_artifact_hash == first_bundle.reference_artifact_hash
+    assert second_bundle.harness_hash == first_bundle.harness_hash
+    # The new policy still supports the same exact index fast path.
+    warm = _endpoint_verifier(candidate, cache)
+    monkeypatch.setattr(warm, "cache_identity", _unexpected_cached_generation)
+    repeated, state, invalid, recipe = _execute_stage(candidate, config, warm, route=route)
+    assert repeated.status is FormalStatus.PROVEN
+    assert state == "hit" and not invalid and recipe == second_recipe
+    assert all(path.read_bytes() == content for path, content in previous.items())
+    (tmp_path / "policy-cache-receipt.json").write_text(json.dumps({
+        "old_policy": "zlang-equivalence-flattened-preparation-v2",
+        "current_policy": EQUIVALENCE_PREPARATION_SCHEMA,
+        "old_actual_rtl_status": first.status.value,
+        "current_actual_rtl_status": second.status.value,
+        "old_implementation_artifact_hash": first.implementation_artifact_hash,
+        "current_implementation_artifact_hash": second.implementation_artifact_hash,
+        "old_execution_recipe": first_recipe, "current_execution_recipe": second_recipe,
+        "new_policy_requires_emission": emissions == [True],
+        "unchanged_typed_relation": second_bundle.property_identity == first_bundle.property_identity,
+        "unchanged_reference": second_bundle.reference_artifact_hash == first_bundle.reference_artifact_hash,
+        "unchanged_harness": second_bundle.harness_hash == first_bundle.harness_hash,
+        "depth": 8, "timeout_seconds": 30,
+    }, indent=2) + "\n")
 
 
 def test_flattened_dsp_miter_uses_actual_port_widths(tmp_path):

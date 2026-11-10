@@ -518,7 +518,8 @@ QUALIFIED_EMPTY_CONSTRUCT_HEAD.11: /[A-Z][A-Za-z0-9_]*\.[A-Z][A-Za-z0-9_]*(?=[ \
 // follows it (possibly after explicit specialization).  Keeping this boundary
 // lexical prevents ordinary field reads such as `a.re + b.re` from committing
 // to the qualified-call production inside concise multi-item callable bodies.
-QUALIFIED_CALL_HEAD.11: /[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*(?=[ \t]*(?:<[^()\n]+>)?[ \t]*\()/
+// Balance specialization angles so a dotted comparison is not consumed as a callee.
+QUALIFIED_CALL_HEAD.11: /[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*(?=[ \t]*(?:<(?![=])(?:[^<>()\n]|<(?:[^<>()\n]|<[^<>()\n]*>)*>)+>)?[ \t]*\()/
 // A qualified struct constructor must begin with an actual field spelling.
 // Merely looking for ``{`` stole rule/FSM bodies and switch/match bodies after
 // an enum member such as ``phase == TxPhase.Done { ... }``.

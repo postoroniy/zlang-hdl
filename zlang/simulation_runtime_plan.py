@@ -10,6 +10,7 @@ from typing import Any
 
 from zlang.ir import state as ir_state
 from zlang.ir import types as ir_types
+from zlang.ir.hierarchy import build_hierarchy_index
 from zlang.opt.ir import ExpressionOp, TargetKind
 from zlang.simulation_plan_encoding import (
     origin_payload as _origin_payload,
@@ -50,6 +51,25 @@ def registered_output_runtime_names(
             else register.name
         )
         for register in canonical.registers
+    }
+
+
+def hierarchical_register_runtime_names(
+    module: object,
+) -> dict[tuple[tuple[str, ...], str], str]:
+    """Bind logical registers to native leaf names in each physical owner.
+
+    Leaf canonicalization preserves module and existing register names.  Use
+    the same naming policy as plan construction, then let callers qualify the
+    native leaf with its physical instance path.
+    """
+
+    return {
+        (entry.physical_path, logical_name): native_name
+        for entry in build_hierarchy_index(module).entries
+        for logical_name, native_name in registered_output_runtime_names(
+            entry.module, entry.module
+        ).items()
     }
 
 

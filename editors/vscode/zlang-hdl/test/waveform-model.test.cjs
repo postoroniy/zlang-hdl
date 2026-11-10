@@ -176,7 +176,11 @@ test('file watcher detects writes and replacements only for its own trace and di
   };
   const vscode={RelativePattern:class{constructor(base,pattern){assert.equal(base,root);assert.equal(pattern,'*');}},
     workspace:{createFileSystemWatcher:()=>watcher}};
-  const subscription=watchWaveformFile(vscode,uri,()=>changes++);
+  let poll,unwatched=0;
+  const filesystem={statSync:fs.statSync,watchFile(watched,options,listener){
+    assert.equal(watched,file);assert.deepEqual(options,{persistent:false,bigint:true,interval:250});poll=listener;
+  },unwatchFile(watched,listener){assert.equal(watched,file);assert.equal(listener,poll);unwatched++;}};
+  const subscription=watchWaveformFile(vscode,uri,()=>changes++,filesystem);
   try{
     handlers.get('Create')(uri);assert.equal(changes,0,'late creation of an already indexed file is not a change');
     fs.writeFileSync(file,'updated');handlers.get('Change')({toString:()=>'/workspace/other.fst'});
@@ -185,9 +189,16 @@ test('file watcher detects writes and replacements only for its own trace and di
     fs.unlinkSync(file);handlers.get('Delete')(uri);assert.equal(changes,2);
     fs.writeFileSync(file,'recreated');handlers.get('Create')(uri);assert.equal(changes,3);
     fs.writeFileSync(file,'indexed before notification');subscription.checkpoint();
-    handlers.get('Change')(uri);assert.equal(changes,3,'an indexed version is acknowledged');
-  }finally{subscription.dispose();fs.rmSync(root,{recursive:true});}
-  assert.equal(disposed,4);
+    handlers.get('Change')(uri);poll();assert.equal(changes,3,'an indexed version is acknowledged');
+    // Real atomic replacement with no VS Code event models silent watch loss.
+    // The independent stat observation must detect it without an inotify slot.
+    fs.writeFileSync(file+'.new','polled replacement');fs.renameSync(file+'.new',file);
+    poll();assert.equal(changes,4,'polling detects actual replacement without a native notification');
+    poll();handlers.get('Create')(uri);assert.equal(changes,4,'native and polling observations are deduplicated');
+    fs.unlinkSync(file);poll();assert.equal(changes,5);
+    fs.writeFileSync(file,'polled recreation');poll();assert.equal(changes,6);
+  }finally{subscription.dispose();poll();fs.rmSync(root,{recursive:true});}
+  assert.equal(disposed,4);assert.equal(unwatched,1);assert.equal(changes,6,'disposed polling cannot publish');
 });
 test('reload replaces one document generation for all views and rejects stale cache results',async()=>{
   let index=0,complete,watch,closed=false;const messages=[],other=[];

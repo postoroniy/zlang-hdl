@@ -642,6 +642,7 @@ class SimulationStateSession:
         from zlang.sim import Program, _compiled_native_program
         from zlang.simulation_expression_plan import _memory_read_register_name
         from zlang.simulation_plan_build import build_simulation_plan
+        from zlang.simulation_runtime_plan import hierarchical_register_runtime_names
 
         module = getattr(compilation, "ir", None)
         selected = getattr(compilation, "selected_ir_identity", None)
@@ -681,6 +682,7 @@ class SimulationStateSession:
             for entry in build_hierarchy_index(module).entries
             for memory in entry.module.memories
         }
+        register_names = hierarchical_register_runtime_names(module)
         self._state_targets: dict[str, tuple[str, str]] = {}
         for binding in self.catalog.bindings:
             prefix = ".".join(binding.physical_instance_path[1:])
@@ -695,6 +697,10 @@ class SimulationStateSession:
                 name = _memory_read_register_name(
                     memory.semantic_id, None, memory.read_latency - 1
                 )
+            elif binding.object_kind is SimulationStateKind.REGISTER:
+                name = register_names[
+                    (binding.physical_instance_path, binding.object_name)
+                ]
             else:
                 name = binding.object_name
             if prefix:

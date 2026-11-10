@@ -46,6 +46,19 @@ def _packed_indexed_slice(
     return f"{selected_width}'(($unsigned({value})) >> ({base}))"
 
 
+def _four_state_binary_constant(value: str, result: bool) -> str:
+    """Keep a binary constant result X when any operand bit is X or Z.
+
+    Reduction parity observes every bit, unlike a reduction OR/AND that may
+    resolve an unknown through a controlling binary bit. The complement pair
+    avoids a range comparison while retaining its four-state truth table.
+    """
+
+    parity = f"(^({value}))"
+    operator = "|" if result else "&"
+    return f"({parity} {operator} ~{parity})"
+
+
 def _comma_join(items: tuple[str, ...]) -> str:
     """Keep ordinary RTL compact while bounding lexer work for giant DAGs."""
 

@@ -18,6 +18,7 @@ from zlang.ir import interfaces as ir_interfaces
 from zlang.ir import hierarchy as ir_hierarchy
 from zlang.ir import module as ir_module
 from zlang.ir import types as ir_types
+from zlang.ir.expression_arena import SemanticExpressionArena
 from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
 from zlang.ir.signed_reductions import expression_semantic_identity
 from zlang.source import SourceOrigin
@@ -48,6 +49,32 @@ InstanceSpecialization = tuple[
     tuple[ast.ModuleParameter, ...],
     tuple[ir_module.Specialization, ...],
 ]
+
+
+class _PendingInputType(Exception):
+    """An active child specialization has not inferred this output type yet."""
+
+
+class _InferenceTypeFacts(dict):
+    """Cache only facts requested by ordinary typing in one isolated probe."""
+
+    def __init__(self, initial, resolve):
+        super().__init__(initial)
+        self._resolve = resolve
+
+    def get(self, key, default=None):
+        if not dict.__contains__(self, key):
+            value = self._resolve(key)
+            if value is not None:
+                self[key] = value
+        return super().get(key, default)
+
+
+class _InferenceArrayLengths(_InferenceTypeFacts):
+    """Resolve an existing array declaration before ordinary field typing."""
+
+    def __contains__(self, key):
+        return self.get(key) is not None
 
 
 @dataclass(frozen=True)
@@ -89,6 +116,12 @@ class InstanceSpecializer:
             and item.target not in context.request_response_symbols
         }
         self._specializations: dict[int, InstanceSpecialization] = {}
+        self._instance_declarations = {
+            item.name: item for item in context.module.instances
+        }
+        self._inference_arguments: dict[
+            int, tuple[dict[str, int | str], dict[str, ir_types.HardwareType]]
+        ] = {}
 
     @staticmethod
     def _inherit_named_declarations(
@@ -260,26 +293,168 @@ class InstanceSpecializer:
             resolved_type_arguments,
             deferred_arguments,
         ) = self._resolve_explicit_arguments(declaration, child)
-        self._infer_scalar_arguments(
-            declaration,
-            child,
-            resolved_arguments,
-            resolved_type_arguments,
+        self._inference_arguments[id(declaration)] = (
+            resolved_arguments, resolved_type_arguments,
         )
-        self._apply_parameter_defaults(
-            declaration,
-            child,
-            resolved_arguments,
-            resolved_type_arguments,
-        )
-        result = self._bind_deferred_arguments(
-            child,
-            resolved_arguments,
-            resolved_type_arguments,
-            deferred_arguments,
-        )
+        try:
+            self._infer_scalar_arguments(
+                declaration, child, resolved_arguments, resolved_type_arguments,
+            )
+            self._apply_parameter_defaults(
+                declaration, child, resolved_arguments, resolved_type_arguments,
+            )
+            result = self._bind_deferred_arguments(
+                child, resolved_arguments, resolved_type_arguments, deferred_arguments,
+            )
+        finally:
+            del self._inference_arguments[id(declaration)]
         self._specializations[id(declaration)] = result
         return result
+
+    def _child_type_resolver(self, child, values, types) -> type_resolution.TypeResolver:
+        """Bind signature diagnostics to the child's declaration source."""
+        unit = child.source_identity or self.context.source_unit
+        digests = self.context.expression_context.environment.source_digests
+        digest = child.source_hash or digests.get(unit)
+        if digest is None and unit == self.context.source_unit:
+            digest = self.context.source_digest
+        return type_resolution.TypeResolver(
+            child.type_aliases, child.structs, child.enums, child.parameters,
+            values, types, self.context.enum_identity_namespace,
+            tagged_unions=child.tagged_unions,
+            source_unit=unit, source_digest=digest, source_digests=digests,
+        )
+
+    def _inference_output_type(
+        self, declaration: ast.InstanceDecl, name: str,
+    ) -> ir_types.HardwareType:
+        """Query one child signature; never publish provisional runtime products."""
+        if declaration.module not in self.known_modules:
+            raise SemanticError(f"unknown instantiated module '{declaration.module}'")
+        arguments = self._inference_arguments.get(id(declaration))
+        active = arguments is not None
+        child = self.child_declaration(declaration.module)
+        if arguments is None:
+            result = self.resolve(declaration)
+            arguments = result[0], result[1]
+        values, types = arguments
+        port = next((port for port in child.ports
+                     if port.direction is ast.Direction.OUTPUT
+                     and name in (port.names or (port.name,))), None)
+        if port is None:
+            # This probe does not invent fields or primitive-protocol signals.
+            raise SemanticError(f"unknown child output '{declaration.name}.{name}'")
+        syntax = port.type_name
+        if isinstance(syntax, ast.InterfaceTypeName):
+            if syntax.kind is not ast.InterfaceKind.WIRE:
+                raise SemanticError(f"unknown child output '{declaration.name}.{name}'")
+            syntax = syntax.payload_type
+        resolver = self._child_type_resolver(
+            child, {key: value for key, value in values.items() if isinstance(value, int)}, types,
+        )
+        try:
+            return resolver.resolve(syntax)
+        except type_resolution.UnresolvedTypeParameterError:
+            if active:
+                # Only a partial signature can be deferred. Final declaration,
+                # actual-expression and ordinary input errors still propagate.
+                raise _PendingInputType from None
+            raise
+
+    def _inference_expression_type(self, expression: ast.Expression) -> ir_types.HardwareType:
+        """Use ordinary expression typing with isolated, declaration-backed facts."""
+        active_locals: set[str] = set()
+
+        def local(name):
+            declaration = self._local_declarations.get(name)
+            if declaration is None:
+                return None
+            if name in active_locals:
+                raise SemanticError(f"cyclic local type inference contains '{name}'")
+            active_locals.add(name)
+            try:
+                expected = (context.environment.type_resolver.resolve(declaration.type_name)
+                            if declaration.type_name is not None else None)
+                try:
+                    value = (context.expressions.check_typed_boundary(
+                        declaration.expression, symbols, expected, context,
+                    ) if expected is not None else context.expressions.check(
+                        declaration.expression, symbols, None, context,
+                    ))
+                except _PendingInputType:
+                    if expected is None:
+                        raise
+                    # A declared local type is an exact inference anchor.
+                    # Its RHS is still checked by ordinary local validation.
+                    value = ir_expr.InputRef(name, expected)
+                compile_time, value_range = expression_support._local_constant_and_range(
+                    value, context, name=name,
+                )
+                return ir_module.LocalValue(
+                    name, value.type, value, compile_time, value_range,
+                    expression_semantic_identity(value),
+                )
+            finally:
+                active_locals.remove(name)
+
+        def array_length(name):
+            declaration = self._instance_declarations.get(name)
+            if declaration is None or declaration.array_length is None:
+                return None
+            length = compile_time_evaluation.resolve_range_bound(
+                declaration.array_length, context, "instance array",
+            )
+            if length < 1:
+                raise SemanticError("instance array length must be positive")
+            return length
+
+        arrays = _InferenceArrayLengths(
+            self.context.expression_context.scope.instance_arrays, array_length,
+        )
+
+        def output(key):
+            owner, name = key
+            declaration = self._instance_declarations.get(owner)
+            if declaration is not None and declaration.array_length is not None:
+                return None  # An array declaration is not a scalar output owner.
+            if declaration is None and owner.endswith("]"):
+                array, separator, index = owner[:-1].partition("[")
+                # The ordinary field checker validates a static index and
+                # constructs this physical spelling before querying its type.
+                if separator and index.isdecimal():
+                    length = arrays.get(array)
+                    if length is not None and int(index) < length:
+                        declaration = self._instance_declarations.get(array)
+            if declaration is None:
+                return None
+            return self._inference_output_type(declaration, name)
+
+        symbols = _InferenceTypeFacts(self.context.value_symbols, local)
+        tooling = self.context.expression_context.services.tooling
+        context = self.context.expression_context.with_environment(
+            type_resolver=self.context.type_resolver.for_query(),
+        ).with_services(
+            expression_arena=SemanticExpressionArena(),
+            tooling=replace(
+                tooling,
+                definition_resolutions=[] if tooling.definition_resolutions is not None else None,
+                definition_declarations=[] if tooling.definition_declarations is not None else None,
+                completion_scopes=[] if tooling.completion_scopes is not None else None,
+                signature_help_calls=[] if tooling.signature_help_calls is not None else None,
+                definition_targets=dict(tooling.definition_targets),
+            ),
+        ).with_scope(instance_outputs=_InferenceTypeFacts(
+            self.context.expression_context.scope.instance_outputs, output,
+        ), instance_arrays=arrays, functional_binder_ordinals=dict(
+            self.context.expression_context.scope.functional_binder_ordinals,
+        ), next_functional_binder_ordinal=list(
+            self.context.expression_context.scope.next_functional_binder_ordinal,
+        ), functional_specialization_certificates=list(
+            self.context.expression_context.scope.functional_specialization_certificates,
+        ))
+        # Lazy lookup leaves lexical binders and compile-time branch selection
+        # entirely with the existing expression owner; inactive AST is not walked.
+        return context.expressions.check(expression, symbols, None, context).type
 
     def _resolve_explicit_arguments(
         self,
@@ -445,22 +620,16 @@ class InstanceSpecializer:
         # In particular, do not evaluate forward sibling bindings merely to
         # infer an internal counter-width default. Resolve without defaults so
         # input-dependent parameters still infer from their actual port types.
-        explicit_resolver = type_resolution.TypeResolver(
-            child.type_aliases,
-            child.structs,
-            child.enums,
-            child.parameters,
-            {name: value for name, value in resolved.items() if isinstance(value, int)},
-            types,
-            self.context.enum_identity_namespace,
-            tagged_unions=child.tagged_unions,
+        explicit_resolver = self._child_type_resolver(
+            child, {name: value for name, value in resolved.items() if isinstance(value, int)}, types,
         )
-        try:
-            for _, syntax in scalar_inputs:
+        inference_inputs: list[tuple[str, ast.TypeSyntax]] = []
+        for name, syntax in scalar_inputs:
+            try:
                 explicit_resolver.resolve(syntax)
-        except SemanticError:
-            pass  # At least one input pattern still needs exact inference.
-        else:
+            except type_resolution.UnresolvedTypeParameterError:
+                inference_inputs.append((name, syntax))
+        if not inference_inputs:
             return
         bindings: dict[str, ast.Expression] = {}
         candidates = tuple(
@@ -483,12 +652,8 @@ class InstanceSpecializer:
         value_bindings = {
             name: value for name, value in resolved.items() if isinstance(value, int)
         }
-        inference_resolver = type_resolution.TypeResolver(
-            child.type_aliases,
-            child.structs,
-            child.enums,
-            child.parameters,
-            {
+        inference_resolver = self._child_type_resolver(
+            child, {
                 **{
                     item.name: item.default
                     for item in child.parameters
@@ -497,30 +662,41 @@ class InstanceSpecializer:
                 **value_bindings,
             },
             types,
-            self.context.enum_identity_namespace,
-            tagged_unions=child.tagged_unions,
         )
-        self.context.expression_context.services.callable_specializer.bind_inferred_types(
-            parameter_map,
-            types,
-            value_bindings,
-            inference_resolver,
-            tuple(
-                (
-                    formal_type,
-                    self.context.expression_context.expressions.check(
-                        bindings[port_name],
-                        self.context.value_symbols,
-                        None,
-                        self.context.expression_context,
-                    ).type,
+        remaining = inference_inputs
+        while remaining:
+            pending = []
+            for port_name, formal_type in remaining:
+                try:
+                    actual_type = self._inference_expression_type(bindings[port_name])
+                except _PendingInputType:
+                    pending.append((port_name, formal_type))
+                    continue
+                self.context.expression_context.services.callable_specializer.bind_inferred_types(
+                    parameter_map, types, value_bindings, inference_resolver,
+                    ((formal_type, actual_type),), module_types=True,
                 )
-                for port_name, formal_type in scalar_inputs
-            ),
-            module_types=True,
-        )
-        resolved.update((name, str(type_)) for name, type_ in types.items())
-        resolved.update(value_bindings)
+                resolved.update((name, str(type_)) for name, type_ in types.items())
+                resolved.update(value_bindings)
+            if len(pending) == len(remaining):
+                # No default guesses or equation solving for an unanchored
+                # inference cycle. Already inferred constraints are validated
+                # again by the ordinary complete child-input binding owner.
+                partial = self._child_type_resolver(child, value_bindings, types)
+                for _, formal_type in pending:
+                    try:
+                        partial.resolve(formal_type)
+                    except type_resolution.UnresolvedTypeParameterError:
+                        if len(self._inference_arguments) > 1:
+                            # Let the ancestor inspect its remaining independent
+                            # inputs before diagnosing an unanchored type cycle.
+                            raise _PendingInputType from None
+                        raise SemanticError(
+                            f"cyclic exact specialization inference for '{declaration.name}'; "
+                            "supply an explicit type or width argument"
+                        ) from None
+                break
+            remaining = pending
 
     def _apply_parameter_defaults(
         self,

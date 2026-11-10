@@ -86,6 +86,27 @@ class RtlArithmeticCones:
                     )
                 self._drivers[bit] = (identity, index)
 
+    def _retained_input(self, identity):
+        """Preserve the existing public logic/input_words boundary exactly."""
+        return (
+            self._sources[identity] in self.input_words
+            or identity[0] != "cell"
+            or (
+                self.module["cells"][identity[1]]["type"] not in ARITHMETIC_CELLS
+                and not self.logic
+            )
+        )
+
+    def _leaf(self, bits):
+        leaf = self._leaves.get(bits)
+        if leaf is None:
+            if len(self._leaves) >= 16:
+                raise ArithmeticProofUnavailable("RTL arithmetic input bound exceeded")
+            name = f"v{len(self._leaves)}"
+            leaf = RtlConeLeaf(name, bits, z3.BitVec(name, len(bits), ctx=self.context))
+            self._leaves[bits] = leaf
+        return leaf.expression
+
     def roots(self):
         cells = self.module["cells"]
         consumed, boundaries = set(), set()
@@ -127,26 +148,8 @@ class RtlArithmeticCones:
         bits = self._sources[identity]
         if not 1 <= len(bits) <= self.max_width:
             raise ArithmeticProofUnavailable("RTL arithmetic word width bound exceeded")
-        if (
-            bits in self.input_words
-            or identity[0] != "cell"
-            or (
-                self.module["cells"][identity[1]]["type"] not in ARITHMETIC_CELLS
-                and not self.logic
-            )
-        ):
-            leaf = self._leaves.get(bits)
-            if leaf is None:
-                if len(self._leaves) >= 16:
-                    raise ArithmeticProofUnavailable(
-                        "RTL arithmetic input bound exceeded"
-                    )
-                name = f"v{len(self._leaves)}"
-                leaf = RtlConeLeaf(
-                    name, bits, z3.BitVec(name, len(bits), ctx=self.context)
-                )
-                self._leaves[bits] = leaf
-            result = leaf.expression
+        if self._retained_input(identity):
+            result = self._leaf(bits)
         else:
             cell = self.module["cells"][identity[1]]
             if cell["type"] not in ARITHMETIC_CELLS:
@@ -321,12 +324,17 @@ class RtlArithmeticCones:
                 and bits[count] == source[offset + count]
             ):
                 count += 1
-            word = self._word(identity)
-            low = (
-                word
-                if offset == 0 and count == word.size()
-                else z3.Extract(offset + count - 1, offset, word)
-            )
+            if len(source) > self.max_width and self._retained_input(identity):
+                # Keep the exact connected lane; its wide parent is retained,
+                # not an arithmetic operand expanded beyond the width bound.
+                low = self._leaf(source[offset:offset + count])
+            else:
+                word = self._word(identity)
+                low = (
+                    word
+                    if offset == 0 and count == word.size()
+                    else z3.Extract(offset + count - 1, offset, word)
+                )
             if count == len(bits):
                 return low
             upper = bits[count:]

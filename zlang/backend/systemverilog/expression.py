@@ -338,6 +338,48 @@ def _fixed_convert(expression: expr.FixedConvert) -> str:
     return f"$signed({sized})" if target_signed else sized
 
 
+def _render_endpoint_comparison(
+    expression: expr.Binary, left: str, right: str,
+) -> str | None:
+    """Spell exact numeric endpoint comparisons without SV range warnings.
+
+    This is a rendering rule only: a binary tautology must still yield X for
+    an X/Z operand, as the original SystemVerilog relational operator does.
+    The semantic IR, native U/X operations and reference renderer stay intact.
+    """
+
+    type_ = expression.operand_type
+    if not isinstance(type_, (ir_types.UIntType, ir_types.SIntType,
+                              ir_types.FixedType, ir_types.UFixedType)):
+        return None
+    signed = isinstance(type_, (ir_types.SIntType, ir_types.FixedType))
+    minimum = -(1 << (type_.width - 1)) if signed else 0
+    maximum = (1 << (type_.width - int(signed))) - 1
+    operator = expression.operator
+    constant, value = expression.right, left
+    if isinstance(expression.left, expr.Constant):
+        constant, value = expression.left, right
+        operator = {
+            expr.BinaryOperator.LESS: expr.BinaryOperator.GREATER,
+            expr.BinaryOperator.LESS_EQUAL: expr.BinaryOperator.GREATER_EQUAL,
+            expr.BinaryOperator.GREATER: expr.BinaryOperator.LESS,
+            expr.BinaryOperator.GREATER_EQUAL: expr.BinaryOperator.LESS_EQUAL,
+        }[operator]
+    if not isinstance(constant, expr.Constant):
+        return None
+    if constant.value == maximum and operator in {
+        expr.BinaryOperator.LESS_EQUAL, expr.BinaryOperator.GREATER,
+    }:
+        result = operator is expr.BinaryOperator.LESS_EQUAL
+    elif constant.value == minimum and operator in {
+        expr.BinaryOperator.GREATER_EQUAL, expr.BinaryOperator.LESS,
+    }:
+        result = operator is expr.BinaryOperator.GREATER_EQUAL
+    else:
+        return None
+    return sv_rendering._four_state_binary_constant(value, result)
+
+
 def _expression(expression: expr.Expression) -> str:
     folded = _fold_for_render(expression)
     expression = folded
@@ -527,6 +569,9 @@ def _render_expression(expression: expr.Expression) -> str:
             expr.BinaryOperator.GREATER,
             expr.BinaryOperator.GREATER_EQUAL,
         }:
+            endpoint = _render_endpoint_comparison(expression, left, right)
+            if endpoint is not None:
+                return endpoint
             return render_ordered_comparison(
                 left,
                 operator,

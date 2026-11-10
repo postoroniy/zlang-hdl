@@ -6,24 +6,34 @@ const {WaveformQueryQueue}=require('./waveform_client');
 const {WaveformTileCache,waveformQueryKey}=require('./waveform_cache');
 
 // Watch the parent so an atomic replacement is detected as well as writes.
-function watchWaveformFile(vscode,uri,changed){
+function watchWaveformFile(vscode,uri,changed,filesystem=fs){
   const watcher=vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(path.dirname(uri.fsPath),'*'));
   const checkpoint=()=>{
     try{
-      const stat=fs.statSync(uri.fsPath,{bigint:true});
+      const stat=filesystem.statSync(uri.fsPath,{bigint:true});
       return [stat.dev,stat.ino,stat.size,stat.mtimeNs,stat.ctimeNs].join(':');
     }catch(error){return 'unavailable:'+error.code;}
   };
-  let observed=checkpoint();
+  let observed=checkpoint(),disposed=false;
   const notify=file=>{
-    if(file.toString()!==uri.toString())return;
+    if(disposed||file.toString()!==uri.toString())return;
     const current=checkpoint();
     if(current!==observed){observed=current;changed();}
   };
   const subscriptions=[watcher.onDidChange(notify),watcher.onDidCreate(notify),watcher.onDidDelete(notify)];
+  // VS Code does not surface asynchronous inotify ENOSPC to this API. Its
+  // recovery watcher only retries missing paths, so retain one bounded stat
+  // observation per open trace, as for project metadata. Both paths share the
+  // checkpoint: delayed native events and polling cannot duplicate revisions.
+  const poll=()=>notify(uri);
+  filesystem.watchFile(uri.fsPath,{persistent:false,bigint:true,interval:250},poll);
+  poll();
   return {checkpoint(){observed=checkpoint();return observed;},
-    dispose(){for(const subscription of subscriptions)subscription.dispose();watcher.dispose();}};
+    dispose(){
+      disposed=true;filesystem.unwatchFile(uri.fsPath,poll);
+      for(const subscription of subscriptions)subscription.dispose();watcher.dispose();
+    }};
 }
 
 // One saved trace owns its native index, query generation and file revisions.

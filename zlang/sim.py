@@ -142,9 +142,10 @@ def write_fst_trace(
 class Program:
     """One compiled immutable simulation program, reusable across instances."""
 
-    plan: SimulationPlan
-    module: Module
-    _native: object
+    # Failure formatting must not recursively expand retained hardware graphs.
+    plan: SimulationPlan = field(repr=False)
+    module: Module = field(repr=False)
+    _native: object = field(repr=False)
     selected_ir_identity: str | None = None
     strict_uninitialized: bool = False
     logic_state: bool = False

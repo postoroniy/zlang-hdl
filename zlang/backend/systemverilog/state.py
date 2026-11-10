@@ -76,18 +76,35 @@ def _ported_memory_fragments(
         f"  // memory_plan={implementation.implementation.value} "
         f"identity={implementation.identity}"
     ]
-    if (
+    initialize_contents = (
         memory.initial_value is not None
         or memory.contents_reset is ir_storage.MemoryResetPolicy.PRESERVE
-    ):
+    )
+    initialize_read_data = (
+        memory.read_latency >= 1
+        and memory.read_data_reset is ir_storage.MemoryResetPolicy.PRESERVE
+    )
+    # Preserved read state has deterministic power-up values but holds on reset.
+    # Separate initial ownership excludes always_ff, as for global/scheduled RAM.
+    clocked_process = "always" if initialize_read_data else "always_ff"
+    if initialize_contents or initialize_read_data:
         logic.append("  initial begin")
-        for cells in cell_arrays:
-            logic.extend((
-                f"    for (integer {name}_reset_index = 0; "
-                f"{name}_reset_index < {memory.depth}; "
-                f"{name}_reset_index = {name}_reset_index + 1)",
-                f"      {cells}[{name}_reset_index] = {initial_word};",
-            ))
+        if initialize_read_data:
+            for port in readable:
+                prefix = f"{name}_{sv_rendering._identifier(port.name)}"
+                logic.append(f"    {prefix}_read_data = '0;")
+                logic.extend(
+                    f"    {prefix}_read_stage_{index} = '0;"
+                    for index in range(memory.read_latency - 1)
+                )
+        if initialize_contents:
+            for cells in cell_arrays:
+                logic.extend((
+                    f"    for (integer {name}_reset_index = 0; "
+                    f"{name}_reset_index < {memory.depth}; "
+                    f"{name}_reset_index = {name}_reset_index + 1)",
+                    f"      {cells}[{name}_reset_index] = {initial_word};",
+                ))
         logic.append("  end")
     by_name = {port.name: port for port in writable}
     priority = tuple(
@@ -257,7 +274,7 @@ def _ported_memory_fragments(
         for port in memory.ports:
             target = f"{name}_{sv_rendering._identifier(port.name)}_read_data"
             logic.extend((
-                f"  always_ff @({sv_sequential.clock_event(module, sv_rendering._identifier, port.domain)}) begin",
+                f"  {clocked_process} @({sv_sequential.clock_event(module, sv_rendering._identifier, port.domain)}) begin",
                 f"    if ({sv_sequential.reset_asserted(module, sv_rendering._identifier, port.domain)}) begin",
             ))
             if memory.read_data_reset is ir_storage.MemoryResetPolicy.CLEAR:
@@ -272,7 +289,7 @@ def _ported_memory_fragments(
         return declarations, logic
     if common_registered:
         logic.extend((
-            f"  always_ff @({sv_sequential.clock_event(module, sv_rendering._identifier, writer_domain)}) begin",
+            f"  {clocked_process} @({sv_sequential.clock_event(module, sv_rendering._identifier, writer_domain)}) begin",
             f"    if ({sv_sequential.reset_asserted(module, sv_rendering._identifier, writer_domain)}) begin",
         ))
         append_cell_reset("      ")
@@ -286,7 +303,7 @@ def _ported_memory_fragments(
 
     if writer_domain is not None:
         logic.extend((
-            f"  always_ff @({sv_sequential.clock_event(module, sv_rendering._identifier, writer_domain)}) begin",
+            f"  {clocked_process} @({sv_sequential.clock_event(module, sv_rendering._identifier, writer_domain)}) begin",
             f"    if ({sv_sequential.reset_asserted(module, sv_rendering._identifier, writer_domain)}) begin",
         ))
         append_cell_reset("      ")
@@ -308,6 +325,12 @@ def _ported_memory_fragments(
                             f"({effective_enable[writer.name]} && "
                             f"({render(writer.address)} == {render(port.address)}))"
                         )
+                        if memory.read_data_reset is ir_storage.MemoryResetPolicy.PRESERVE:
+                            # A reset-blocked write cannot bypass the stored word.
+                            collision = (
+                                f"({sv_sequential.reset_deasserted(module, sv_rendering._identifier, writer.domain)} "
+                                f"&& {collision})"
+                            )
                         read_value = (
                             f"{collision} ? {write_value(writer)} : ({read_value})"
                         )
@@ -319,7 +342,7 @@ def _ported_memory_fragments(
                 logic.append(f"  assign {target} = {read_value};")
             continue
         logic.extend((
-            f"  always_ff @({sv_sequential.clock_event(module, sv_rendering._identifier, domain)}) begin",
+            f"  {clocked_process} @({sv_sequential.clock_event(module, sv_rendering._identifier, domain)}) begin",
             f"    if ({sv_sequential.reset_asserted(module, sv_rendering._identifier, domain)}) begin",
         ))
         append_read_reset(domain_ports, "      ")
@@ -803,6 +826,12 @@ def _append_unified_state(
                     f"        else {name}_read_data <= {name}_cells[{name}_read_address];",
                     "      end",
                 ))
+            elif memory.collision is ir_storage.MemoryCollision.NO_CHANGE:
+                logic.append(
+                    f"      if ({name}_read_fire && !({name}_write_fire && "
+                    f"({name}_read_address == {name}_write_address))) "
+                    f"{name}_read_data <= {name}_cells[{name}_read_address];"
+                )
             else:
                 logic.append(
                     f"      if ({name}_read_fire) "

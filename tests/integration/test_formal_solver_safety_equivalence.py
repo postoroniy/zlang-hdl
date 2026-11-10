@@ -66,6 +66,20 @@ reg [1:0] credits; always @(posedge clk) begin if (rst) credits <= 0; else credi
                 self.assertIsNotNone(result.counterexample, name)
                 self.assertTrue(result.counterexample.raw_trace, name)
 
+        # A proof request requires a reachable assertion of the right flavor,
+        # not a comment, an assumption or an unused library module's assertion.
+        empty_obligations = {
+            "comment-only": "module raw_guard(input a); // assert(a);\nendmodule",
+            "assume-only": "module raw_guard(input a); always @* assume(a); endmodule",
+            "unreachable": "module raw_guard(input a); endmodule module unused(input a); always @* assert(a); endmodule",
+            "wrong-flavor": "module raw_guard(input a); always @* cover(a); endmodule",
+        }
+        for name, source in empty_obligations.items():
+            result = run_verilog_formal(source, top="raw_guard", property_id="empty-obligation." + name,
+                                         mode=ProofMode.PROVE, depth=8, timeout_seconds=30)
+            self.assertEqual(result.status, FormalStatus.UNKNOWN, name)
+            self.assertIsNone(result.counterexample, name)
+
     def test_semantic_equivalence_same_cycle_and_fixed_latency_real_execution(self):
         u8 = UIntType(8)
         x = InputRef("x", u8)

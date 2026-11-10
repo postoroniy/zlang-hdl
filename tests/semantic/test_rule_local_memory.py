@@ -147,6 +147,20 @@ def test_snapshot_collision_hold_reset_and_atomic_register_effect() -> None:
     assert [item["q"] for item in write_first] == [0, 0, 7, 7, 9]
     assert read_first[-1]["touched"] == write_first[-1]["touched"] == 1
 
+    # An old cell of 9 differs from the held read result of 0.
+    # Preserve the legacy policies and run this third policy independently:
+    # a module may own only one scheduled memory.
+    no_change = simulate_cycles(
+        analyze(parse(source("no_change"))),
+        cycles + [
+            {"rd": 1, "wr": 0, "address": 0, "data": 0},
+            {"rd": 1, "wr": 1, "address": 1, "data": 42},
+            {"rd": 0, "wr": 0, "address": 0, "data": 0},
+        ],
+    )
+    assert [item["q"] for item in no_change] == [0, 0, 7, 7, 7, 7, 0, 0]
+    assert no_change[-1]["touched"] == 1
+
     reset = simulate_cycles(
         analyze(parse(source())), cycles[:4], [False, False, True, False]
     )

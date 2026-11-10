@@ -1,11 +1,12 @@
 from dataclasses import replace
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, TimeoutExpired
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
+from zlang.common.subprocess import ProcessCleanupError
 from zlang.formal import emit_cover_sby, run_verilog_cover
 from zlang.ir.formal import (
     CoverProperty,
@@ -225,6 +226,35 @@ b00000000000000000000000000000100 !
     assert bounded.status is CoverStatus.BOUNDED_UNREACHED
     assert bounded.witness is None
     assert "depth 4" in (bounded.reason or "")
+
+    timeout = TimeoutExpired(("sby",), 1, output=b"apparent PASS\n", stderr=b"partial error\n")
+    timeout.cleanup_error = RuntimeError("lifetime uncertain")
+    failures = (ProcessCleanupError(("sby",), RuntimeError("lifetime uncertain"),
+                                   returncode=0, stdout=b"apparent PASS\n", stderr=b"partial error\n"),
+                timeout)
+    for index, failure in enumerate(failures):
+        directory = tmp_path / f"uncertain-{index}"
+        with patch("zlang.formal.resolve_formal_toolchain", return_value=context), patch(
+            "zlang.formal.run_bounded_process", side_effect=failure,
+        ) as run, patch("zlang.formal._read_sby_status") as status, patch(
+            "zlang.formal._sby_trace_files",
+        ) as traces:
+            result = run_verilog_cover("module top; endmodule", top="top", property_id="cover.p",
+                                      depth=4, timeout_seconds=1, work_directory=directory)
+        assert result.status is CoverStatus.UNKNOWN and result.witness is None
+        assert "lifetime uncertain" in result.reason
+        assert run.call_args.kwargs["cleanup_owned_session"] is True
+        script = (directory / "top.sby").read_text().split("[script]", 1)[1]
+        guard = "select -assert-any t:$cover t:$check r:FLAVOR=cover %i %u"
+        assert script.index("hierarchy -top top") < script.index(guard) < script.index("prep -top top")
+        assert script.count(guard) == 1
+        status.assert_not_called()
+        traces.assert_not_called()
+        assert (directory / "solver.stdout.log").read_text() == "apparent PASS\n"
+        assert (directory / "solver.stderr.log").read_text() == "partial error\n"
+        assert "lifetime uncertain" in (directory / "solver.cleanup.log").read_text()
+        if failure is timeout:
+            assert (directory / "solver.timeout.log").read_text() == "apparent PASS\npartial error\n"
 
 
 def test_cover_runner_rejects_pass_with_malformed_witness_vcd(

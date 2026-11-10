@@ -11,8 +11,9 @@ const {checkWaveformHost}=require('./waveform-host.cjs');
 const {checkTypedWaveformHost}=require('./typed-waveform-host.cjs');
 const {checkRuleActionHost,checkCordicSwitchHost}=require('./rule-action-host.cjs');
 const {checkDebugExampleSwitches}=require('./debug-examples-host.cjs');
-const {checkProjectMetadata}=require('./project-metadata-host.cjs');
+const {checkProjectMetadata,checkImportConflictLocations}=require('./project-metadata-host.cjs');
 const {checkGenericReferences}=require('./generic-navigation-host.cjs');
+const {checkDiagnosticRoundTrip}=require('./diagnostic-barrier.cjs');
 const toolchain = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../editor-toolchain.json'), 'utf8'));
 
 const extensionId = 'postoroniy.zlang-hdl';
@@ -193,6 +194,8 @@ async function checkHost() {
   // A recursive watcher may miss a newly-created directory or be excluded by
   // workspace settings. Metadata for an open source still requires rechecking.
   await checkProjectMetadata(scratch, settled, {excludeRecursive:true});
+  await checkImportConflictLocations(scratch, settled);
+  phase('import diagnostic locations');
   phase('manifest/lock watcher recovery');
   const sourceText = 'module Smoke {\n    in x : u8\n    out y : u8 = x\n}\n';
   const documents = {};
@@ -537,6 +540,34 @@ async function checkHost() {
   await settled('snippet clock-name tabstop', () => document.getText(editor.selection) === 'clk');
   assert.equal(await document.save(), true);
 
+  // This request flushes the language client's pending document changes. The
+  // restored project edits must be admitted before the standalone marker edit.
+  const restoredSymbols = await vscode.commands.executeCommand(
+    'vscode.executeDocumentSymbolProvider', document.uri,
+  );
+  assert.ok(restoredSymbols?.some(symbol => symbol.name === 'ModuleName'),
+    'restored snippet must have current compiler-owned symbols');
+  // Older project diagnostics are due no later than this marker. The server
+  // finishes that due batch before processing its repair, even if the marker
+  // itself sorts first. Keep both phases inside the existing total host bound.
+  await checkDiagnosticRoundTrip({
+    readText: () => document.getText(),
+    replace: text => replaceDocument(document, text),
+    diagnostics: () => vscode.languages.getDiagnostics(document.uri),
+    wait: (description, predicate) => settled(description, predicate,
+      Math.max(1, hostSmokeTimeoutMs - (Date.now() - started))),
+    errorSeverity: vscode.DiagnosticSeverity.Error,
+  });
+  const restoredHover = await vscode.commands.executeCommand(
+    'vscode.executeHoverProvider', document.uri,
+    document.positionAt(document.getText().indexOf('x : u8')),
+  );
+  assert.ok(restoredHover?.some(hover => hover.contents.some(content =>
+    /u8/.test(typeof content === 'string' ? content : content.value))),
+  'repair must preserve typed hover, not merely clear diagnostics on failure');
+  assert.equal(await document.save(), true);
+  phase('fresh diagnostics and repair');
+
   // Run the DAP smoke last: starting and stopping a real debug session changes
   // active editor/debug focus in ways that must not contaminate the language
   // configuration, typing, or snippet assertions above.
@@ -566,6 +597,7 @@ async function checkHost() {
       'installed line/block comment configuration and editor actions',
       'bracket auto-closing and Enter indentation',
       'registered Clocked module snippet and working tabstops',
+      'fresh semantic diagnostic and repair publication before normal LSP stop',
       ...(nativeDebugChecked ? [
         'Linux native DAP rule breakpoint, typed state, and live waveform trace',
         'F9 on a rule body → Continue → active stack frame and automatic source-line highlight',
@@ -582,7 +614,29 @@ exports.run = async function run() {
   let timer;
   try {
     await Promise.race([
-      checkHost(),
+      (async () => {
+        let functionalError;
+        try { await checkHost(); }
+        catch (error) { functionalError = error; throw error; }
+        finally {
+          try {
+            // The test runner exits the host after this promise. Complete the
+            // installed extension's normal stop while its LSP pipes are open.
+            const extension = vscode.extensions.getExtension(extensionId);
+            if (extension?.isActive) {
+              const main = require.resolve(path.join(extension.extensionPath, extension.packageJSON.main));
+              const loaded = require.cache[main];
+              assert.ok(loaded?.loaded && loaded.filename === main,
+                'installed activation module must already be loaded');
+              assert.equal(typeof loaded.exports.deactivate, 'function');
+              await loaded.exports.deactivate();
+            }
+          } catch (error) {
+            if (!functionalError) throw error;
+            console.error('Host teardown also failed after the functional failure:', error);
+          }
+        }
+      })(),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error(
           `Editor host smoke exceeded ${hostSmokeTimeoutMs / 1000} seconds`,

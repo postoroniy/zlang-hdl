@@ -339,6 +339,85 @@ def test_initial_register_override_resolves_hierarchical_state(tmp_path: Path) -
         assert instance.get_logic("y").to_bits() == "10ux"
 
 
+
+@pytest.mark.parametrize("alias", ("q", "RegisteredInitial.q"))
+def test_registered_output_initial_override_preserves_logic_until_write(
+    tmp_path: Path, alias: str,
+) -> None:
+    source = _source(
+        tmp_path, "registered_initial", """
+        module RegisteredInitial {
+          clock clk reset rst in load:bit in value:u4
+          out reg q:u4=3
+          when load { q <- value }
+        }
+        """,
+    )
+    program = zlang.sim.compile(source, logic_state=True)
+    with program.create(initial_registers={alias: "01ux"}) as instance:
+        assert instance.get_logic("q").to_bits() == "01ux"
+        instance.set("load", 0)
+        instance.set_logic("value", "uuuu")
+        instance.edge("clk")
+        assert instance.get_logic("q").to_bits() == "01ux"
+        instance.set("load", 1)
+        instance.edge("clk")
+        assert instance.get_logic("q").to_bits() == "xxxx"
+        instance.reset("rst", asserted=True)
+        instance.edge("clk")
+        assert instance.get_logic("q").to_bits() == "0011"
+
+    with pytest.raises(SimulationRuntimeError, match="invalid initial value"):
+        program.create(initial_registers={alias: "01u"})
+    with pytest.raises(SimulationRuntimeError, match="has width 3; expected 4"):
+        program.create(initial_registers={alias: LogicVector.parse("01u", 3)})
+    with pytest.raises(SimulationRuntimeError, match="specified more than once"):
+        program.create(initial_registers={"q": "0000", "RegisteredInitial.q": "1111"})
+    hidden = program.plan.payload["registers"][0]["name"]
+    with pytest.raises(SimulationRuntimeError, match="unknown or non-register"):
+        program.create(initial_registers={hidden: "0000"})
+    with program.create() as instance:
+        assert instance.get_logic("q").to_bits() == "0011"
+
+
+def test_registered_output_initial_override_keeps_repeated_children_distinct(
+    tmp_path: Path,
+) -> None:
+    source = _source(
+        tmp_path, "registered_children", """
+        module RegisteredChild {
+          clock clk reset rst in load:bit in value:u4 out reg q:u4=3
+          when load { q <- value }
+        }
+        module RegisteredParent {
+          clock clk reset rst out left_value,right_value:u4
+          inst left:RegisteredChild inst right:RegisteredChild
+          left.load=0 left.value=0 right.load=0 right.value=0
+          left_value=left.q right_value=right.q
+        }
+        """,
+    )
+    program = zlang.sim.compile(source, top="RegisteredParent", logic_state=True)
+    with program.create(initial_registers={
+        "left.q": "01ux", "RegisteredParent.right.q": "10xu",
+    }) as instance:
+        assert instance.get_logic("left_value").to_bits() == "01ux"
+        assert instance.get_logic("right_value").to_bits() == "10xu"
+        instance.edge("clk")
+        assert instance.get_logic("left_value").to_bits() == "01ux"
+        assert instance.get_logic("right_value").to_bits() == "10xu"
+    with pytest.raises(SimulationRuntimeError, match="ambiguous initial register") as error:
+        program.create(initial_registers={"q": "0000"})
+    assert "left.q" in str(error.value) and "right.q" in str(error.value)
+    assert "$zlang" not in str(error.value)
+    with pytest.raises(SimulationRuntimeError, match="specified more than once") as error:
+        program.create(initial_registers={
+            "left.q": "0000", "RegisteredParent.left.q": "1111",
+        })
+    assert "left.q" in str(error.value)
+    assert "$zlang" not in str(error.value)
+
+
 def test_event_set_logic_and_selective_vcd_preserve_u_x(tmp_path: Path) -> None:
     source = _source(
         tmp_path,
