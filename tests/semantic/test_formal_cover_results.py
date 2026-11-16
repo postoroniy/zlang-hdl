@@ -234,7 +234,7 @@ b00000000000000000000000000000100 !
                 timeout)
     for index, failure in enumerate(failures):
         directory = tmp_path / f"uncertain-{index}"
-        with patch("zlang.formal.resolve_formal_toolchain", return_value=context), patch(
+        with patch("zlang.formal.FormalToolchainContext.discover", return_value=context), patch(
             "zlang.formal.run_bounded_process", side_effect=failure,
         ) as run, patch("zlang.formal._read_sby_status") as status, patch(
             "zlang.formal._sby_trace_files",
