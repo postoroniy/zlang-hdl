@@ -11,11 +11,13 @@ incompatible input explicitly.
 
 ## Unreleased
 
+## 0.1.0a24 — 2026-11-17
+
 - Keep Z3 5.4.1 and VSCE 4.1.1 coherent with solver extras, release metadata,
   editor manifests, lockfiles and installed build dependencies (CI-001).
-
-
-## 0.1.0a24 — 2026-11-16
+- Run signed-commit/DCO and dependency review checks on main pushes, and bind
+  the required CodeQL context to completed analysis without changing branch
+  protection or bypassing failed, cancelled or skipped checks (CI-001).
 
 - Initialize preserved named-port RAM read results and pipeline stages to zero,
   independently of contents reset, while retaining runtime reset holds (ZL-087).

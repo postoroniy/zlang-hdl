@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 import re
@@ -9,7 +10,9 @@ import tomllib
 import pytest
 import yaml
 
-from tools.audit_workflow_structure import codeql_version_failures, hosted_lane_contract_failures
+from tools.audit_workflow_structure import (
+    codeql_version_failures, hosted_lane_contract_failures, protected_context_contract_failures,
+)
 from tools.release_status import StatusError, _check_solver_pin
 
 
@@ -436,3 +439,70 @@ def test_eda_retains_both_regression_reports_even_on_failure():
         "build/eda.xml", "build/eda-performance.xml", "build/fpga-acceptance/",
     }
     assert "${{ github.run_attempt }}" in uploads[0]["with"]["name"]
+
+
+@pytest.mark.parametrize("filename", ("codeql.yml", "dependency-review.yml", "dco.yml"))
+def test_required_contexts_have_real_unfiltered_fail_closed_producers(filename):
+    assert not protected_context_contract_failures(ROOT / ".github/workflows" / filename)
+
+
+def test_required_context_contract_rejects_bypass_mutations(tmp_path):
+    def reject(filename, mutate):
+        source = ROOT / ".github/workflows" / filename
+        workflow = yaml.load(source.read_text(), Loader=yaml.BaseLoader)
+        mutate(workflow)
+        path = tmp_path / filename
+        path.write_text(yaml.safe_dump(workflow))
+        assert protected_context_contract_failures(path), (filename, workflow)
+
+    for filename in ("codeql.yml", "dependency-review.yml", "dco.yml"):
+        reject(filename, lambda w: w["on"].pop("push"))
+        reject(filename, lambda w: w["on"]["push"].update(paths=["src/**"]))
+    for result in ("success()", "${{ needs.analyze.result == 'success' }}"):
+        reject("codeql.yml", lambda w: w["jobs"]["codeql-status"].update({"if": result}))
+    reject("codeql.yml", lambda w: w["jobs"]["codeql-status"].update(needs=[]))
+    reject("codeql.yml", lambda w: w["jobs"]["codeql-status"]["steps"][0].update(run="true"))
+    reject("codeql.yml", lambda w: w["jobs"]["codeql-status"].update({"continue-on-error": "true"}))
+    reject("codeql.yml", lambda w: w["jobs"]["analyze"].update({"if": "false"}))
+    reject("codeql.yml", lambda w: w["jobs"]["analyze"]["steps"][-1].update({"continue-on-error": "true"}))
+    reject("codeql.yml", lambda w: w["jobs"]["analyze"]["steps"].pop())
+    for field in ("base-ref", "head-ref", "fail-on-severity"):
+        reject("dependency-review.yml", lambda w: w["jobs"]["review"]["steps"][-1]["with"].pop(field))
+    reject("dependency-review.yml", lambda w: w["jobs"]["review"]["steps"][-1]["with"].update({"fail-on-severity": "high"}))
+    reject("dependency-review.yml", lambda w: w["jobs"]["review"]["steps"][-1]["with"].update({"vulnerability-check": "false"}))
+    reject("dependency-review.yml", lambda w: w["jobs"]["review"]["steps"][-1].update({"if": "false"}))
+    reject("dependency-review.yml", lambda w: w["jobs"]["review"].update({"continue-on-error": "true"}))
+    reject("dco.yml", lambda w: w["jobs"]["dco"].update(name="dummy"))
+    reject("dco.yml", lambda w: w["jobs"]["dco"]["steps"][0]["with"].update({"fetch-depth": "1"}))
+    reject("dco.yml", lambda w: w["jobs"]["dco"]["steps"][0]["with"].update({"ref": "${{ github.event.pull_request.base.sha }}"}))
+    reject("dco.yml", lambda w: w["jobs"]["dco"]["steps"][-1]["env"].pop("GH_TOKEN"))
+    reject("dco.yml", lambda w: w["jobs"]["dco"]["steps"][-1]["env"].update({"BASE_SHA": "${{ github.sha }}"}))
+    reject("dco.yml", lambda w: w["jobs"]["dco"]["steps"][-1].update(run="true"))
+    reject("dco.yml", lambda w: w["jobs"]["dco"]["steps"][-1].update({"continue-on-error": "true"}))
+    reject("dco.yml", lambda w: w["jobs"]["dco"].update(permissions={"contents": "write"}))
+    source = ROOT / ".github/workflows/dco.yml"
+    workflow = yaml.load(source.read_text(), Loader=yaml.BaseLoader)
+    original = workflow["jobs"]["dco"]["steps"][-1]["run"]
+    for before, after in (
+        ('base=$(git merge-base "$BASE_SHA" HEAD)', 'base=$BASE_SHA'),
+        ('base=$BASE_SHA', 'base=HEAD'),
+        ('--base "$base"', '--base HEAD'),
+        ('--github-repository "$REPOSITORY"', '--github-repository "$REPOSITORY" || true'),
+    ):
+        mutated = copy.deepcopy(workflow)
+        mutated["jobs"]["dco"]["steps"][-1]["run"] = original.replace(before, after)
+        path = tmp_path / "dco.yml"
+        path.write_text(yaml.safe_dump(mutated))
+        assert protected_context_contract_failures(path), (before, after)
+
+
+def test_codeql_alias_guard_executes_success_only():
+    source = ROOT / ".github/workflows/codeql.yml"
+    assert not protected_context_contract_failures(source)
+    workflow = yaml.load(source.read_text(), Loader=yaml.BaseLoader)
+    guard = workflow["jobs"]["codeql-status"]["steps"][0]["run"]
+    for result in ("success", "failure", "cancelled", "skipped"):
+        completed = subprocess.run(("bash", "-e", "-c", guard),
+                                   env={"ANALYZE_RESULT": result},
+                                   capture_output=True, text=True, check=False)
+        assert (completed.returncode == 0) is (result == "success"), result

@@ -2,6 +2,8 @@ name: Dependency review
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -21,3 +23,5 @@ jobs:
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
+          base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+          head-ref: ${{ github.event.pull_request.head.sha || github.sha }}

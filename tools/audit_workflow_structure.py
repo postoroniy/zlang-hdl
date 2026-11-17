@@ -256,6 +256,123 @@ def hosted_lane_contract_failures(path: Path) -> tuple[str, ...]:
     return tuple(failures)
 
 
+
+_PROTECTED_CONTEXT_WORKFLOWS = {"codeql.yml", "dependency-review.yml", "dco.yml"}
+_PR_OR_PUSH_BASE = "${{ github.event.pull_request.base.sha || github.event.before }}"
+_PR_OR_PUSH_HEAD = "${{ github.event.pull_request.head.sha || github.sha }}"
+
+
+def _unconditional_steps(job: dict[str, object]) -> bool:
+    """A required producer cannot skip or suppress a failed executable step."""
+    steps = job.get("steps")
+    return (
+        job.get("continue-on-error", "false") == "false"
+        and isinstance(steps, list)
+        and bool(steps)
+        and all(isinstance(step, dict) and "if" not in step
+                and step.get("continue-on-error", "false") == "false" for step in steps)
+    )
+
+
+def _pinned_action_steps(job: dict[str, object], action: str) -> tuple[dict, ...]:
+    return tuple(step for step in job.get("steps", ()) if isinstance(step, dict)
+                 and re.fullmatch(re.escape(action) + r"@[0-9a-f]{40}",
+                                  str(step.get("uses", ""))))
+
+
+def protected_context_contract_failures(path: Path) -> tuple[str, ...]:
+    """Keep the three protected-main contexts backed by real fail-closed jobs."""
+    if path.name not in _PROTECTED_CONTEXT_WORKFLOWS:
+        return ()
+    try:
+        document = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+        jobs = _workflow_jobs(path)
+    except (ValueError, yaml.YAMLError) as exc:
+        return (str(exc),)
+    failures: list[str] = []
+
+    def require(condition: bool, message: str) -> None:
+        if not condition:
+            failures.append(f"{path}: protected context: {message}")
+
+    events = document.get("on", {})
+    push = events.get("push", {}) if isinstance(events, dict) else {}
+    require(isinstance(events, dict) and "pull_request" in events
+            and events["pull_request"] in (None, "", {}),
+            "unfiltered pull_request trigger is required")
+    require(isinstance(push, dict) and push.get("branches") == ["main"]
+            and set(push) == {"branches"}, "unfiltered push to main is required")
+
+    if path.name == "codeql.yml":
+        analyze = jobs.get("analyze", {})
+        alias = jobs.get("codeql-status", {})
+        if not isinstance(analyze, dict) or not isinstance(alias, dict):
+            return (*failures, f"{path}: protected context: CodeQL jobs must be mappings")
+        require("if" not in analyze and _unconditional_steps(analyze),
+                "CodeQL analyze must execute without skips or failure suppression")
+        for action in ("github/codeql-action/init", "github/codeql-action/analyze"):
+            require(len(_pinned_action_steps(analyze, action)) == 1,
+                    f"CodeQL analyze must execute one pinned {action} action")
+        require(alias.get("name") == "CodeQL" and alias.get("needs") == ["analyze"]
+                and alias.get("if") == "${{ always() }}", "CodeQL alias must always require analyze")
+        require(alias.get("permissions", document.get("permissions")) == {"contents": "read"},
+                "CodeQL alias permissions must be read-only")
+        steps = alias.get("steps", [])
+        require(_unconditional_steps(alias) and len(steps) == 1
+                and steps[0].get("env") == {"ANALYZE_RESULT": "${{ needs.analyze.result }}"}
+                and steps[0].get("run") == 'test "$ANALYZE_RESULT" = success',
+                "CodeQL alias must reject failure, cancellation and skipped analysis")
+        return tuple(failures)
+
+    job = jobs.get("review" if path.name == "dependency-review.yml" else "dco", {})
+    if not isinstance(job, dict):
+        return (*failures, f"{path}: protected context: producer job must be a mapping")
+    require("if" not in job and _unconditional_steps(job),
+            "producer must execute without skips or failure suppression")
+    require(job.get("permissions", document.get("permissions")) == {"contents": "read"},
+            "producer permissions must be read-only")
+    if path.name == "dependency-review.yml":
+        actions = _pinned_action_steps(job, "actions/dependency-review-action")
+        require(len(actions) == 1 and actions[0].get("with") == {
+            "fail-on-severity": "moderate", "base-ref": _PR_OR_PUSH_BASE,
+            "head-ref": _PR_OR_PUSH_HEAD,
+        }, "dependency review must retain moderate severity and explicit PR/push base and head")
+        return tuple(failures)
+
+    require(job.get("name") == "DCO", "DCO job must publish the DCO context")
+    require(document.get("env", {}).get("BASH_ENV") ==
+            "${{ github.workspace }}/.github/workflows/local-venv-env.sh",
+            "DCO Python must use the checkout-local venv hook")
+    checkouts = _pinned_action_steps(job, "actions/checkout")
+    require(len(checkouts) == 1 and checkouts[0].get("with") == {
+        "persist-credentials": "false", "fetch-depth": "0", "ref": _PR_OR_PUSH_HEAD,
+    }, "DCO must check out the exact contributed head with complete history")
+    setups = _pinned_action_steps(job, "actions/setup-python")
+    require(len(setups) == 1 and setups[0].get("with") == {"python-version": "3.12"},
+            "DCO must use pinned Python 3.12 setup")
+    steps = job.get("steps", [])
+    runs = [step for step in steps if isinstance(step, dict) and "run" in step]
+    expected_lines = [
+        'test "$(git rev-parse HEAD)" = "$HEAD_SHA"',
+        '[[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]',
+        'test "$BASE_SHA" != 0000000000000000000000000000000000000000',
+        'if [[ "$EVENT_NAME" == pull_request ]]; then',
+        'base=$(git merge-base "$BASE_SHA" HEAD)',
+        'else', 'base=$BASE_SHA', 'fi',
+        'python -m tools.audit_review_commits --root . --base "$base" --github-repository "$REPOSITORY"',
+    ]
+    command = runs[0].get("run", "") if len(runs) == 1 else ""
+    actual_lines = [" ".join(line.split()) for line in command.replace("\\\n", " ").splitlines()
+                    if line.strip()]
+    require(len(steps) == 3 and len(runs) == 1 and actual_lines == expected_lines
+            and runs[0].get("env") == {
+                "GH_TOKEN": "${{ github.token }}", "REPOSITORY": "${{ github.repository }}",
+                "EVENT_NAME": "${{ github.event_name }}", "BASE_SHA": _PR_OR_PUSH_BASE,
+                "HEAD_SHA": _PR_OR_PUSH_HEAD,
+            }, "DCO must validate the head and base, select PR merge-base or push before, and run the real audit")
+    return tuple(failures)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
@@ -270,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         failures += unsafe_repo_tool_invocations(path)
         failures += codeql_version_failures(path)
         failures += hosted_lane_contract_failures(path)
+        failures += protected_context_contract_failures(path)
     if failures:
         parser.error("\n".join(failures))
     return 0

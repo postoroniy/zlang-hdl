@@ -52,9 +52,9 @@
       "sha256": "393ddcb6359075cddd3628cdda10326fba03b64f43698a2bf692347a4e668877"
     },
     {
-      "mode": "0644",
+      "mode": "0664",
       "path": ".github/workflows/codeql.yml",
-      "sha256": "f74dd755c0d821aa637be7aa6c8554552038211133d4a0390c1343eeb767ead9"
+      "sha256": "32717b325385812f7ca82ca55e66b33d05e023e6866f375c80d678d54f2fe675"
     },
     {
       "mode": "0644",
@@ -62,9 +62,14 @@
       "sha256": "095d719a8f63155c4a28462647fb054272584aeb860d086e2ef233222ee15566"
     },
     {
+      "mode": "0664",
+      "path": ".github/workflows/dco.yml",
+      "sha256": "8b0eafbc86d5f51709dd4808a8ad7f1cb4d5e5c73ca033e7a8a3b9a83ea729b8"
+    },
+    {
       "mode": "0644",
       "path": ".github/workflows/dependency-review.yml",
-      "sha256": "2a143bc1a03d0c7652ab1ac817ee6d4e4c6ac1f28c4dfec842a0d8d8b00616e3"
+      "sha256": "f63bdc04fe5639f87faaed62d98d94a8ad220f4dd8a8c4749ace3aa69a328dea"
     },
     {
       "mode": "0644",
@@ -147,9 +152,9 @@
       "sha256": "773d22c17e80e6e9f32b2a0ed96b59ad1ed1cae88d2a2508b2ebfc6ce6d29f66"
     },
     {
-      "mode": "0644",
+      "mode": "0664",
       "path": "CHANGELOG.md",
-      "sha256": "ddabcf866dbde193c7283f0d44bdb683098ef0823b9dedb1cbc13ffd81ce780c"
+      "sha256": "4f7d9259d7a761be34ee3fb28ecb540d8f8ec300ed23b2a8a53836302fb606b4"
     },
     {
       "mode": "0644",
@@ -2172,9 +2177,9 @@
       "sha256": "762713d95930b6cc392ce200b51c2395310a4faf33c23fb2ea106d90c795605d"
     },
     {
-      "mode": "0644",
+      "mode": "0664",
       "path": "release/regressions.json",
-      "sha256": "9cb3e50711fc78e20f254644842ac6fc2e3e564ef42af9f4ce16257658226676"
+      "sha256": "6a20a118728af8d6fbc3d4731395a49f2412d4769a3e7dd95c714fde4e90150e"
     },
     {
       "mode": "0644",
@@ -4462,9 +4467,9 @@
       "sha256": "8997cb5f0311124be943ff68a639f2d0b333f281e1e4d78aae23700d5a6da47a"
     },
     {
-      "mode": "0644",
+      "mode": "0664",
       "path": "tests/release/test_ci_contract.py",
-      "sha256": "847c00dd82ab0f62fe9a73233944b30560b4011ed4187f780ea4ed367801ef54"
+      "sha256": "2a245a4e5e2a088b7bd2b5b0b90ad562be38799c0157344642371c60459b66f2"
     },
     {
       "mode": "0644",
@@ -4569,7 +4574,7 @@
     {
       "mode": "0644",
       "path": "tests/release/test_review_commit_audit.py",
-      "sha256": "1909920db3a73a6623cb21855ff21173eee4910c8eee865ecd01cada2d483cb2"
+      "sha256": "a209527af08dd2bb1efbabcdc7177ad2b6cbbdc3a168a51d691347e1bd7c01ed"
     },
     {
       "mode": "0644",
@@ -6042,9 +6047,9 @@
       "sha256": "c0df1ef3aece147c1ee8d5db748e2cef938199896727a6098588a148c486bcc8"
     },
     {
-      "mode": "0644",
+      "mode": "0664",
       "path": "tools/audit_review_commits.py",
-      "sha256": "c45402926f962ecf565244c9ba11d74d0ca90eea702ce8cc5442916a7cf48e76"
+      "sha256": "29f12737cfe8f03e75720db27cb5aae4dcea70518af95d534008a6e25d7b3a50"
     },
     {
       "mode": "0644",
@@ -6052,9 +6057,9 @@
       "sha256": "235214ee22bd6c29d40d441bfe49a478fe63a4e754441137a51c3593388a41ff"
     },
     {
-      "mode": "0644",
+      "mode": "0664",
       "path": "tools/audit_workflow_structure.py",
-      "sha256": "da1b90bcddaf8851824723c0b189981460c3a7b28f2687a934d367948d8e9474"
+      "sha256": "0f3484e5671f6fc81f70feb1a6b28f0f128fbee1e6ba370307627087887d9618"
     },
     {
       "mode": "0644",

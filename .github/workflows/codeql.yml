@@ -28,3 +28,16 @@ jobs:
           languages: python
       - name: Analyze
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+
+  # Preserve the historical required context without replacing the real scan.
+  codeql-status:
+    name: CodeQL
+    needs: [analyze]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require completed CodeQL analysis
+        env:
+          ANALYZE_RESULT: ${{ needs.analyze.result }}
+        run: test "$ANALYZE_RESULT" = success

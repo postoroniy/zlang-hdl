@@ -1,0 +1,47 @@
+name: Commit provenance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  BASH_ENV: ${{ github.workspace }}/.github/workflows/local-venv-env.sh
+
+jobs:
+  dco:
+    name: DCO
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the exact contributed head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Set up Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Require every contributed commit to be signed and DCO-complete
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$BASE_SHA" != 0000000000000000000000000000000000000000
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=$(git merge-base "$BASE_SHA" HEAD)
+          else
+            base=$BASE_SHA
+          fi
+          python -m tools.audit_review_commits --root . --base "$base" \
+            --github-repository "$REPOSITORY"
