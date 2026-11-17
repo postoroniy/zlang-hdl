@@ -598,7 +598,7 @@ class VSCodePackageTests(unittest.TestCase):
         self.assertEqual(package["devDependencies"]["@vscode/vsce"], TOOLCHAIN["vsce"])
         validate_metadata(package, native=True)
         validate_lock(package, lock)
-        for version in (None, "4.0.0", "^4.1.0"):
+        for version in (None, "4.0.0", "4.1.0", "^4.1.1"):
             with self.subTest(version=version):
                 altered = copy.deepcopy(package)
                 if version is None:
@@ -611,9 +611,9 @@ class VSCodePackageTests(unittest.TestCase):
             with self.subTest(location=location):
                 altered = copy.deepcopy(lock)
                 if location:
-                    altered["packages"][location]["version"] = "4.0.0"
+                    altered["packages"][location]["version"] = "4.1.0"
                 else:
-                    altered["packages"][location]["devDependencies"]["@vscode/vsce"] = "4.0.0"
+                    altered["packages"][location]["devDependencies"]["@vscode/vsce"] = "4.1.0"
                 with self.assertRaises(VSIXAuditError):
                     validate_lock(package, altered)
 
@@ -718,7 +718,7 @@ class VSCodePackageTests(unittest.TestCase):
         status = json.loads((ROOT / "release/status.json").read_text(encoding="utf-8"))
         self.assertEqual(
             {tool: status["eda_toolchain"][tool] for tool in ("verilator", "yosys", "z3")},
-            {"verilator": "5.053", "yosys": "0.70", "z3": "5.3.3"},
+            {"verilator": "5.053", "yosys": "0.70", "z3": "5.4.1"},
         )
         self.assertNotIn("python3.12", guide)
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

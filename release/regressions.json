@@ -52,6 +52,7 @@
         "editors/vscode/zlang-hdl/test/patch-languageclient.cjs",
         "editors/vscode/zlang-hdl/test/typed-waveform-host.cjs",
         "editors/vscode/zlang-hdl/test/typed-waveform-host.test.cjs",
+        "pyproject.toml",
         "release/status.json",
         "tests/editor/test_vscode_package.py",
         "tests/editor/test_vscode_surface.py",
@@ -73,7 +74,7 @@
         "zlang/verification_bundle_execution.py"
       ],
       "status": "included",
-      "summary": "Dependency updates retain exact solver/status and manifest/lock/installed editor pins; formal children execute the selected Z3 across OSS launchers, and result caches bind executable identities; CodeQL pins and preparation-failure checks remain strict. The editor closure pins minimatch 11.0.1 in both packaging and LSP consumers; a hash-bound client compatibility patch preserves glob filtering, rejects unknown dependency bytes and retains the zero-findings npm audit gate. Installed typed-waveform host checks wait for the matching session and initial entry stop and retain failed DAP command details. The reviewed Playwright 1.65.0 pin matches the exact manifest, lockfile and installed editor dependency; mismatch rejection remains enabled.",
+      "summary": "Dependency updates retain exact solver/status and manifest/lock/installed editor pins; formal children execute the selected Z3 across OSS launchers, and result caches bind executable identities; CodeQL pins and preparation-failure checks remain strict. The editor closure pins minimatch 11.0.1 in both packaging and LSP consumers; a hash-bound client compatibility patch preserves glob filtering, rejects unknown dependency bytes and retains the zero-findings npm audit gate. Installed typed-waveform host checks wait for the matching session and initial entry stop and retain failed DAP command details. The reviewed Playwright 1.65.0 pin matches the exact manifest, lockfile and installed editor dependency; mismatch rejection remains enabled. Exact VSCE package/lock/installed pins share the editor toolchain owner, and formal/test solver extras match the reviewed CLI after dependency upgrades.",
       "tests": [
         "tests/editor/test_vscode_package.py::VSCodePackageTests::test_minimatch_override_and_entire_lock_closure_are_patched",
         "tests/editor/test_vscode_package.py::VSCodePackageTests::test_playwright_manifest_and_lock_must_match_reviewed_toolchain",

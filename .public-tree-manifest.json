@@ -149,7 +149,7 @@
     {
       "mode": "0644",
       "path": "CHANGELOG.md",
-      "sha256": "c8158c9dca6559ca1e8f9b0746c36f032e99e45e97bb3371042188f9839cb0af"
+      "sha256": "ddabcf866dbde193c7283f0d44bdb683098ef0823b9dedb1cbc13ffd81ce780c"
     },
     {
       "mode": "0644",
@@ -719,7 +719,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/editor-toolchain.json",
-      "sha256": "63b590a879173a03186ad1db88fdbb510a3e4ee7b3613da790bb808a094e2525"
+      "sha256": "d0371d9d1329da8544da4ebd6cbb03c24a6b4dca2641f186c4ab008c903c6e89"
     },
     {
       "mode": "0644",
@@ -739,12 +739,12 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package-lock.json",
-      "sha256": "5e109dbc6ff43384e2308ba7a14c8557ebc8178f7d09d9c63a5d2bb51f18a712"
+      "sha256": "b05a6649f696cb6de8540f0c9484950087d212d60bf3d262b7da418b93d238e0"
     },
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/package.json",
-      "sha256": "bd0b4b13544a2fa468436e8de776a484fccebc694928b6e700bbf89810ce07e9"
+      "sha256": "9e36004e793a92478300d1077f92cf0c5361a8d4575fb24204246801e293a91e"
     },
     {
       "mode": "0644",
@@ -2134,7 +2134,7 @@
     {
       "mode": "0644",
       "path": "pyproject.toml",
-      "sha256": "61e8c69a81127f3260d28698e34a8e9ffafae748ae75659da928b3f343ef03f1"
+      "sha256": "53d9efb4838af01b81010ae534bbfc1153508f5de83ba0c5c0a483939f07ba5c"
     },
     {
       "mode": "0644",
@@ -2174,12 +2174,12 @@
     {
       "mode": "0644",
       "path": "release/regressions.json",
-      "sha256": "81fbd8954f01270c410b577b420d0a8cdee3ccfdd3aec7b6dcbe3f1dbc205c11"
+      "sha256": "9cb3e50711fc78e20f254644842ac6fc2e3e564ef42af9f4ce16257658226676"
     },
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "78de7fc784a9275423dd116ae4991d2b51b7e228aca4a0e1a8c80a5903ebc25e"
+      "sha256": "0702aa2b169f39062a6d744ae1402c3fff2e0c8d140c36293a2d4e633d3788b9"
     },
     {
       "mode": "0644",
@@ -2844,7 +2844,7 @@
     {
       "mode": "0644",
       "path": "tests/editor/test_vscode_package.py",
-      "sha256": "c23ffffda733d69086f61453b7a8492c349b87ac83e00182762ad3bead3b64df"
+      "sha256": "76e45cb8f2cb5073231d731e2b002611fcdfeeb12d23d578f96aeab40fb5f9be"
     },
     {
       "mode": "0644",

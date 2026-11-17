@@ -11,6 +11,10 @@ incompatible input explicitly.
 
 ## Unreleased
 
+- Keep Z3 5.4.1 and VSCE 4.1.1 coherent with solver extras, release metadata,
+  editor manifests, lockfiles and installed build dependencies (CI-001).
+
+
 ## 0.1.0a24 — 2026-11-16
 
 - Initialize preserved named-port RAM read results and pipeline stages to zero,
@@ -248,8 +252,8 @@ unchanged.
   file watching and file-operation filters working with the new matcher API;
   npm audit still requires zero findings across the complete lockfile (CI-001).
 
-- Keep dependency upgrades coherent with release checks: Z3 5.3.3 matches the
-  solver package pin, and VSCE 4.1.0 is checked against the shared editor
+- Keep dependency upgrades coherent with release checks: Z3 matches the
+  solver package pin, and VSCE is checked against the shared editor
   toolchain, package manifest, lockfile and installed build dependency (CI-001).
   Formal subprocesses retain the selected Z3 across OSS CAD Suite launchers;
   result caches now bind executable identities and reject earlier unbound
