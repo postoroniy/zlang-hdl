@@ -54,10 +54,12 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
     )
     assert report == {
         "schema": 1,
-        "entries": 67,
+        "entries": 72,
         "included": [
             "BUS-001",
             "BUS-002",
+            "BUS-003",
+            "BUS-004",
             "CI-001",
             "CI-002",
             "CI-003",
@@ -123,11 +125,14 @@ def test_current_release_binds_included_fixes_to_permanent_tests() -> None:
             "ZL-085",
             "ZL-086",
             "ZL-087",
+            "ZL-088",
+            "ZL-089",
+            "ZL-090",
         ],
         "dispositions": {
             "deferred": 0,
             "excluded_experiment": 0,
-            "included": 67,
+            "included": 72,
             "private_only": 0,
         },
     }
@@ -198,6 +203,8 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
     assert report["included"] == [
         "BUS-001",
         "BUS-002",
+        "BUS-003",
+        "BUS-004",
         "CI-002",
         "CI-003",
         "CI-004",
@@ -262,6 +269,9 @@ def test_nonincluded_fix_requires_reason_and_durable_follow_up(tmp_path: Path) -
             "ZL-085",
             "ZL-086",
             "ZL-087",
+            "ZL-088",
+            "ZL-089",
+            "ZL-090",
     ]
 
     deferred = next(entry for entry in payload["entries"] if entry["id"] == "EDITOR-001")
@@ -295,5 +305,5 @@ def test_cli_reports_the_validated_inclusion_count(capsys: pytest.CaptureFixture
         "--previous-tag", "v0.1.0a23",
     ]) == 0
     assert capsys.readouterr().out == (
-        "release regressions valid: 67 entries, 67 included\n"
+        "release regressions valid: 72 entries, 72 included\n"
     )

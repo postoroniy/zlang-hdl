@@ -327,6 +327,7 @@ def _validate_state_storage_rtl_namespace(
             identifiers.rtl_register_state_identifier(register.name),
             f"register '{register.name}'",
         )
+    fifo_references = sv_storage._fifo_signal_references(module)
     for fifo in module.fifos:
         name = identifiers.rtl_identifier(fifo.name)
         if fifo.scheduled:
@@ -336,7 +337,7 @@ def _validate_state_storage_rtl_namespace(
                 "underflow",
             )
         else:
-            referenced = sv_storage._referenced_fifo_signals(module, fifo)
+            referenced = fifo_references[fifo.name]
             suffixes = (
                 "storage", "count", "rd", "wr", "push_request", "pop_request",
                 "push", "pop",
@@ -593,16 +594,25 @@ def _emit_packed(
                 *sv_accounting.STATE_GROUPS,
                 *sv_accounting.STORAGE_GROUPS,
                 module_features.ModuleFeatureGroup.PROTOCOL_PORTS,
+                *sv_accounting.physical_boundary_groups(module),
             )
             body = sv_storage._emit_unified_state_module(module)
         elif module.roms:
             sv_accounting.account_emission_plan(
-                module, "rom", module_features.ModuleFeatureGroup.ROMS
+                module,
+                "rom",
+                module_features.ModuleFeatureGroup.ROMS,
+                module_features.ModuleFeatureGroup.PROTOCOL_PORTS,
+                *sv_accounting.physical_boundary_groups(module),
             )
             body = sv_storage._emit_rom_module(module)
         elif module.memories:
             sv_accounting.account_emission_plan(
-                module, "memory", module_features.ModuleFeatureGroup.MEMORIES
+                module,
+                "memory",
+                module_features.ModuleFeatureGroup.MEMORIES,
+                module_features.ModuleFeatureGroup.PROTOCOL_PORTS,
+                *sv_accounting.physical_boundary_groups(module),
             )
             body = sv_storage._emit_memory(module)
         elif module.fifos:
@@ -611,6 +621,7 @@ def _emit_packed(
                 "fifo",
                 module_features.ModuleFeatureGroup.FIFOS,
                 module_features.ModuleFeatureGroup.PROTOCOL_PORTS,
+                *sv_accounting.physical_boundary_groups(module),
             )
             body = sv_storage._emit_fifo(module)
         elif module.arbiters:

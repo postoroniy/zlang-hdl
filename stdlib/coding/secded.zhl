@@ -12,12 +12,28 @@ struct SecdedDecoded<K,R> {
 // Compile-time column mask; bit i belongs to parity equation J iff the
 // one-based Hamming position i+1 has bit J set.
 fn secded_column_mask<H,J>() -> bits<H> {
-    bitcast<bits<H>>(generate(i in 0..H)
-        if ((i+1) & (1 << J)) != 0 { 0b1 } else { 0b0 })
+    if H < 128 && J >= 0 {
+        if J <= floor_log2(H) {
+            // Each 2*L-bit period starts with L ones (L = 1 << J).
+            // 128 is a whole number of periods for every active column here.
+            // Shift by L-1 for one-based positions, then keep the low H bits.
+            bitcast<bits<H>>(extend<H>(
+                ((((1 << 128)-1) / ((1 << (1 << J))+1)) * (1 << ((1 << J)-1))) % (1 << H)))
+        } else { zeros<H> }
+    } else {
+        bitcast<bits<H>>(generate(i in 0..H)
+            if ((i+1) & (1 << J)) != 0 { 0b1 } else { 0b0 })
+    }
 }
 
 fn secded_encode<K,Q=ceil_log2(K+1),R=ceil_log2(K+Q+1),H=K+R>(
     data:bits<K>) -> bits<H+1> {
+    // Check exact layout widths before generation. For the validated Q,
+    // ceil_log2(K+Q+1) is Q unless K+Q reaches 2^Q.
+    check_q = bitcast<bits<Q>>(zeros<floor_log2(K)+1>)
+    check_r = bitcast<bits<R>>(
+        if K+Q < (1 << Q) { zeros<Q> } else { zeros<Q+1> })
+    check_h = bitcast<bits<H>>(zeros<K+R>)
     base = bitcast<bits<H>>(generate(i in 0..H)
         if is_power_of_two(i+1) { bitcast<bit>(0b0) }
         else { data[i-1-floor_log2(i+1)] })
@@ -31,6 +47,11 @@ fn secded_encode<K,Q=ceil_log2(K+1),R=ceil_log2(K+Q+1),H=K+R>(
 
 fn secded_decode<K,Q=ceil_log2(K+1),R=ceil_log2(K+Q+1),H=K+R>(
     received:bits<H+1>) -> SecdedDecoded<K,R> {
+    // Apply the encoder's exact layout checks before interpreting positions.
+    check_q = bitcast<bits<Q>>(zeros<floor_log2(K)+1>)
+    check_r = bitcast<bits<R>>(
+        if K+Q < (1 << Q) { zeros<Q> } else { zeros<Q+1> })
+    check_h = bitcast<bits<H>>(zeros<K+R>)
     hamming = received[H-1:0]
     syndrome = bitcast<uint<R>>(generate(j in 0..R)
         parity(hamming & secded_column_mask<H=H,J=j>()))

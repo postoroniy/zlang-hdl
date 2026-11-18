@@ -3733,7 +3733,7 @@ fn secded_encode<K,Q=ceil_log2(K+1),R=ceil_log2(K+Q+1),H=K+R>(
     data:bits<K>) -> bits<H+1>
 ```
 
-[Exact declaration](../stdlib/coding/secded.zhl#L19) · [Contract and restrictions](stdlib-secded.md)
+[Exact declaration](../stdlib/coding/secded.zhl#L29) · [Contract and restrictions](stdlib-secded.md)
 
 ### `secded_decode` — function
 
@@ -3742,7 +3742,7 @@ fn secded_decode<K,Q=ceil_log2(K+1),R=ceil_log2(K+Q+1),H=K+R>(
     received:bits<H+1>) -> SecdedDecoded<K,R>
 ```
 
-[Exact declaration](../stdlib/coding/secded.zhl#L32) · [Contract and restrictions](stdlib-secded.md)
+[Exact declaration](../stdlib/coding/secded.zhl#L48) · [Contract and restrictions](stdlib-secded.md)
 
 ### `RvSecdedEncode` — module
 
@@ -3756,7 +3756,7 @@ in input : rv<bits<K>>
 out output : rv<bits<H+1>>
 ```
 
-[Exact declaration](../stdlib/coding/secded.zhl#L56) · [Contract and restrictions](stdlib-secded.md)
+[Exact declaration](../stdlib/coding/secded.zhl#L77) · [Contract and restrictions](stdlib-secded.md)
 
 ### `RvSecdedDecode` — module
 
@@ -3770,7 +3770,7 @@ in input : rv<bits<H+1>>
 out output : rv<SecdedDecoded<K,R>>
 ```
 
-[Exact declaration](../stdlib/coding/secded.zhl#L71) · [Contract and restrictions](stdlib-secded.md)
+[Exact declaration](../stdlib/coding/secded.zhl#L92) · [Contract and restrictions](stdlib-secded.md)
 
 ## `std.coding.viterbi_k7`
 

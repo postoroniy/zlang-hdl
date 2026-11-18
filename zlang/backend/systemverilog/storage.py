@@ -17,38 +17,41 @@ from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
 from zlang.backend.systemverilog import expression as sv_expression
 from zlang.backend.systemverilog import rendering as sv_rendering
 from zlang.backend.systemverilog import state as sv_state
+from zlang.backend.systemverilog import state_planning as sv_state_planning
 from zlang.backend.systemverilog import memory as sv_memory
 
 
 def _emit_memory(module: ir_module.Module, *, ram_style: str | None = None) -> str:
-    if len(module.memories) != 1 or not module.clock_domains:
+    if not module.memories or not module.clock_domains:
         raise SystemVerilogEmissionError(
-            "direct SystemVerilog memory emission requires one memory and clock/reset"
+            "direct SystemVerilog memory emission requires memory and clock/reset"
         )
-    memory = module.memories[0]
-    if memory.ports:
-        declarations, lines = sv_state._ported_memory_fragments(
-            module, memory, sv_expression._expression, ram_style=ram_style
+    if len(module.memories) > 1 and (
+        ram_style is not None or not sv_state_planning.uses_dedicated_legacy_storage(module)
+    ):
+        raise SystemVerilogEmissionError(
+            "direct SystemVerilog multi-memory emission requires only globally controlled memories"
         )
-        for assignment in module.assignments:
-            if assignment.target.name == memory.name:
-                continue
-            lines.append(
-                f"  assign {sv_rendering._identifier(sv_rendering._assignment_name(assignment))} = "
-                f"{sv_expression._expression(assignment.expression)};"
+    lines: list[str] = []
+    ported_names: set[str] = set()
+    for memory in module.memories:
+        if memory.ports:
+            declarations, logic = sv_state._ported_memory_fragments(
+                module, memory, sv_expression._expression, ram_style=ram_style
             )
-        return sv_module_rendering._named_module(
-            module.name,
-            sv_boundary._physical_port_declarations(module),
-            declarations + lines,
-            typed_module=module,
-        )
-    lines = sv_memory.global_memory_fragments(
-        module, memory, sv_expression._expression, ram_style=ram_style,
-    )
+            lines.extend(declarations)
+            lines.extend(logic)
+            ported_names.add(memory.name)
+        else:
+            lines.extend(sv_memory.global_memory_fragments(
+                module, memory, sv_expression._expression, ram_style=ram_style,
+            ))
     for assignment in module.assignments:
+        if assignment.target.name in ported_names:
+            continue
         lines.append(
-            f"  assign {sv_rendering._identifier(sv_rendering._assignment_name(assignment))} = {sv_expression._expression(assignment.expression)};"
+            f"  assign {sv_rendering._identifier(sv_rendering._assignment_name(assignment))} = "
+            f"{sv_expression._expression(assignment.expression)};"
         )
     return sv_module_rendering._named_module(
         module.name,
@@ -110,36 +113,43 @@ def _emit_rom_module(module: ir_module.Module) -> str:
     )
 
 
-def _referenced_fifo_signals(module: ir_module.Module, fifo: object) -> set[ir_storage.FifoSignal]:
+def _fifo_signal_references(
+    module: ir_module.Module,
+) -> dict[str, set[ir_storage.FifoSignal]]:
     """Return the exact optional observations emitted by the legacy FIFO path."""
 
-    referenced = {
-        value.signal
-        for root in (
-            fifo.data,
-            fifo.push,
-            fifo.pop,
-            *(assignment.expression for assignment in module.assignments),
-        )
-        for value in materialization.walk_expression(root)
-        if isinstance(value, expr.FifoRef) and value.fifo == fifo.name
+    references: dict[str, set[ir_storage.FifoSignal]] = {
+        fifo.name: set() for fifo in module.fifos if not fifo.scheduled
     }
-    if ir_storage.FifoSignal.OVERFLOW in referenced:
-        referenced.add(ir_storage.FifoSignal.FULL)
-    if ir_storage.FifoSignal.UNDERFLOW in referenced:
-        referenced.add(ir_storage.FifoSignal.EMPTY)
-    return referenced
+    if not references:
+        return references
+    # A FIFO observation may feed another FIFO's data or admission controls
+    # without appearing in any output assignment.
+    roots = (
+        *(value for fifo in module.fifos for value in (fifo.data, fifo.push, fifo.pop)),
+        *(assignment.expression for assignment in module.assignments),
+    )
+    for root in roots:
+        if root is None:
+            continue
+        for value in materialization.walk_expression(root):
+            if isinstance(value, expr.FifoRef) and value.fifo in references:
+                references[value.fifo].add(value.signal)
+    for referenced in references.values():
+        if ir_storage.FifoSignal.OVERFLOW in referenced:
+            referenced.add(ir_storage.FifoSignal.FULL)
+        if ir_storage.FifoSignal.UNDERFLOW in referenced:
+            referenced.add(ir_storage.FifoSignal.EMPTY)
+    return references
 
 
 def _emit_fifo(module: ir_module.Module) -> str:
-    if len(module.fifos) != 1 or not module.clock_domains:
-        raise SystemVerilogEmissionError("direct FIFO emission requires one clock/reset FIFO")
-    fifo = module.fifos[0]
-    if fifo.domain is None:
+    if not module.fifos or not module.clock_domains:
+        raise SystemVerilogEmissionError("direct FIFO emission requires FIFO and clock/reset")
+    if len(module.fifos) > 1 and not sv_state_planning.uses_dedicated_legacy_storage(module):
         raise SystemVerilogEmissionError(
-            f"FIFO '{fifo.name}' has no resolved clock domain"
+            "direct SystemVerilog multi-FIFO emission requires only globally controlled FIFOs"
         )
-    fifo_clock = fifo.domain
     sources = tuple(p for p in module.inputs if p.protocol is ir_interfaces.InterfaceProtocol.READY_VALID)
     sinks = tuple(p for p in module.outputs if p.protocol is ir_interfaces.InterfaceProtocol.READY_VALID)
     scalar_wire = all(
@@ -150,15 +160,41 @@ def _emit_fifo(module: ir_module.Module) -> str:
             "direct FIFO emission requires scalar wire ports or one "
             "ready/valid input and output"
         )
+    references = _fifo_signal_references(module)
+    lines: list[str] = []
+    updates: list[str] = []
+    for fifo in module.fifos:
+        controls, sequential = _fifo_fragments(module, fifo, references.get(fifo.name, set()))
+        lines.extend(controls)
+        updates.extend(sequential)
+    lines.extend(
+        f"  assign {sv_rendering._identifier(sv_rendering._assignment_name(assignment))} = "
+        f"{sv_expression._expression(assignment.expression)};"
+        for assignment in module.assignments
+    )
+    lines.extend(updates)
+    return sv_module_rendering._module(
+        module, sv_boundary._physical_port_declarations(module), lines
+    )
+
+
+def _fifo_fragments(
+    module: ir_module.Module,
+    fifo: ir_storage.Fifo,
+    referenced_fifo_signals: set[ir_storage.FifoSignal],
+) -> tuple[list[str], list[str]]:
+    if fifo.domain is None:
+        raise SystemVerilogEmissionError(
+            f"FIFO '{fifo.name}' has no resolved clock domain"
+        )
+    fifo_clock = fifo.domain
     width, count_width = sv_rendering._width(fifo.element_type), fifo.count_width
     ptr_width = max(1, (fifo.depth - 1).bit_length())
-    ports = sv_boundary._physical_port_declarations(module)
     name = fifo.name
     if fifo.data is None or fifo.push is None or fifo.pop is None:
         raise SystemVerilogEmissionError(
             "legacy direct FIFO emission requires explicit data/push/pop controls"
         )
-    referenced_fifo_signals = _referenced_fifo_signals(module, fifo)
     # The FIFO state is a typed storage resource, not an implicit ready/valid
     # pass-through.  Publish its semantic read-side signals once, then render
     # every source assignment from typed IR.  This matters when the output is
@@ -222,27 +258,32 @@ def _emit_fifo(module: ir_module.Module) -> str:
             f"  assign {name}_underflow = !({sv_sequential.reset_asserted(module, sv_rendering._identifier, fifo_clock)}) && "
             f"{name}_pop_request && {name}_empty;"
         )
-    lines = [f"  logic {sv_rendering._range(width)}{name}_storage [0:{fifo.depth - 1}];",
-             f"  logic [{count_width - 1}:0] {name}_count;",
-             f"  logic [{ptr_width - 1}:0] {name}_rd, {name}_wr;",
-             *observation_declarations,
-             *request_declarations,
-             *observation_assignments,
-             *request_assignments,
-             *(
-                 f"  assign {sv_rendering._identifier(sv_rendering._assignment_name(assignment))} = "
-                 f"{sv_expression._expression(assignment.expression)};"
-                 for assignment in module.assignments
-             ),
-             f"  always_ff @({sv_sequential.clock_event(module, sv_rendering._identifier, fifo_clock)}) begin",
-             f"    if ({sv_sequential.reset_asserted(module, sv_rendering._identifier, fifo_clock)}) begin {name}_count <= '0; {name}_rd <= '0; {name}_wr <= '0; end",
-             "    else begin",
-             f"      if ({name}_push) begin {name}_storage[{name}_wr] <= {sv_expression._expression(fifo.data)}; {name}_wr <= ({name}_wr == {ptr_width}'d{fifo.depth - 1}) ? '0 : {name}_wr + 1'b1; end",
-             f"      if ({name}_pop) {name}_rd <= ({name}_rd == {ptr_width}'d{fifo.depth - 1}) ? '0 : {name}_rd + 1'b1;",
-             f"      case ({{{name}_push, {name}_pop}})", f"        2'b10: {name}_count <= {name}_count + 1'b1;",
-             f"        2'b01: {name}_count <= {name}_count - 1'b1;", f"        default: {name}_count <= {name}_count;",
-             "      endcase", "    end", "  end"]
-    return sv_module_rendering._module(module, ports, lines)
+    controls = [
+        f"  logic {sv_rendering._range(width)}{name}_storage [0:{fifo.depth - 1}];",
+        f"  logic [{count_width - 1}:0] {name}_count;",
+        f"  logic [{ptr_width - 1}:0] {name}_rd, {name}_wr;",
+        *observation_declarations,
+        *request_declarations,
+        *observation_assignments,
+        *request_assignments,
+    ]
+    updates = [
+        f"  always_ff @({sv_sequential.clock_event(module, sv_rendering._identifier, fifo_clock)}) begin",
+        f"    if ({sv_sequential.reset_asserted(module, sv_rendering._identifier, fifo_clock)}) begin "
+        f"{name}_count <= '0; {name}_rd <= '0; {name}_wr <= '0; end",
+        "    else begin",
+        f"      if ({name}_push) begin {name}_storage[{name}_wr] <= {sv_expression._expression(fifo.data)}; "
+        f"{name}_wr <= ({name}_wr == {ptr_width}'d{fifo.depth - 1}) ? '0 : {name}_wr + 1'b1; end",
+        f"      if ({name}_pop) {name}_rd <= ({name}_rd == {ptr_width}'d{fifo.depth - 1}) ? '0 : {name}_rd + 1'b1;",
+        f"      case ({{{name}_push, {name}_pop}})",
+        f"        2'b10: {name}_count <= {name}_count + 1'b1;",
+        f"        2'b01: {name}_count <= {name}_count - 1'b1;",
+        f"        default: {name}_count <= {name}_count;",
+        "      endcase",
+        "    end",
+        "  end",
+    ]
+    return controls, updates
 
 
 def _emit_unified_state_module(module: ir_module.Module) -> str:

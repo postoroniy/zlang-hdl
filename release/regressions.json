@@ -39,6 +39,33 @@
       ]
     },
     {
+      "id": "BUS-003",
+      "source_paths": [
+        "tests/systemverilog/test_public_top_leaf_abi.py",
+        "zlang/backend/systemverilog/emitter.py",
+        "zlang/backend/systemverilog/feature_accounting.py"
+      ],
+      "status": "included",
+      "summary": "Direct SystemVerilog accounts for AXIStream FIFO endpoints backed by physical ports, preserving payload fields and rejecting unrendered endpoints.",
+      "tests": [
+        "tests/systemverilog/test_public_top_leaf_abi.py::test_axi_stream_fifo_preserves_ready_valid_and_public_payload",
+        "tests/systemverilog/test_public_top_leaf_abi.py::test_axi_stream_fifo_rejects_endpoint_without_a_rendered_port"
+      ]
+    },
+    {
+      "id": "BUS-004",
+      "source_paths": [
+        "tests/systemverilog/test_public_top_leaf_abi.py",
+        "zlang/backend/systemverilog/emitter.py",
+        "zlang/backend/systemverilog/feature_accounting.py"
+      ],
+      "status": "included",
+      "summary": "Direct SystemVerilog accounts for AXIStream ports alongside synchronous RAM and registered ROM, and rejects endpoints without rendered ports.",
+      "tests": [
+        "tests/systemverilog/test_public_top_leaf_abi.py::test_axi_stream_with_registered_storage"
+      ]
+    },
+    {
       "id": "CI-001",
       "source_paths": [
         ".github/dependabot.yml",
@@ -1317,6 +1344,43 @@
       "summary": "Named-port synchronous RAM initializes every preserved read result and intermediate stage to zero independently of contents reset, preserving runtime reset holds and native/Direct-SV agreement.",
       "tests": [
         "tests/systemverilog/test_memory_reset_policy.py::test_registered_preserve_profile_initializes_once_and_holds_on_reset"
+      ]
+    },
+    {
+      "id": "ZL-088",
+      "source_paths": [
+        "stdlib/coding/secded.zhl",
+        "tests/semantic/test_compile_time_generation.py"
+      ],
+      "status": "included",
+      "summary": "Compute generic SECDED parity masks as exact constants so repeated specializations fit the existing compile-time generation budget.",
+      "tests": [
+        "tests/semantic/test_compile_time_generation.py::test_generic_secded_wrapper_elaborates_across_full_hierarchy"
+      ]
+    },
+    {
+      "id": "ZL-089",
+      "source_paths": [
+        "stdlib/coding/secded.zhl",
+        "tests/semantic/test_compile_time_generation.py"
+      ],
+      "status": "included",
+      "summary": "Generic SECDED encoding and decoding reject inconsistent parity and codeword dimensions before generating the layout.",
+      "tests": [
+        "tests/semantic/test_compile_time_generation.py::test_secded_pure_contract_rejects_inconsistent_layout_before_generation"
+      ]
+    },
+    {
+      "id": "ZL-090",
+      "source_paths": [
+        "tests/systemverilog/test_backend_correctness.py",
+        "zlang/backend/systemverilog/storage.py"
+      ],
+      "status": "included",
+      "summary": "Direct SystemVerilog emits multiple globally controlled FIFOs or multiple globally controlled RAMs with independent controls and state.",
+      "tests": [
+        "tests/systemverilog/test_backend_correctness.py::test_two_global_fifos_preserve_independent_transactions",
+        "tests/systemverilog/test_backend_correctness.py::test_two_global_memories_preserve_independent_reads_and_writes"
       ]
     }
   ],

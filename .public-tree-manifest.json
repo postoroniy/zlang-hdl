@@ -154,7 +154,7 @@
     {
       "mode": "0664",
       "path": "CHANGELOG.md",
-      "sha256": "4f7d9259d7a761be34ee3fb28ecb540d8f8ec300ed23b2a8a53836302fb606b4"
+      "sha256": "0bebc837d85fd3c832439744f796111f6e1b271dc790978e3583fa02e401ad4c"
     },
     {
       "mode": "0644",
@@ -249,7 +249,7 @@
     {
       "mode": "0644",
       "path": "docs/ZLang-HDL-Standard-Library-Guide.pdf",
-      "sha256": "66a7997e41bb67744610b769279555a3a30a03e529ed3c27cf2bbd49c6bb5a85"
+      "sha256": "d72a5599b84274c871b7e7709642b5027875c69d2a5db05d5f9df2b84658d7f8"
     },
     {
       "mode": "0644",
@@ -579,7 +579,7 @@
     {
       "mode": "0644",
       "path": "docs/stdlib-api.md",
-      "sha256": "2607e07c8940f7338331a942c5f5ba66e0f45e4f8bd82e4e2ab56b74a2bfb91f"
+      "sha256": "fb20ef87ce6fc6fd8f13f48fb71b45e4120dec9ebc0d531b5bbe6949fa7eab21"
     },
     {
       "mode": "0644",
@@ -2179,12 +2179,12 @@
     {
       "mode": "0664",
       "path": "release/regressions.json",
-      "sha256": "6a20a118728af8d6fbc3d4731395a49f2412d4769a3e7dd95c714fde4e90150e"
+      "sha256": "9d3f4b73061375a8a1827ae135b1a3a19db9f4d5586f860bffc9d422ee06b12b"
     },
     {
       "mode": "0644",
       "path": "release/status.json",
-      "sha256": "0702aa2b169f39062a6d744ae1402c3fff2e0c8d140c36293a2d4e633d3788b9"
+      "sha256": "801b381e961865767ae4e91652b0e3c45ba6d1f9b3c57c13e4a4d36e5c76974e"
     },
     {
       "mode": "0644",
@@ -2434,7 +2434,7 @@
     {
       "mode": "0644",
       "path": "stdlib/coding/secded.zhl",
-      "sha256": "094fd5f0db523ebc9fe542e2953ffe5c107fe26ac353f439543468b271207814"
+      "sha256": "e3082ee3449483358391b71e7ab814360ad10600ef9260fb8bf5e3c1259624f5"
     },
     {
       "mode": "0644",
@@ -4559,12 +4559,12 @@
     {
       "mode": "0644",
       "path": "tests/release/test_release_preflight.py",
-      "sha256": "621644e68c951deb876198f87360aaf7deb3167c02250a9e83e2ceba47b9ba84"
+      "sha256": "613f147b74fa516ea63a4e922c2119c66be4f98b72e73b718257e8234dcd2bcd"
     },
     {
       "mode": "0644",
       "path": "tests/release/test_release_regressions.py",
-      "sha256": "338978ce0c8fe208cee8ad4574f28326b203a26a4b496af68ee6e667856fee93"
+      "sha256": "bc7ef4e280dae392a9e7d304d697d3a56e9aa965a15c6725c8e8129f55ccec09"
     },
     {
       "mode": "0644",
@@ -4724,7 +4724,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_compile_time_generation.py",
-      "sha256": "9ddc6b508e5b08c3113c926940a296cc9f4f06bca633f0da64757f8f76cd2fc6"
+      "sha256": "3065097e6e07c800e413f4645b9dddd5557e8cafbd00385c9f6588ad6d159ddc"
     },
     {
       "mode": "0644",
@@ -5709,7 +5709,7 @@
     {
       "mode": "0644",
       "path": "tests/systemverilog/test_backend_correctness.py",
-      "sha256": "2456d6c54d39d5a1815029f87a8e0535d95880b14087bc4133425ec030b46454"
+      "sha256": "f9a1d82d8a0f33f2d1efe0ed8937c57cd61b7f1e9d62306751ec6adcadcd8b27"
     },
     {
       "mode": "0644",
@@ -5794,7 +5794,7 @@
     {
       "mode": "0644",
       "path": "tests/systemverilog/test_public_top_leaf_abi.py",
-      "sha256": "e31b3e638fec8bd77ffb50fc159cac9d1b56519df0585366501bc85d9cc7f13f"
+      "sha256": "0313652bf1d73aefc229c08686c9526f7ae0ac788a37b187f8eae8ebd8c11639"
     },
     {
       "mode": "0644",
@@ -6354,7 +6354,7 @@
     {
       "mode": "0644",
       "path": "zlang/backend/systemverilog/composed.py",
-      "sha256": "4ed578371037407784d8fbd0d0c4519fdaf0ea436a9e87449cbef0bd63006e55"
+      "sha256": "3950b764caba0dbc6b049494ec3c79c4e57783b4a5f3612d89da721fe51f366e"
     },
     {
       "mode": "0644",
@@ -6379,7 +6379,7 @@
     {
       "mode": "0644",
       "path": "zlang/backend/systemverilog/emitter.py",
-      "sha256": "2b39dab587b9787b06fccf6333ae06ccb0755338982e84e606fa752d0dffb73b"
+      "sha256": "481105ea27a9d4a5065b021d44ebf3fca4819291d3f2fdbd772d3d35a1887a5f"
     },
     {
       "mode": "0644",
@@ -6394,7 +6394,7 @@
     {
       "mode": "0644",
       "path": "zlang/backend/systemverilog/feature_accounting.py",
-      "sha256": "2aa483023382629a48dd63d2ffe484c9f5445d5ae341614a92ee0ea7b1b92512"
+      "sha256": "7ff42e3585be428039e65e680d29e6bbfc08f66f4104d46fd088faf70e9844ef"
     },
     {
       "mode": "0644",
@@ -6524,7 +6524,7 @@
     {
       "mode": "0644",
       "path": "zlang/backend/systemverilog/storage.py",
-      "sha256": "b8a0cf3b880bac2b519e99c6a818ec3d6edb80d955e3fea1a7e082aa204e0a62"
+      "sha256": "29c5e220ffc06f7541fc490c3e614ce1c6c6b2c4d8d6c9888a01234751785049"
     },
     {
       "mode": "0644",

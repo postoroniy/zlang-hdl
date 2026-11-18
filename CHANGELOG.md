@@ -11,7 +11,18 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a24 — 2026-11-17
+## 0.1.0a24 — 2026-11-18
+
+- Emit typed AXIStream FIFO ports through Direct SystemVerilog with exact
+  endpoint accounting and unchanged ready/valid behavior (BUS-003).
+- Build generic SECDED parity masks within the existing elaboration budget,
+  preserving the extended-Hamming bit layout (ZL-088).
+- Reject inconsistent SECDED encoder and decoder dimensions before generating
+  the codeword layout (ZL-089).
+- Preserve AXIStream ready/valid and sidebands beside synchronous RAM or
+  registered ROM (BUS-004).
+- Emit multiple globally controlled FIFOs or RAMs with independent state and
+  controls (ZL-090).
 
 - Keep Z3 5.4.1 and VSCE 4.1.1 coherent with solver extras, release metadata,
   editor manifests, lockfiles and installed build dependencies (CI-001).

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import replace
 from pathlib import Path
 import shutil
@@ -10,6 +11,7 @@ import tempfile
 
 import pytest
 
+from zlang import sim
 from zlang.backend.systemverilog import (
     SystemVerilogEmissionError,
     emit_artifact,
@@ -23,6 +25,7 @@ from zlang.ir import expressions as expr
 from zlang.ir.formal import FormalStatus
 from zlang.ir.types import BitType, SIntType
 from zlang.ir.verification import Contract, ContractKind
+from zlang.simulation_compare import compare_program
 
 
 SPECIALIZED_HIERARCHY = """
@@ -40,6 +43,126 @@ module SpecializedTop {
     y = extend<16>(c8.y) | c16.y
 }
 """
+
+
+def test_two_global_fifos_preserve_independent_transactions(tmp_path: Path) -> None:
+    source = tmp_path / "two_fifos.zhl"
+    source.write_text("""
+module TwoFifos {
+    clock clk reset rst
+    in a_data:u8 in a_push:bit in a_pop:bit
+    in b_data:u8 in b_push:bit in b_pop:bit in gate_b:bit
+    out a_front:u8 out a_valid:bit out b_front:u8 out b_valid:bit
+    fifo first:fifo<u8,2>
+    fifo second:fifo<u8,3>
+    first.data=a_data first.push=a_push first.pop=a_pop
+    second.data=b_data second.push=b_push & (~gate_b | first.full) second.pop=b_pop
+    a_front=first.front a_valid=first.valid
+    b_front=second.front b_valid=second.valid
+}
+""")
+    # Tuples contain offered (data, push, pop) per FIFO. The full flag is
+    # only referenced by the other FIFO's control, never by an output.
+    cycles = (
+        (True, 0, (0xAA, 1, 0), (0xBB, 1, 0)),
+        (False, 1, (0x11, 1, 0), (0x91, 1, 0)),  # gate B while A has room
+        (False, 0, (0x22, 1, 0), (0x92, 1, 0)),
+        (False, 1, (0x33, 0, 0), (0x93, 1, 0)),  # gate passes when A is full
+        (False, 0, (0x44, 1, 1), (0x94, 1, 0)),
+        (False, 0, (0, 0, 0), (0x95, 1, 1)),
+        (False, 0, (0x55, 0, 0), (0x96, 0, 0)),  # hold both queues at capacity
+        (False, 0, (0, 0, 1), (0, 0, 1)),
+        (False, 0, (0, 0, 1), (0, 0, 1)),
+        (True, 0, (0x66, 1, 0), (0x97, 1, 0)),  # discard B's pending beat
+        (False, 0, (0x77, 1, 0), (0, 0, 0)),
+    )
+    queues = (deque(), deque())
+    events, expected = [], []
+    for reset, gate_b, first, second in cycles:
+        inputs = {"gate_b": gate_b}
+        allow_b = not gate_b or len(queues[0]) == 2
+        for name, queue, depth, controls, allowed in zip(
+            ("a", "b"), queues, (2, 3), (first, second), (True, allow_b), strict=True,
+        ):
+            data, push, pop = controls
+            inputs.update({f"{name}_data": data, f"{name}_push": push, f"{name}_pop": pop})
+            if reset:
+                queue.clear()
+                continue
+            if pop:
+                queue.popleft()
+            if push and allowed:
+                assert len(queue) < depth
+                queue.append(data)
+        events.append({"reset": {"rst": reset}, "set": inputs, "edges": ["clk"]})
+        expected.append({
+            "a_front": queues[0][0] if queues[0] else 0, "a_valid": int(bool(queues[0])),
+            "b_front": queues[1][0] if queues[1] else 0, "b_valid": int(bool(queues[1])),
+        })
+    comparison = compare_program(
+        sim.compile(source), events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30, build_timeout=30,
+    )
+    assert comparison.native_trace == tuple(expected)
+    assert comparison.rtl_trace == tuple(expected)
+
+
+def test_two_global_memories_preserve_independent_reads_and_writes(tmp_path: Path) -> None:
+    source = tmp_path / "two_memories.zhl"
+    source.write_text("""
+module TwoMemories {
+    clock clk reset rst
+    in a_read:u1 in a_write:u1 in a_enable:bit in a_data:u8
+    in b_read:u1 in b_write:u1 in b_enable:bit in b_data:u8
+    out a_result:u8 out b_result:u8
+    memory first:mem<u8,2> { read_latency 1 collision read_first }
+    memory second:mem<u8,2> { read_latency 1 collision read_first }
+    first.read_address=a_read first.write_address=a_write
+    first.write_enable=a_enable first.write_data=a_data
+    second.read_address=b_read second.write_address=b_write
+    second.write_enable=b_enable second.write_data=b_data
+    a_result=first.read_data b_result=second.read_data
+}
+""")
+    # Inputs are (read address, write address, write enable, data) per RAM.
+    # A sample without a clock edge distinguishes latency one from a bypass.
+    cycles = (
+        (True, True, (0, 0, 1, 0xFF), (1, 1, 1, 0xEE)),
+        (False, True, (1, 1, 1, 0x31), (0, 0, 1, 0x92)),
+        (False, True, (1, 0, 0, 0xFF), (1, 1, 1, 0xA7)),
+        (False, False, (0, 0, 1, 0x55), (0, 1, 0, 0)),
+        (False, True, (0, 0, 1, 0x55), (0, 1, 0, 0)),
+        (False, True, (0, 1, 0, 0), (1, 0, 0, 0)),
+        (False, True, (1, 0, 0, 0), (0, 1, 0, 0)),
+        (True, False, (1, 1, 1, 0xDD), (0, 0, 1, 0xCC)),
+        (True, True, (1, 1, 1, 0xDD), (0, 0, 1, 0xCC)),
+        (False, True, (1, 0, 0, 0), (0, 1, 0, 0)),
+    )
+    cells = ([0, 0], [0, 0])
+    samples = {"a_result": 0, "b_result": 0}
+    events, expected = [], []
+    for reset, edge, first, second in cycles:
+        inputs = {}
+        for name, memory, controls in zip(("a", "b"), cells, (first, second), strict=True):
+            inputs.update({f"{name}_{field}": value for field, value in zip(
+                ("read", "write", "enable", "data"), controls, strict=True,
+            )})
+            if not edge:
+                continue
+            read, write, enable, data = controls
+            if reset:
+                memory[:] = [0, 0]
+            samples[f"{name}_result"] = memory[read]
+            if enable and not reset:
+                memory[write] = data
+        events.append({"reset": {"rst": reset}, "set": inputs, "edges": ["clk"] if edge else []})
+        expected.append(samples.copy())
+    comparison = compare_program(
+        sim.compile(source), events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30, build_timeout=30,
+    )
+    assert comparison.native_trace == tuple(expected)
+    assert comparison.rtl_trace == tuple(expected)
 
 
 def _negative_contract_module():

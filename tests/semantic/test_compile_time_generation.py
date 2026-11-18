@@ -2,6 +2,7 @@
 
 import pytest
 
+from zlang.backend.systemverilog import emit
 from zlang.compiler import compile_source
 from zlang.parser import parse
 from zlang.semantic import analyze
@@ -560,3 +561,52 @@ def test_compile_time_function_call_depth_is_bounded() -> None:
     )
     with pytest.raises(SemanticError, match="nesting exceeds 64 calls"):
         compile_source(source)
+
+
+def test_generic_secded_wrapper_elaborates_across_full_hierarchy(monkeypatch):
+    # A stricter fixture cap detects duplicated mask construction with just
+    # three distinct child specializations and the top's inherited declarations.
+    monkeypatch.setattr(semantic_limits, 'TOTAL_GENERATED', 1024)
+    result = compile_source('''import std.coding.secded
+fn ecc64(data:bits<64>) -> bits<8> {
+    code = secded_encode<K=64>(data)
+    concat(code[71], code[63], code[31], code[15], code[7], code[3], code[1], code[0])
+}
+module Lane<INDEX> { in data:bits<64> out check:bits<8> check=ecc64(data) }
+module Top {
+    in data:bits<64> out checks:vec<3,bits<8>>
+    lane0:Lane<INDEX=0> { data=data }
+    lane1:Lane<INDEX=1> { data=data }
+    lane2:Lane<INDEX=2> { data=data }
+    checks=[lane0.check, lane1.check, lane2.check]
+}
+''', top='Top')
+    assert len(result.ir.elaborated_instances) == 3
+    assert 'module Top (' in emit(result.ir)
+
+
+def test_secded_pure_contract_rejects_inconsistent_layout_before_generation(monkeypatch):
+    monkeypatch.setattr(semantic_limits, 'TOTAL_GENERATED', 0)
+    for q, r, h, expected_width, supplied_width in (
+        (2, 3, 7, 3, 2),
+        (3, 4, 8, 3, 4),
+        (3, 3, 6, 7, 6),
+        (3, 1048576, 7, 3, 1048576),
+    ):
+        arguments = f'K=4,Q={q},R={r},H={h}'
+        for operation, input_width, result_type in (
+            ('encode', 4, f'bits<{h+1}>'),
+            ('decode', h+1, f'SecdedDecoded<4,{r}>'),
+        ):
+            callable_name = f'secded_{operation}'
+            source = f'''import std.coding.secded
+module Top {{
+    in value:bits<{input_width}>
+    out result:{result_type} = {callable_name}<{arguments}>(value)
+}}'''
+            with pytest.raises(SemanticError, match='requires equal packed widths') as error:
+                compile_source(source)
+            assert f'bits<{expected_width}> ({expected_width})' in str(error.value)
+            assert f'bits<{supplied_width}> ({supplied_width})' in str(error.value)
+            assert error.value.diagnostic.primary.construct == f'call {callable_name}'
+            assert error.value.diagnostic.primary.span.start_line == 4

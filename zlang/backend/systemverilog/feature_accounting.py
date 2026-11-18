@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from zlang.backend import module_features
 from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
+from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir import module as ir_module
 
 VALUE_GROUPS = (
@@ -43,6 +44,54 @@ COMPOSED_GROUPS = (
     module_features.ModuleFeatureGroup.ARBITERS,
     *HIERARCHY_GROUPS,
 )
+
+
+def physical_boundary_groups(
+    module: ir_module.Module,
+) -> tuple[module_features.ModuleFeatureGroup, ...]:
+    """Claim endpoint metadata backed by the renderer's physical ports."""
+
+    ports = {port.name: port for port in module.ports}
+    ready_valid_endpoints = tuple(
+        ir_module.ProtocolEndpoint(
+            module.name, port.name, port.direction, port.protocol, port.type,
+            capacity=port.capacity, domain=port.domain,
+        )
+        for port in ports.values()
+        if port.protocol is InterfaceProtocol.READY_VALID
+    )
+    groups: list[module_features.ModuleFeatureGroup] = []
+    if all(endpoint in ready_valid_endpoints for endpoint in module.protocol_endpoints):
+        groups.append(module_features.ModuleFeatureGroup.HIERARCHICAL_PROTOCOL_ENDPOINTS)
+    if all(
+        endpoint.members and all(
+            _aggregate_port_matches(endpoint, member, ports.get(f"{endpoint.name}__{member.name}"))
+            for member in endpoint.members
+        )
+        for endpoint in module.aggregate_protocol_endpoints
+    ):
+        groups.append(module_features.ModuleFeatureGroup.AGGREGATE_PROTOCOL_ENDPOINTS)
+    return tuple(groups)
+
+
+def _aggregate_port_matches(
+    endpoint: ir_module.AggregateProtocolEndpoint,
+    member: ir_module.ProtocolMember,
+    port: ir_module.Port | None,
+) -> bool:
+    direction = (
+        ir_module.PortDirection.OUTPUT if endpoint.role == member.source_role
+        else ir_module.PortDirection.INPUT
+    )
+    return (
+        port is not None
+        and endpoint.role in (member.source_role, member.sink_role)
+        and member.protocol in (InterfaceProtocol.WIRE, InterfaceProtocol.READY_VALID)
+        and port.protocol is member.protocol
+        and port.direction is direction
+        and port.type == member.payload_type
+        and port.domain == member.domain
+    )
 
 
 def account_emission_plan(

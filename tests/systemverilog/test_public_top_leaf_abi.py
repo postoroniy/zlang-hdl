@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 from pathlib import Path
 import re
@@ -9,9 +10,11 @@ import tempfile
 
 import pytest
 
+from zlang import sim
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import SystemVerilogEmissionError, emit_artifact
 from zlang.compiler import compile_source
+from zlang.simulation_compare import compare_program
 from zlang.toolchain import lint_with_verilator
 
 
@@ -84,6 +87,24 @@ module PackedAliasCollision {
     in zlang_packed_y : u8
     out y : AliasResult
     y = AliasResult { value = zlang_packed_y }
+}
+"""
+
+
+AXI_STREAM_FIFO = """
+import std.bus.axi_stream
+
+module AxiStreamFifo {
+    clock clk reset rst
+    interface s_axis:AXIStream<32>.sink @clk
+    interface m_axis:AXIStream<32>.source @clk
+    fifo words:fifo<AXIStreamBeat<32>,2>
+    words.data=s_axis.t.payload
+    words.push=s_axis.t.transfer
+    words.pop=m_axis.t.transfer
+    s_axis.t.ready=words.ready
+    m_axis.t.valid=words.valid
+    m_axis.t.payload=words.front
 }
 """
 
@@ -258,6 +279,145 @@ def test_axi_lite_top_exposes_struct_payload_fields_not_packed_payloads() -> Non
         "axi_w_payload_strb"
     )
     _strict_lint(artifact.text, "AxiCsrTop")
+
+
+def test_axi_stream_fifo_preserves_ready_valid_and_public_payload(tmp_path: Path) -> None:
+    source = tmp_path / "axi_stream_fifo.zhl"
+    source.write_text(AXI_STREAM_FIFO)
+    empty = dict(data=0, keep=0, strb=0, last=0)
+    a = dict(data=0x1234ABCD, keep=0xF, strb=0x3, last=1)
+    b = dict(data=0x87654321, keep=0x7, strb=0x5, last=0)
+    c = dict(data=0x00FF00FF, keep=0x9, strb=0x1, last=1)
+    # Input reset, offered beat and consumer ready followed by the
+    # expected producer ready and visible beat after the clock edge.
+    cycles = (
+        (True, None, 0, 0, None),
+        (False, None, 0, 1, None),
+        (False, a, 0, 1, a),
+        (False, b, 0, 0, a),
+        (False, c, 0, 0, a),  # stall at capacity
+        (False, c, 1, 1, b),  # full pop and push on the same edge
+        (False, None, 1, 1, c),
+        (True, None, 0, 0, None),  # discard a live pending beat
+        (False, b, 0, 1, b),
+    )
+    events, expected = [], []
+    for reset, offered, accept, ready, visible in cycles:
+        events.append({
+            "reset": {"rst": reset},
+            "set": {
+                "s_axis__t": {"payload": offered or empty, "valid": int(offered is not None)},
+                "m_axis__t": {"ready": accept},
+            },
+            "edges": ["clk"],
+        })
+        sample = {"s_axis_t_ready": ready, "m_axis_t_valid": int(visible is not None)}
+        sample.update({f"m_axis_t_payload_{field}": value
+                       for field, value in (visible or empty).items()})
+        expected.append(sample)
+    comparison = compare_program(
+        sim.compile(source), events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30,
+    )
+    assert comparison.native_trace == tuple(expected)
+    assert comparison.rtl_trace == tuple(expected)
+
+
+def test_axi_stream_fifo_rejects_endpoint_without_a_rendered_port() -> None:
+    module = compile_source(AXI_STREAM_FIFO).ir
+    phantom = replace(module.protocol_endpoints[0], name="phantom")
+    phantom_bundle = replace(
+        module.aggregate_protocol_endpoints[0], name="phantom_bundle", members=(),
+    )
+    with_phantom = replace(module, protocol_endpoints=(*module.protocol_endpoints, phantom))
+    with_phantom_bundle = replace(
+        module,
+        aggregate_protocol_endpoints=(*module.aggregate_protocol_endpoints, phantom_bundle),
+    )
+    unrendered = (
+        (with_phantom, r"unclaimed=.*\.phantom:ready_valid"),
+        (with_phantom_bundle, r"unclaimed=.*aggregate_endpoint:phantom_bundle:"),
+    )
+
+    for altered, diagnostic in unrendered:
+        with pytest.raises(SystemVerilogEmissionError, match=diagnostic) as caught:
+            emit_artifact(altered)
+        assert caught.value.code == "ZL-BACKEND-SYSTEMVERILOG-FEATURE-ACCOUNTING"
+
+
+@pytest.mark.parametrize("storage", ("ram", "rom"))
+def test_axi_stream_with_registered_storage(tmp_path: Path, storage: str) -> None:
+    declaration = (
+        """
+    memory table:mem<u8,2> { read_latency 1 collision read_first }
+    table.write_enable=rx.t.transfer
+    table.write_address=address
+    table.write_data=truncate<8>(rx.t.payload.data)
+""" if storage == "ram" else
+        "    rom table:rom<u8,2> {read_latency 1 init [57,166]}\n"
+    )
+    source = tmp_path / f"axi_stream_{storage}.zhl"
+    source.write_text("""import std.bus.axi_stream
+module AxiStorage {
+    clock clk reset rst
+    interface rx:AXIStream<32>.sink @clk
+    interface tx:AXIStream<32>.source @clk
+    out value:u8
+    address=bitcast<u1>(rx.t.payload.data[0])
+""" + declaration + """
+    table.read_address=address
+    value=table.read_data
+    rx.t.ready=tx.t.ready
+    tx.t.valid=rx.t.valid
+    tx.t.payload=rx.t.payload
+}
+""")
+    even = dict(data=0x48EC1252, keep=0xF, strb=0x2, last=0)
+    odd = dict(data=0x9300AC35, keep=0x7, strb=0x5, last=1)
+    # Reset and edge controls, offered beat, valid/ready, then the independent
+    # post-event read data for read-first RAM and registered ROM.
+    frames = (
+        (True,  True,  even, 0, 0, 0,    0),
+        (False, False, even, 1, 0, 0,    0),
+        (False, True,  even, 1, 0, 0,   57),
+        (False, True,  even, 1, 1, 0,   57),
+        (False, False, odd,  1, 1, 0,   57),
+        (False, True,  odd,  1, 1, 0,  166),
+        (False, True,  even, 0, 1, 0x52,57),
+        (False, False, odd,  1, 0, 0x52,57),
+        (False, True,  odd,  1, 0, 0x35,166),
+        (True,  True,  odd,  1, 1, 0,    0),
+        (False, True,  even, 0, 0, 0,   57),
+    )
+    events, expected = [], []
+    for reset, edge, beat, valid, ready, ram, rom in frames:
+        events.append({
+            "reset": {"rst": reset},
+            "set": {"rx__t": {"payload": beat, "valid": valid}, "tx__t": {"ready": ready}},
+            "edges": ["clk"] if edge else [],
+        })
+        sample = {"rx_t_ready": ready, "tx_t_valid": valid,
+                  "value": ram if storage == "ram" else rom}
+        sample.update({f"tx_t_payload_{field}": value for field, value in beat.items()})
+        expected.append(sample)
+
+    program = sim.compile(source)
+    comparison_dir = tmp_path / "comparison"
+    comparison = compare_program(program, events, simulator="iverilog",
+                                 artifact_directory=comparison_dir, timeout=30)
+    assert comparison.native_trace == tuple(expected)
+    assert comparison.rtl_trace == tuple(expected)
+    if storage == "rom":
+        images = list(comparison_dir.glob("*.mem"))
+        assert len(images) == 1
+        assert images[0].read_text().splitlines() == ["00111001", "10100110"]
+
+    module = program.module
+    phantom = replace(module.protocol_endpoints[0], name="phantom")
+    altered = replace(module, protocol_endpoints=(*module.protocol_endpoints, phantom))
+    with pytest.raises(SystemVerilogEmissionError, match=r"unclaimed=.*\.phantom:ready_valid") as caught:
+        emit_artifact(altered)
+    assert caught.value.code == "ZL-BACKEND-SYSTEMVERILOG-FEATURE-ACCOUNTING"
 
 
 def test_public_names_colliding_after_sv_mangling_are_rejected() -> None:

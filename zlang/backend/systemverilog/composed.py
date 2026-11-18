@@ -144,8 +144,8 @@ def emit_composed_design(module: ir_module.Module, rendering: ComposedRendering)
         # A child with a resolved transition is a complete stateful
         # specialization, not a FIFO-only helper.  Preserve all of its
         # registers, rules, protocol ports, and scalar expressions in one
-        # reusable component.  The standalone FIFO path remains for the
-        # legacy one-resource module shape only.
+        # reusable component. The standalone FIFO path handles globally
+        # controlled FIFO storage.
         if emitted_current.external_contract is not None:
             definitions.append(rendering.emit_external(emitted_current, name))
         elif (
