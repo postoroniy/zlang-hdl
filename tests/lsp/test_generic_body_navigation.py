@@ -66,14 +66,31 @@ def test_deferred_body_and_declaration_definition(tmp_path, needle, name, target
         }
 
 
+_FP_FORMAT = Path(__file__).resolve().parents[2] / "stdlib/math/fp_format.zhl"
+_FP_DECODED = ("struct FpDecoded", "-> FpDecoded", "    FpDecoded {")
+_FP_DECODE = ("fn fp_decode<", "d = fp_decode<")
+
+
+def _source_references(path, text, symbol, anchors):
+    """Locate independently specified occurrences in the current stdlib source."""
+    references = []
+    for anchor in anchors:
+        [(line, row)] = [(i, row) for i, row in enumerate(text.splitlines())
+                         if anchor in row]
+        column = row.index(symbol, row.index(anchor))
+        references.append({"uri": path_to_uri(path), "range": {
+            "start": {"line": line, "character": column},
+            "end": {"line": line, "character": column + len(symbol)},
+        }})
+    return references
+
+
 def test_real_fp_format_constructor_and_declaration():
-    path = Path(__file__).resolve().parents[2] / "stdlib/math/fp_format.zhl"
-    text = path.read_text()
-    server = opened(path, text)
-    expected = {"uri": path_to_uri(path), "range": {
-        "start": {"line": 2, "character": 7}, "end": {"line": 2, "character": 16}}}
-    for i, needle in enumerate(("struct FpDecoded", "-> FpDecoded", "    FpDecoded {"), 1):
-        assert location(server, path, text, needle, "FpDecoded", i) == expected
+    text = _FP_FORMAT.read_text()
+    server = opened(_FP_FORMAT, text)
+    declaration, *_ = _source_references(_FP_FORMAT, text, "FpDecoded", _FP_DECODED)
+    for i, needle in enumerate(_FP_DECODED, 1):
+        assert location(server, _FP_FORMAT, text, needle, "FpDecoded", i) == declaration
 
 
 @pytest.mark.parametrize("method,include_declaration", [
@@ -84,18 +101,18 @@ def test_real_fp_format_constructor_and_declaration():
 def test_real_stdio_worker_resolves_fp_decoded_constructor(method, include_declaration):
     from zlang.lsp.server import read_message, write_message
 
-    path = Path(__file__).resolve().parents[2] / "stdlib/math/fp_format.zhl"
-    text = path.read_text()
-    line, row = next((i, row) for i, row in enumerate(text.splitlines())
-                     if "    FpDecoded {" in row)
+    text = _FP_FORMAT.read_text()
+    references = _source_references(_FP_FORMAT, text, "FpDecoded", _FP_DECODED)
+    start = references[-1]["range"]["start"]
+    uri = path_to_uri(_FP_FORMAT)
     payload = BytesIO()
     for message in (
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
         {"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
-            "textDocument": {"uri": path_to_uri(path), "version": 1, "text": text}}},
+            "textDocument": {"uri": uri, "version": 1, "text": text}}},
         {"jsonrpc": "2.0", "id": 2, "method": method, "params": {
-            "textDocument": {"uri": path_to_uri(path)},
-            "position": {"line": line, "character": row.index("FpDecoded") + 2},
+            "textDocument": {"uri": uri},
+            "position": {"line": start["line"], "character": start["character"] + 2},
             "context": {"includeDeclaration": include_declaration}}},
         {"jsonrpc": "2.0", "id": 3, "method": "shutdown"},
         {"jsonrpc": "2.0", "method": "exit"},
@@ -110,38 +127,28 @@ def test_real_stdio_worker_resolves_fp_decoded_constructor(method, include_decla
     while (message := read_message(stream)) is not None:
         if "id" in message:
             responses[message["id"]] = message
-    declaration = {"uri": path_to_uri(path), "range": {
-        "start": {"line": 2, "character": 7}, "end": {"line": 2, "character": 16}}}
     if method == "textDocument/definition":
-        assert responses[2]["result"] == declaration
+        assert responses[2]["result"] == references[0]
     else:
-        expected = [declaration] if include_declaration else []
-        for row, column in ((34, 50), (41, 4)):
-            expected.append({"uri": path_to_uri(path), "range": {
-                "start": {"line": row, "character": column},
-                "end": {"line": row, "character": column + len("FpDecoded")}}})
-        assert responses[2]["result"] == expected
+        assert responses[2]["result"] == references[0 if include_declaration else 1:]
 
 
-@pytest.mark.parametrize("cursor_line", [2, 34, 41])
+@pytest.mark.parametrize("cursor_occurrence", range(len(_FP_DECODED)),
+                         ids=("declaration", "return-type", "constructor"))
 @pytest.mark.parametrize("include_declaration", [False, True])
 @pytest.mark.parametrize("edge", [False, True])
-def test_fp_decoded_references_from_each_occurrence(cursor_line, include_declaration, edge):
-    path = Path(__file__).resolve().parents[2] / "stdlib/math/fp_format.zhl"
-    text = path.read_text()
-    server = opened(path, text)
-    column = text.splitlines()[cursor_line].index("FpDecoded") + (len("FpDecoded") if edge else 2)
-    expected = [
-        {"uri": path_to_uri(path), "range": {
-            "start": {"line": row, "character": start},
-            "end": {"line": row, "character": start + len("FpDecoded")}}}
-        for row, start in ([(2, 7)] if include_declaration else []) + [(34, 50), (41, 4)]
-    ]
+def test_fp_decoded_references_from_each_occurrence(cursor_occurrence, include_declaration, edge):
+    text = _FP_FORMAT.read_text()
+    server = opened(_FP_FORMAT, text)
+    references = _source_references(_FP_FORMAT, text, "FpDecoded", _FP_DECODED)
+    cursor = references[cursor_occurrence]["range"]
+    column = cursor["end"]["character"] if edge else cursor["start"]["character"] + 2
+    expected = references[0 if include_declaration else 1:]
     for request in (1, 2):
         response = server.dispatch({
             "jsonrpc": "2.0", "id": request, "method": "textDocument/references",
-            "params": {"textDocument": {"uri": path_to_uri(path)},
-                       "position": {"line": cursor_line, "character": column},
+            "params": {"textDocument": {"uri": path_to_uri(_FP_FORMAT)},
+                       "position": {"line": cursor["start"]["line"], "character": column},
                        "context": {"includeDeclaration": include_declaration}},
         })
         assert response == [{"jsonrpc": "2.0", "id": request, "result": expected}]
@@ -149,20 +156,16 @@ def test_fp_decoded_references_from_each_occurrence(cursor_line, include_declara
 
 @pytest.mark.parametrize("include_declaration", [False, True])
 def test_fp_decode_function_references_remain_distinct_from_result_type(include_declaration):
-    path = Path(__file__).resolve().parents[2] / "stdlib/math/fp_format.zhl"
-    text = path.read_text()
-    server = opened(path, text)
-    expected = [
-        {"uri": path_to_uri(path), "range": {
-            "start": {"line": row, "character": start},
-            "end": {"line": row, "character": start + len("fp_decode")}}}
-        for row, start in ([(34, 3)] if include_declaration else []) + [(61, 8)]
-    ]
-    for request, column in enumerate((8, 12), 1):
+    text = _FP_FORMAT.read_text()
+    server = opened(_FP_FORMAT, text)
+    references = _source_references(_FP_FORMAT, text, "fp_decode", _FP_DECODE)
+    start = references[0]["range"]["start"]
+    expected = references[0 if include_declaration else 1:]
+    for request, offset in enumerate((5, len("fp_decode")), 1):
         response = server.dispatch({
             "jsonrpc": "2.0", "id": request, "method": "textDocument/references",
-            "params": {"textDocument": {"uri": path_to_uri(path)},
-                       "position": {"line": 34, "character": column},
+            "params": {"textDocument": {"uri": path_to_uri(_FP_FORMAT)},
+                       "position": {"line": start["line"], "character": start["character"] + offset},
                        "context": {"includeDeclaration": include_declaration}},
         })
         assert response == [{"jsonrpc": "2.0", "id": request, "result": expected}]

@@ -35,6 +35,20 @@ def test_oss_cad_workflows_match_reviewed_suite_pin() -> None:
                     setups += 1
     assert setups > 0
 
+    fast_steps = yaml.load(
+        (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )["jobs"]["fast-core"]["steps"]
+    [(setup_index, setup)] = [
+        (index, step) for index, step in enumerate(fast_steps)
+        if re.fullmatch(r"YosysHQ/setup-oss-cad-suite@[0-9a-f]{40}", step.get("uses", ""))
+    ]
+    assert "if" not in setup
+    assert setup.get("continue-on-error", "false") == "false"
+    lane_index = next(index for index, step in enumerate(fast_steps)
+                      if "make -s ci-fast-core" in step.get("run", ""))
+    assert setup_index < lane_index
+
 
 def _junit(path: Path, name: str) -> None:
     path.write_text(

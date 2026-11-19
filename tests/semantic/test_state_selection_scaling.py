@@ -60,7 +60,10 @@ ZTPU_CANONICAL_IDENTITIES = {
     # hierarchy identity change alongside the focused behavioral regressions.
     # The hierarchy includes the same explicitly encoded FSM-state backing
     # type, so its canonical content identity advances for the same reason.
-    "hierarchy": "high-level:a96c53a3253a08773776f899cd853a79f0c1feadae9332f10aaccea37b7a8de9",
+    # BUS-012 changes the imported burst reader's admission logic. With only
+    # that source reverted, the previous IR and RTL hashes reproduce. Yosys
+    # equivalence of the flattened single-beat hierarchy proved all 611 cells.
+    "hierarchy": "high-level:b2735a3f358892237d21c1a84013253f20646b8261a02a9f12d90a6f3de5f8ab",
 }
 
 

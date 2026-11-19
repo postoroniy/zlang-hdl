@@ -3,7 +3,6 @@
 """Event boundary adaptation must retain protocol history only when needed."""
 
 from itertools import repeat
-from types import SimpleNamespace
 
 import pytest
 
@@ -11,11 +10,14 @@ from zlang import sim
 from zlang.simulation_event_runner import SimulationEventRunner
 
 
-def test_scalar_event_encoding_has_no_protocol_snapshots() -> None:
-    runner = SimulationEventRunner(SimpleNamespace(_ports={}, _request_responses={}))
-    encoded, snapshots = runner._encode_events(
-        repeat({"edges": ("clk",)}, 10_000), {}, capture_protocol_values=False,
-    )
+def test_scalar_event_encoding_has_no_protocol_snapshots(tmp_path) -> None:
+    source = tmp_path / "scalar_events.zhl"
+    source.write_text("module ScalarEvents { clock clk reset rst out y:bit=0 }")
+    with sim.load(source) as instance:
+        encoded, snapshots, rejected = SimulationEventRunner(instance)._encode_events(
+            repeat({"edges": ("clk",)}, 10_000), {}, capture_protocol_values=False,
+        )
+    assert rejected is None
     assert len(encoded) == 10_000
     assert encoded[0] == ([], [], ["clk"])
     assert snapshots == []

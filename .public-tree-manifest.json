@@ -49,7 +49,7 @@
     {
       "mode": "0644",
       "path": ".github/workflows/ci.yml",
-      "sha256": "393ddcb6359075cddd3628cdda10326fba03b64f43698a2bf692347a4e668877"
+      "sha256": "d1c8ad01dc6e742710746413c1ad122fb22a98631be099cbc28dc658dac92bae"
     },
     {
       "mode": "0664",
@@ -824,7 +824,7 @@
     {
       "mode": "0644",
       "path": "editors/vscode/zlang-hdl/test/generic-navigation-host.cjs",
-      "sha256": "76a99d42e4fbcadda8601c29e4b71effdf91bd15e55a6321900c47c87f77a1b7"
+      "sha256": "ba68501488bed2dd1a111072bfe54f44d7ed8d73ea457a1369c32f0a7855e7da"
     },
     {
       "mode": "0644",
@@ -4094,7 +4094,7 @@
     {
       "mode": "0644",
       "path": "tests/lsp/test_generic_body_navigation.py",
-      "sha256": "f17759c2f8e3f527c7becad674ec359677b5b830641b0dc4b2212e2c65caa8aa"
+      "sha256": "95a2a8893ec6f1958e7351390b5a62cfdfb697fb186ba55ff85bbc3501206693"
     },
     {
       "mode": "0644",
@@ -4469,7 +4469,7 @@
     {
       "mode": "0664",
       "path": "tests/release/test_ci_contract.py",
-      "sha256": "2a245a4e5e2a088b7bd2b5b0b90ad562be38799c0157344642371c60459b66f2"
+      "sha256": "1e89cd4cacdacbf80a079b55db2afe6b40d473618fc201e92b7a2eb5a784a49d"
     },
     {
       "mode": "0644",
@@ -5374,7 +5374,7 @@
     {
       "mode": "0644",
       "path": "tests/semantic/test_state_selection_scaling.py",
-      "sha256": "6a09393d0c880ab55f8a825cfc570371939d829c0184f8950489ef49f67d5398"
+      "sha256": "0e10f2111aa17b79a75db5c9e8ec2037e70e518b6831995c71142fe1da1e88a9"
     },
     {
       "mode": "0644",
@@ -5504,7 +5504,7 @@
     {
       "mode": "0644",
       "path": "tests/simulation/test_event_encoding.py",
-      "sha256": "4d38e1a470d1ab2c8e9f23d08540d91ad10d96bb77521f89a7f57e21869929ee"
+      "sha256": "d0a417f5f322a6713f44b525b494905249e47c7019582b41f678d8f9add7eead"
     },
     {
       "mode": "0644",
