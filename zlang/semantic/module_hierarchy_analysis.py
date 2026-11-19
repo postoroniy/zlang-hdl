@@ -22,7 +22,6 @@ from . import expression_domains
 from . import expression_control
 from . import expression_support
 from . import observations
-from . import storage_validation as storage_validation
 from . import symbols as semantic_symbols
 
 
@@ -31,7 +30,6 @@ _PROTOCOL_DEPENDENCY_VALIDATOR = ProtocolDependencyValidator()
 _HIERARCHY_DEPENDENCY_VALIDATOR = (
     semantic_hierarchy.HierarchyDependencyValidator()
 )
-_MEMORY_DEPENDENCY_VALIDATOR = storage_validation.MemoryDependencyValidator()
 
 
 class ModuleHierarchyAnalyzer:
@@ -83,15 +81,18 @@ class ModuleHierarchyAnalyzer:
         )
         assignments = list(assignment_product.assignments)
         assigned_outputs = set(assignment_product.assigned_outputs)
-        _MEMORY_DEPENDENCY_VALIDATOR.validate(
-            behavior.storage.memories, tuple(locals_)
-        )
         _HIERARCHY_DEPENDENCY_VALIDATOR.validate(
             child_irs,
             assignment_product.instance_bindings,
             tuple(locals_),
             memories=behavior.storage.memories,
             fifos=behavior.storage.fifos,
+            module_name=module.name,
+            connections=tuple(connections),
+            hierarchical_connections=behavior.connections.hierarchical_connections,
+            request_response_connections=behavior.connections.request_response_connections,
+            assignments=assignment_product.assignments,
+            csr_output_paths=module_context.scope.instance_csr_state_paths,
             instance_origins={
                 item.name: observations.declaration_origin(
                     item.name_origin or item.origin, f"instance {item.name}", module_context,

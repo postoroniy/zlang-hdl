@@ -10,10 +10,11 @@ from zlang.simulation_primitives import int_from_limbs
 
 
 def physical_groups(module, direction):
-    paths = _public_port_paths(module)
+    abi = module.top_physical_abi
+    paths = _public_port_paths(module, abi)
     ports = {port.name: port for port in module.ports}
     result = {}
-    for leaf in module.top_physical_abi.leaves:
+    for leaf in abi.leaves:
         if leaf.direction is not direction or leaf.category in {"clock", "reset"}:
             continue
         if leaf.category == "request_response":

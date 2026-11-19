@@ -14,6 +14,10 @@ fn halfband_prototype_valid<N,CW,CF>(coefficients:vec<N,fixed<CW,CF>>) -> bit {
 // multiplier. Only redundant accumulation guards are removed at the end.
 fn halfband_exact<SW,SF,CW,CF,N,C=(N-1)/2,Q=(C+(C%2))/2,AW=SW+CW+ceil_log2(N)>(
     samples:vec<N,fixed<SW,SF>>, coefficients:vec<N,fixed<CW,CF>>) -> fixed<AW,SF+CF> {
+    // Exact-width bitcasts check the derived layout before indexing taps.
+    check_center = bitcast<bits<C>>(zeros<(N-1)/2>)
+    check_pairs = bitcast<bits<Q>>(zeros<(C+(C%2))/2>)
+    check_output = bitcast<bits<AW>>(zeros<SW+CW+ceil_log2(N)>)
     pairs = generate(i in 0..Q)
         (samples[2*i+1-(C%2)]+samples[N-1-(2*i+1-(C%2))])
     weights = generate(i in 0..Q) coefficients[2*i+1-(C%2)]

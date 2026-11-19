@@ -7,6 +7,7 @@ from __future__ import annotations
 from zlang.ir import module as ir_module
 from zlang.ir import storage as ir_storage
 from zlang.backend import identifiers
+from zlang.backend.systemverilog import context as emission_context
 from zlang.backend.systemverilog import rendering as sv_rendering
 from zlang.backend.systemverilog import sequential as sv_sequential
 from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
@@ -39,8 +40,8 @@ def global_memory_fragments(
     render,
     *,
     ram_style: str | None = None,
-) -> list[str]:
-    """Emit one globally driven RAM, including its own reset/read pipeline."""
+) -> tuple[list[str], list[str]]:
+    """Emit one globally driven RAM's declarations and reset/read logic."""
     if memory.domain is None:
         raise SystemVerilogEmissionError(
             f"memory '{memory.name}' has no resolved clock domain"
@@ -54,6 +55,11 @@ def global_memory_fragments(
     name = sv_rendering._identifier(memory.name)
     cells_name = identifiers.rtl_memory_cells_identifier(memory.name)
     read_data_name = identifiers.rtl_memory_read_data_identifier(memory.name)
+    local_names = emission_context.cached_module_rtl_names(module)
+    read_stages = tuple(
+        local_names.memory_read_stage(memory.name, index)
+        for index in range(memory.read_latency - 1)
+    )
     initial_word = (
         render(memory.initial_value)
         if memory.initial_value is not None else "'0"
@@ -62,15 +68,9 @@ def global_memory_fragments(
     declarations = [
         f"  {style}logic [{width - 1}:0] {cells_name} [0:{memory.depth - 1}];",
         f"  logic [{width - 1}:0] {read_data_name};",
-        *(
-            f"  logic [{width - 1}:0] {name}_read_stage_{index};"
-            for index in range(memory.read_latency - 1)
-        ),
+        *(f"  logic [{width - 1}:0] {stage};" for stage in read_stages),
     ]
-    read_capture = (
-        f"{name}_read_stage_0"
-        if memory.read_latency > 1 else read_data_name
-    )
+    read_capture = read_stages[0] if read_stages else read_data_name
     combinational: list[str] = []
     if memory.write_mask is not None:
         lanes = memory.write_mask_width
@@ -128,10 +128,7 @@ def global_memory_fragments(
             and memory.read_data_reset is ir_storage.MemoryResetPolicy.PRESERVE
         ):
             initialization.append(f"    {name}_read_data = '0;")
-            initialization.extend(
-                f"    {name}_read_stage_{index} = '0;"
-                for index in range(memory.read_latency - 1)
-            )
+            initialization.extend(f"    {stage} = '0;" for stage in read_stages)
         if (
             memory.contents_reset is ir_storage.MemoryResetPolicy.PRESERVE
             or memory.initial_value is not None
@@ -145,7 +142,6 @@ def global_memory_fragments(
         initialization.append("  end")
 
     lines = [
-        *declarations,
         *combinational,
         *initialization,
         f"  {'always' if initialization else 'always_ff'} "
@@ -154,10 +150,7 @@ def global_memory_fragments(
     ]
     if memory.read_latency >= 1 and memory.read_data_reset is ir_storage.MemoryResetPolicy.CLEAR:
         lines.append(f"      {name}_read_data <= '0;")
-        lines.extend(
-            f"      {name}_read_stage_{index} <= '0;"
-            for index in range(memory.read_latency - 1)
-        )
+        lines.extend(f"      {stage} <= '0;" for stage in read_stages)
     if memory.contents_reset is ir_storage.MemoryResetPolicy.CLEAR:
         lines.append(
             f"      for (integer zlang_memory_reset_index = 0; "
@@ -201,14 +194,11 @@ def global_memory_fragments(
         lines.append(
             f"      {read_capture} <= {name}_cells[{render(memory.read_address)}];"
         )
-    if memory.read_latency > 1:
+    if read_stages:
         lines.extend(
-            f"      {name}_read_stage_{index} <= {name}_read_stage_{index - 1};"
-            for index in range(1, memory.read_latency - 1)
+            f"      {target} <= {previous};"
+            for previous, target in zip(read_stages[:-1], read_stages[1:], strict=True)
         )
-        lines.append(
-            f"      {name}_read_data <= "
-            f"{name}_read_stage_{memory.read_latency - 2};"
-        )
+        lines.append(f"      {read_data_name} <= {read_stages[-1]};")
     lines.extend(("    end", "  end"))
-    return lines
+    return declarations, lines

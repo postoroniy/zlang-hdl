@@ -396,15 +396,10 @@ def csr_named_state_path(
     return block.name, register.name, field.name
 
 
-def csr_internal_port_names(
-    access: CsrAccessInterface | None,
-    blocks: tuple[CsrBlock, ...],
-) -> frozenset[str]:
-    if access is None:
-        return frozenset()
+def csr_projection_port_names(blocks: tuple[CsrBlock, ...]) -> frozenset[str]:
+    """Return the generated state and observation names for CSR children."""
+
     return frozenset({
-        *(name for name, _ in access.input_types),
-        *(name for name, _ in access.output_types),
         *(csr_state_port_name(binding)
           for block in blocks for binding in block.state_bindings),
         *(csr_write_hit_port_name(binding)
@@ -425,6 +420,17 @@ def csr_internal_port_names(
         *(csr_split_port_name(block, view)
           for block in blocks for view in block.split_views),
     })
+
+
+def csr_internal_port_names(
+    access: CsrAccessInterface | None,
+    blocks: tuple[CsrBlock, ...],
+) -> frozenset[str]:
+    if access is None:
+        return frozenset()
+    return csr_projection_port_names(blocks).union(
+        name for name, _ in (*access.input_types, *access.output_types)
+    )
 
 
 @dataclass(frozen=True)

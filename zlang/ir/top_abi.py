@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import re
 
+from zlang.ir.csr import csr_projection_port_names
 from zlang.ir.equivalence import signedness
 from zlang.ir.expressions import Expression, StructConstruct, TupleConstruct
 from zlang.ir.formal_observations import port_observation_id
@@ -214,7 +215,15 @@ def build_top_physical_abi(module: Module) -> TopPhysicalABI:
     for endpoint in module.aggregate_protocol_endpoints:
         leaves.extend(_aggregate_leaves(module, endpoint))
 
+    # Child projections still reserve their semantic spellings. Keep the
+    # collision check before excluding them from the public top boundary.
     _validate_external_names(leaves)
+    if module.csr_access is not None:
+        projections = csr_projection_port_names(module.csr_blocks)
+        leaves = [
+            leaf for leaf in leaves
+            if leaf.category != "port" or leaf.member_path[0] not in projections
+        ]
     return TopPhysicalABI(module.name, tuple(leaves))
 
 

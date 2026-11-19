@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Port, PortDirection, RequestResponseInterface
 from zlang.ir.types import HardwareType
+from zlang.simulation_logic import LogicVector
 from zlang.simulation_primitives import (
     int_from_limbs as _limbs_to_int,
     int_to_limbs as _int_to_limbs,
@@ -37,6 +38,14 @@ class SimulationEventRunner:
 
     def __init__(self, simulator: Simulator) -> None:
         self._simulator = simulator
+        plan = simulator.program.plan.payload
+        self._inputs = {
+            port["name"] for port in plan["ports"] if port["direction"] == "input"
+        }
+        self._clocks = {domain["clock"] for domain in plan["domains"]}
+        self._resets = {
+            domain["reset"] for domain in plan["domains"] if domain["reset"] is not None
+        }
 
     def run(
         self,
@@ -56,7 +65,7 @@ class SimulationEventRunner:
             protocol_ports,
             request_responses,
         )
-        encoded, snapshots = self._encode_events(
+        encoded, snapshots, rejected = self._encode_events(
             events,
             external_values,
             capture_protocol_values=bool(protocol_ports or request_responses),
@@ -67,6 +76,8 @@ class SimulationEventRunner:
             simulator._raise_instrumentation_failure(error)
             raise SimulationRuntimeError(str(error)) from error
         simulator._raise_instrumentation_failure()
+        if rejected is not None:
+            raise rejected
         if protocol_ports or request_responses:
             return self._decode_protocol_results(
                 raw_results,
@@ -91,39 +102,27 @@ class SimulationEventRunner:
         for event in events:
             if simulator._io is not None and simulator._io.finished:
                 break
-            unknown = set(event) - {"set", "set_logic", "reset", "edges"}
-            if unknown:
-                raise SimulationRuntimeError(
-                    f"simulation event has unknown field '{sorted(unknown)[0]}'"
-                )
-            updates = event.get("set", {})
-            logic_updates = event.get("set_logic", {})
-            resets = event.get("reset", {})
-            edges = event.get("edges", ())
-            if not all(isinstance(item, Mapping) for item in (updates, logic_updates, resets)):
-                raise SimulationRuntimeError(
-                    "event set/set_logic/reset fields must be mappings"
-                )
-            if not isinstance(edges, Sequence) or isinstance(edges, (str, bytes)):
-                raise SimulationRuntimeError("event edges field must be a sequence")
-            duplicates = set(map(str, updates)) & set(map(str, logic_updates))
-            if duplicates:
-                raise SimulationRuntimeError(
-                    f"event specifies '{sorted(duplicates)[0]}' in both set and set_logic"
-                )
-            for name, value in updates.items():
-                simulator.set(str(name), value)
-            for name, value in logic_updates.items():
-                if not isinstance(value, str):
-                    raise SimulationRuntimeError("event set_logic values must be strings")
-                simulator.set_logic(str(name), value)
-            for name, asserted in resets.items():
-                if not isinstance(asserted, bool):
-                    raise SimulationRuntimeError("reset event values must be boolean")
-                simulator.reset(str(name), asserted=asserted)
-            selected = [str(item) for item in edges]
-            if len(selected) != len(set(selected)):
-                raise SimulationRuntimeError("one event cannot contain a clock twice")
+            (updates, resets, selected), logic_updates = self._encode_event(
+                event, {}, allow_logic=True,
+            )
+            if simulator._io is not None:
+                simulator._io.check_event(has_edge=bool(selected))
+            # Admission above is read-only, including logic-plane parsing and
+            # I/O ownership. No earlier field can leak out of a malformed event.
+            try:
+                for name, limbs in updates:
+                    simulator._native.set_limbs(name, limbs)
+                for name, value in logic_updates:
+                    simulator._native.set_logic(
+                        name,
+                        _int_to_limbs(value.value, value.width),
+                        _int_to_limbs(value.unknown, value.width),
+                        value.width,
+                    )
+            except (ValueError, RuntimeError) as error:
+                raise SimulationRuntimeError(str(error)) from error
+            for name, asserted in resets:
+                simulator.reset(name, asserted=asserted)
             if selected:
                 simulator.edge_many(selected)
             else:
@@ -168,31 +167,94 @@ class SimulationEventRunner:
         external_values: dict[str, object],
         *,
         capture_protocol_values: bool,
-    ) -> tuple[list[object], list[dict[str, object]]]:
+    ) -> tuple[list[object], list[dict[str, object]], SimulationRuntimeError | None]:
         encoded_events: list[object] = []
         snapshots: list[dict[str, object]] = []
         for event in events:
-            unknown = set(event) - {"set", "reset", "edges"}
-            if unknown:
-                raise SimulationRuntimeError(
-                    f"simulation event has unknown field '{sorted(unknown)[0]}'"
-                )
-            updates = event.get("set", {})
-            resets = event.get("reset", {})
-            edges = event.get("edges", ())
-            if not isinstance(updates, Mapping) or not isinstance(resets, Mapping):
-                raise SimulationRuntimeError("event set/reset fields must be mappings")
-            if not isinstance(edges, Sequence) or isinstance(edges, (str, bytes)):
-                raise SimulationRuntimeError("event edges field must be a sequence")
-            packed_updates = self._encode_updates(updates, external_values)
-            packed_resets = self._encode_resets(resets)
-            selected_edges = [str(item) for item in edges]
-            if len(selected_edges) != len(set(selected_edges)):
-                raise SimulationRuntimeError("one event cannot contain a clock twice")
-            encoded_events.append((packed_updates, packed_resets, selected_edges))
+            try:
+                encoded, _ = self._encode_event(event, external_values, allow_logic=False)
+            except SimulationRuntimeError as error:
+                # Execute the validated prefix, matching the sequential
+                # logic/I/O path, before reporting this event's rejection.
+                return encoded_events, snapshots, error
+            encoded_events.append(encoded)
             if capture_protocol_values:
                 snapshots.append(dict(external_values))
-        return encoded_events, snapshots
+        return encoded_events, snapshots, None
+
+    def _encode_event(
+        self,
+        event: Mapping[str, object],
+        external_values: dict[str, object],
+        *,
+        allow_logic: bool,
+    ) -> tuple[
+        tuple[list[tuple[str, object]], list[tuple[str, bool]], list[str]],
+        list[tuple[str, LogicVector]],
+    ]:
+        if not isinstance(event, Mapping):
+            raise SimulationRuntimeError("simulation event must be a mapping")
+        fields = {"set", "reset", "edges"}
+        if allow_logic:
+            fields.add("set_logic")
+        unknown = set(event) - fields
+        if unknown:
+            raise SimulationRuntimeError(
+                f"simulation event has unknown field '{min(map(str, unknown))}'"
+            )
+        updates = event.get("set", {})
+        logic_updates = event.get("set_logic", {})
+        resets = event.get("reset", {})
+        edges = event.get("edges", ())
+        if not all(isinstance(item, Mapping) for item in (updates, logic_updates, resets)):
+            raise SimulationRuntimeError("event set/set_logic/reset fields must be mappings")
+        if not isinstance(edges, Sequence) or isinstance(edges, (str, bytes)):
+            raise SimulationRuntimeError("event edges field must be a sequence")
+        selected = [str(item) for item in edges]
+        if len(selected) != len(set(selected)):
+            raise SimulationRuntimeError("one event cannot contain a clock twice")
+        for name in selected:
+            if name not in self._clocks:
+                raise SimulationRuntimeError(f"unknown clock '{name}'")
+        packed_resets = self._encode_resets(resets)
+        if logic_updates:
+            duplicates = set(map(str, updates)) & set(map(str, logic_updates))
+            if duplicates:
+                raise SimulationRuntimeError(
+                    f"event specifies '{min(duplicates)}' in both set and set_logic"
+                )
+        packed_updates = self._encode_updates(updates, external_values)
+        parsed_logic = self._encode_logic_updates(logic_updates) if logic_updates else []
+        return (packed_updates, packed_resets, selected), parsed_logic
+
+    def _require_input(self, name: str) -> None:
+        if name not in self._inputs:
+            raise SimulationRuntimeError(f"port '{name}' is not an input")
+        if self._simulator._io is not None:
+            self._simulator._io.check_external(name)
+
+    def _encode_logic_updates(
+        self, updates: Mapping[object, object],
+    ) -> list[tuple[str, LogicVector]]:
+        simulator = self._simulator
+        parsed = []
+        for raw_name, value in updates.items():
+            name = str(raw_name)
+            if not isinstance(value, str):
+                raise SimulationRuntimeError("event set_logic values must be strings")
+            if not simulator.program.logic_state:
+                raise SimulationRuntimeError("set_logic requires logic_state=True")
+            port = simulator._ports.get(name)
+            if port is None:
+                raise SimulationRuntimeError(f"unknown public port '{name}'")
+            if port.protocol is not InterfaceProtocol.WIRE:
+                raise SimulationRuntimeError("set_logic currently requires a scalar wire input")
+            self._require_input(name)
+            try:
+                parsed.append((name, LogicVector.parse(value, port.type.width)))
+            except ValueError as error:
+                raise SimulationRuntimeError(str(error)) from error
+        return parsed
 
     def _encode_updates(
         self,
@@ -203,6 +265,8 @@ class SimulationEventRunner:
         packed_updates: list[tuple[str, object]] = []
         for raw_name, value in updates.items():
             name = str(raw_name)
+            if simulator._io is not None:
+                simulator._io.check_external(name, value)
             port = simulator._ports.get(name)
             interface = simulator._request_responses.get(name)
             if port is None and interface is None:
@@ -218,6 +282,7 @@ class SimulationEventRunner:
                 continue
             assert port is not None
             if port.protocol is InterfaceProtocol.WIRE:
+                self._require_input(name)
                 packed = pack_value(port.type, value)
                 packed_updates.append(
                     (name, _int_to_limbs(packed, port.type.width))
@@ -238,6 +303,7 @@ class SimulationEventRunner:
         for internal, type_, field_value in (
             self._simulator._protocols.request_response_updates(interface, value)
         ):
+            self._require_input(internal)
             packed = pack_value(type_, field_value)
             encoded.append((internal, _int_to_limbs(packed, type_.width)))
             external_values[internal] = field_value
@@ -257,20 +323,24 @@ class SimulationEventRunner:
                 label=port.protocol.value,
             )
         ):
+            self._require_input(internal)
             packed = pack_value(type_, field_value)
             encoded.append((internal, _int_to_limbs(packed, type_.width)))
             external_values[internal] = field_value
         return encoded
 
-    @staticmethod
     def _encode_resets(
+        self,
         resets: Mapping[object, object],
     ) -> list[tuple[str, bool]]:
         result: list[tuple[str, bool]] = []
         for raw_name, value in resets.items():
+            name = str(raw_name)
             if not isinstance(value, bool):
                 raise SimulationRuntimeError("reset event values must be boolean")
-            result.append((str(raw_name), value))
+            if name not in self._resets:
+                raise SimulationRuntimeError(f"unknown reset '{name}'")
+            result.append((name, value))
         return result
 
     def _decode_protocol_results(

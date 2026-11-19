@@ -45,6 +45,47 @@ module SpecializedTop {
 """
 
 
+@pytest.mark.parametrize(
+    ("fifo", "user_output"), [
+        ("queue_a", "user_count"),
+        ("table", "user_count"),
+        ("table", "table_count"),
+    ],
+)
+def test_legacy_fifo_uses_physical_storage_names(
+    tmp_path: Path, fifo: str, user_output: str,
+) -> None:
+    source = tmp_path / "fifo_names.zhl"
+    source.write_text(f"""
+module FifoNames {{
+    clock clk reset rst
+    in x:u8
+    out {user_output}:u8 out seen:u2
+    fifo {fifo}:fifo<u8,3>
+    {fifo}.data=x {fifo}.push=x[0] {fifo}.pop=0
+    {user_output}=x seen={fifo}.count
+}}
+""")
+    events = [
+        {"reset": {"rst": index == 0}, "set": {"x": value}, "edges": ["clk"]}
+        for index, value in enumerate((0, 1, 3))
+    ]
+    expected = tuple(
+        {"seen": index, user_output: value} for index, value in enumerate((0, 1, 3))
+    )
+    compared = compare_program(
+        sim.compile(source), events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30, build_timeout=30,
+    )
+    assert compared.native_trace == expected
+    assert compared.rtl_trace == expected
+    with sim.compile(source, logic_state=True).create() as machine:
+        assert tuple(
+            {name: value.require_binary() for name, value in row.items()}
+            for row in machine.run_events(events)
+        ) == expected
+
+
 def test_two_global_fifos_preserve_independent_transactions(tmp_path: Path) -> None:
     source = tmp_path / "two_fifos.zhl"
     source.write_text("""
@@ -157,6 +198,196 @@ module TwoMemories {
                 memory[write] = data
         events.append({"reset": {"rst": reset}, "set": inputs, "edges": ["clk"] if edge else []})
         expected.append(samples.copy())
+    comparison = compare_program(
+        sim.compile(source), events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30, build_timeout=30,
+    )
+    assert comparison.native_trace == tuple(expected)
+    assert comparison.rtl_trace == tuple(expected)
+
+
+@pytest.mark.parametrize(
+    "resources",
+    [("ram", "rom"), ("ram", "fifo"), ("rom", "fifo")],
+    ids=["ram-rom", "ram-fifo", "rom-fifo"],
+)
+@pytest.mark.parametrize("nested", [False, True], ids=["top", "child"])
+def test_mixed_global_storage_preserves_resource_behavior(
+    tmp_path: Path, resources: tuple[str, str], nested: bool,
+) -> None:
+    has_fifo = "fifo" in resources
+    write_enable = "write & queue.full" if has_fifo else "write"
+    rom_address = (
+        "address ^ bitcast<u1>(queue.full)" if has_fifo
+        else "address ^ truncate<1>(cells.read_data)"
+    )
+    fifo_source = "cells.read_data" if "ram" in resources else "image.read_data"
+    controls = {
+        "ram": f"""
+    memory cells:mem<u8,2> {{ read_latency 1 collision read_first }}
+    cells.read_address=address cells.write_address=address
+    cells.write_enable={write_enable} cells.write_data=data
+    ram_sample=cells.read_data
+""",
+        "rom": f"""
+    rom image:rom<u8,2> {{ read_latency 1 init [9,13] }}
+    image.read_address={rom_address}
+    rom_sample=image.read_data
+""",
+        "fifo": f"""
+    fifo queue:fifo<u8,2>
+    queue.data=data ^ {fifo_source} queue.push=push queue.pop=pop
+    fifo_sample=queue.valid ? queue.front : 0
+    fifo_valid=queue.valid fifo_level=queue.count
+""",
+    }
+    outputs = {f"{resource}_sample": "u8" for resource in resources}
+    if has_fifo:
+        outputs.update(fifo_valid="bit", fifo_level="u2")
+    ports = "clock clk reset rst in address:u1 in data:u8 in write:bit in push:bit in pop:bit"
+    ports += "".join(f" out {name}:{width}" for name, width in outputs.items())
+    body = "".join(controls[resource] for resource in resources)
+    if nested:
+        design = f"module Child {{ {ports}\n{body}\n}}\nmodule Top {{ {ports}\n"
+        design += "    child:Child {address=address data=data write=write push=push pop=pop}\n"
+        design += "\n".join(f"    {name}=child.{name}" for name in outputs) + "\n}"
+    else:
+        design = f"module Top {{ {ports}\n{body}\n}}"
+    source = tmp_path / "mixed.zhl"
+    source.write_text(design)
+
+    # Reset, edge, address, data, write, push, pop.
+    # At full, the queue controls the other resource without exporting its full flag.
+    cycles = (
+        (True, True, 1, 0xAE, 1, 1, 0),
+        (False, True, 0, 0x11, 1, 1, 0),
+        (False, True, 1, 0x22, 0, 1, 0),
+        (False, False, 0, 0x77, 1, 0, 0),
+        (False, True, 1, 0x42, 1, 1, 1),
+        (False, True, 1, 0x55, 0, 0, 0),
+        (False, True, 0, 0x61, 1, 0, 1),
+        (False, True, 1, 0x99, 1, 0, 1),
+        (False, False, 0, 0x88, 0, 0, 0),
+        (False, True, 0, 0x88, 0, 0, 0),
+        (True, True, 1, 0xDD, 1, 1, 0),
+        (False, True, 1, 0xAA, 0, 0, 0),
+    )
+    memory = [0, 0]
+    queue = deque()
+    ram_sample = rom_sample = 0
+    events, expected = [], []
+    for reset, edge, address, data, write, push, pop in cycles:
+        if edge:
+            if reset:
+                memory[:] = [0, 0]
+                queue.clear()
+                ram_sample = rom_sample = 0
+            else:
+                full = has_fifo and len(queue) == 2
+                fifo_data = data ^ (ram_sample if "ram" in resources else rom_sample)
+                rom_index = address ^ (full if has_fifo else ram_sample & 1)
+                ram_sample = memory[address]
+                rom_sample = (9, 13)[rom_index]
+                if write and (not has_fifo or full):
+                    memory[address] = data
+                if has_fifo and pop:
+                    queue.popleft()
+                if has_fifo and push:
+                    assert len(queue) < 2
+                    queue.append(fifo_data)
+        events.append({
+            "reset": {"rst": reset},
+            "set": {"address": address, "data": data, "write": write, "push": push, "pop": pop},
+            "edges": ["clk"] if edge else [],
+        })
+        sample = {}
+        if "ram" in resources:
+            sample["ram_sample"] = ram_sample
+        if "rom" in resources:
+            sample["rom_sample"] = rom_sample
+        if has_fifo:
+            sample.update(
+                fifo_sample=queue[0] if queue else 0,
+                fifo_valid=int(bool(queue)),
+                fifo_level=len(queue),
+            )
+        expected.append(sample)
+    comparison_dir = tmp_path / "comparison"
+    comparison = compare_program(
+        sim.compile(source, top="Top"), events, simulator="iverilog",
+        artifact_directory=comparison_dir, timeout=30, build_timeout=30,
+    )
+    assert comparison.native_trace == tuple(expected)
+    assert comparison.rtl_trace == tuple(expected)
+    images = sorted(comparison_dir.rglob("*.mem"))
+    assert [path.read_text() for path in images] == (
+        ["00001001\n00001101\n"] if "rom" in resources else []
+    )
+
+
+@pytest.mark.parametrize("rv_input", [True, False], ids=["rv-to-scalar", "scalar-to-rv"])
+def test_global_fifo_supports_one_sided_ready_valid(tmp_path: Path, rv_input: bool) -> None:
+    direction = (
+        """
+    in rx:rv<u8> in pop:bit
+    out front:u8 out present:bit
+    queue.data=rx.payload queue.push=rx.transfer queue.pop=pop
+    rx.ready=queue.ready front=queue.valid ? queue.front : 0 present=queue.valid
+""" if rv_input else """
+    in data:u8 in push:bit
+    out tx:rv<u8> out room:bit
+    queue.data=data queue.push=push queue.pop=tx.transfer
+    tx.payload=queue.valid ? queue.front : 0 tx.valid=queue.valid room=queue.ready
+"""
+    )
+    source = tmp_path / "single_rv.zhl"
+    source.write_text(
+        "module Top {\n    clock clk reset rst\n    out level:u2\n"
+        "    fifo queue:fifo<u8,2>\n    level=queue.count\n" + direction + "\n}\n"
+    )
+    # Offered payload is held across full backpressure until concurrent pop frees a slot.
+    # A scalar producer drives a push only when the independently calculated ready is high.
+    cycles = (
+        (True, True, 0x00, 0, 0),
+        (False, True, 0x11, 1, 0),
+        (False, True, 0x22, 1, 0),
+        (False, False, 0x33, 1, 0),
+        (False, True, 0x33, 1, 0),
+        (False, False, 0x33, 1, 1),
+        (False, True, 0x33, 1, 1),
+        (False, True, 0x44, 0, 0),
+        (False, True, 0x44, 0, 1),
+        (False, True, 0x44, 0, 1),
+        (False, True, 0x55, 1, 0),
+        (True, True, 0x66, 0, 0),
+        (False, True, 0x77, 1, 0),
+    )
+    queue = deque()
+    events, expected = [], []
+    for reset, edge, data, offered, draw in cycles:
+        pop = bool(queue) and draw
+        ready = not reset and (len(queue) < 2 or pop)
+        if rv_input:
+            inputs = {"rx": {"payload": data, "valid": offered}, "pop": pop}
+        else:
+            inputs = {"data": data, "push": offered and ready, "tx": {"ready": draw}}
+        if edge:
+            if reset:
+                queue.clear()
+            else:
+                if pop:
+                    queue.popleft()
+                if ready and offered:
+                    queue.append(data)
+        events.append({"reset": {"rst": reset}, "set": inputs, "edges": ["clk"] if edge else []})
+        sample = {"level": len(queue)}
+        post_ready = int(not reset and (len(queue) < 2 or draw))
+        front = queue[0] if queue else 0
+        if rv_input:
+            sample.update(rx_ready=post_ready, front=front, present=int(bool(queue)))
+        else:
+            sample.update(room=post_ready, tx_valid=int(bool(queue)), tx_payload=front)
+        expected.append(sample)
     comparison = compare_program(
         sim.compile(source), events, simulator="iverilog",
         artifact_directory=tmp_path / "comparison", timeout=30, build_timeout=30,

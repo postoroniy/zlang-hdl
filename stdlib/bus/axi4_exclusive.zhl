@@ -16,14 +16,24 @@ struct Axi4CommittedWrite<AW=32,DW=32> {
     strb : bits<DW/8>
 }
 
+fn _axi4_reservation_end<AW,IW>(reservation : Axi4Address<AW,IW>) -> uint<80> {
+    span = truncate<80>((extend<80>(reservation.len) + 1) << reservation.size)
+    truncate<80>(extend<80>(reservation.addr) + span)
+}
+
+fn _axi4_reservations_overlap<AW,IW,RW=IW>(
+    left : Axi4Address<AW,IW>, right : Axi4Address<AW,RW>
+) -> bit {
+    (extend<80>(left.addr) < _axi4_reservation_end<AW=AW,IW=RW>(right)) &
+    (extend<80>(right.addr) < _axi4_reservation_end<AW=AW,IW=IW>(left))
+}
+
 fn axi4_reservation_conflicts<AW,DW,IW>(
     reservation : Axi4Address<AW,IW>,
     write : Axi4CommittedWrite<AW,DW>
 ) -> bit {
     low = extend<80>(reservation.addr)
-    span = truncate<80>((extend<80>(reservation.len) + 1) <<
-                        reservation.size)
-    high = truncate<80>(low + span)
+    high = _axi4_reservation_end<AW=AW,IW=IW>(reservation)
     bus_base = extend<80>(write.beat_address) &
                ~extend<80>((DW / 8) - 1)
     reduce(|, generate(lane in 0..DW/8)
@@ -32,13 +42,16 @@ fn axi4_reservation_conflicts<AW,DW,IW>(
          (truncate<80>(bus_base + extend<80>(lane)) < high)))
 }
 
-module AXI4ExclusiveMonitor<AW=32,DW=32,IW=4,D=4,SW=2>
+module _AXI4ExclusiveMonitorCore<AW=32,DW=32,IW=4,D=4,SW=2>
 where AW >= 1 && AW <= 64 && IW >= 1 && IW <= 32 &&
       DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
       D >= 2 && is_power_of_two(D) && SW == floor_log2(D) {
     in reserve : rv<Axi4Address<AW,IW>>
     in conditional : rv<Axi4Address<AW,IW>>
     in committed_write : rv<Axi4CommittedWrite<AW,DW>>
+    in commit_allowed : bit
+    in replace_read : bit
+    in replace_read_id : bits<IW>
     out grant : bit
     out reserve_can_accept : bit
     out protocol_error : bit
@@ -66,6 +79,7 @@ where AW >= 1 && AW <= 64 && IW >= 1 && IW <= 32 &&
 
     matching = generate(i in 0..D)
         (occupied[i] &
+         ~(replace_read & (reservations[i].id == replace_read_id)) &
          (reservations[i].id == conditional.payload.id) &
          (reservations[i].addr == conditional.payload.addr) &
          (reservations[i].len == conditional.payload.len) &
@@ -78,19 +92,30 @@ where AW >= 1 && AW <= 64 && IW >= 1 && IW <= 32 &&
     conflict_now = committed_write.transfer &
         axi4_reservation_conflicts<AW=AW,DW=DW,IW=IW>(
             conditional.payload, committed_write.payload)
-    grant = conditional.valid & conditional.payload.lock &
+    allowed = conditional.valid & commit_allowed & conditional.payload.lock &
         axi4_exclusive_address_valid<AW=AW,DW=DW,IW=IW>(
             conditional.payload) & reduce(|, matching) & ~conflict_now
+    grant = allowed
     protocol_error = failed
 
+    // A backend that rejects the attempt still consumes its own reservation.
+    // A granted commit invalidates the whole monitored transfer granule. The
+    // result channel has no per-beat strobes. Independent ordinary writes use
+    // the existing byte-lane overlap, including for same-edge priority.
+    exclusive_commit = conditional.transfer & allowed
     invalidated = generate(i in 0..D)
-        ((conditional.transfer &
+        ((replace_read & (reservations[i].id == replace_read_id)) |
+         (conditional.transfer &
           (reservations[i].id == conditional.payload.id)) |
+         (exclusive_commit &
+          _axi4_reservations_overlap<AW=AW,IW=IW>(reservations[i], conditional.payload)) |
          (committed_write.transfer &
           axi4_reservation_conflicts<AW=AW,DW=DW,IW=IW>(
               reservations[i], committed_write.payload)))
     new_conflict = (conditional.transfer &
                     (reserve.payload.id == conditional.payload.id)) |
+        (exclusive_commit &
+         _axi4_reservations_overlap<AW=AW,IW=IW>(reserve.payload, conditional.payload)) |
         (committed_write.transfer &
          axi4_reservation_conflicts<AW=AW,DW=DW,IW=IW>(
              reserve.payload, committed_write.payload))
@@ -111,10 +136,45 @@ where AW >= 1 && AW <= 64 && IW >= 1 && IW <= 32 &&
     }
 }
 
+// The public monitor's conditional channel presents writes that the caller
+// will commit on a grant. Keep that interface while sharing the reservation
+// state machine with the endpoint that also handles backend errors.
+module AXI4ExclusiveMonitor<AW=32,DW=32,IW=4,D=4,SW=2>
+where AW >= 1 && AW <= 64 && IW >= 1 && IW <= 32 &&
+      DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
+      D >= 2 && is_power_of_two(D) && SW == floor_log2(D) {
+    in reserve : rv<Axi4Address<AW,IW>>
+    in conditional : rv<Axi4Address<AW,IW>>
+    in committed_write : rv<Axi4CommittedWrite<AW,DW>>
+    out grant : bit
+    out reserve_can_accept : bit
+    out protocol_error : bit
+
+    core : _AXI4ExclusiveMonitorCore<AW,DW,IW,D,SW> {
+        commit_allowed=1 replace_read=0 replace_read_id=0
+    }
+    reserve -> core.reserve
+    conditional -> core.conditional
+    committed_write -> core.committed_write
+    grant = core.grant
+    reserve_can_accept = core.reserve_can_accept
+    protocol_error = core.protocol_error
+}
+
+fn _axi4_ram_witness_request_valid(request : Axi4Address<8,4>) -> bit {
+    bytes = extend<9>(1) << request.size
+    limit = extend<9>(request.addr) + bytes
+    axi4_exclusive_address_valid<AW=8,DW=32,IW=4>(request) &
+        (request.len == 0) & (request.size <= 2) & (limit <= 64)
+}
+
 // One concrete single-port RAM integration of the atomic backend contract.
 // A normal write wins the one physical port; the exclusive attempt waits for
 // the next edge.  This is a reference witness, not an AXI4 transaction adapter
-// and not a promise about arbitrary external memories.
+// and not a promise about arbitrary external memories. The RAM covers
+// byte addresses 0x00..0x3f and accepts one aligned beat per exclusive.
+// Invalid geometry transfers without touching RAM or reservations, latches
+// protocol_error and returns OKAY for a rejected exclusive attempt.
 module AXI4ExclusiveRamWitness {
     clock clk reset rst
     in reserve : rv<Axi4Address<8,4>>
@@ -127,37 +187,54 @@ module AXI4ExclusiveRamWitness {
     out exclusive_result : bits<2>
     out protocol_error : bit
 
-    monitor : AXI4ExclusiveMonitor<8,32,4,4,2>
-    reserve -> monitor.reserve
+    monitor : _AXI4ExclusiveMonitorCore<8,32,4,4,2> {
+        commit_allowed=1 replace_read=0 replace_read_id=0
+    }
+    reserve_ok = _axi4_ram_witness_request_valid(reserve.payload)
+    conditional_ok = _axi4_ram_witness_request_valid(conditional.payload)
+    normal_base = extend<9>(normal_write.payload.beat_address) & ~extend<9>(3)
+    normal_ok = normal_base + 3 < 64
+
+    monitor.reserve.payload = reserve.payload
+    monitor.reserve.valid = reserve.valid & reserve_ok
+    reserve.ready = ~reserve_ok | monitor.reserve.ready
     monitor.conditional.payload = conditional.payload
-    monitor.conditional.valid = conditional.valid & ~normal_write.valid
+    monitor.conditional.valid = conditional.valid & conditional_ok & ~normal_write.valid
     conditional.ready = monitor.conditional.ready & ~normal_write.valid
     monitor.committed_write.payload = normal_write.payload
-    monitor.committed_write.valid = normal_write.valid
+    monitor.committed_write.valid = normal_write.valid & normal_ok
     normal_write.ready = monitor.committed_write.ready
+
+    reg invalid_geometry : bit = 0
+    when (reserve.transfer & ~reserve_ok) |
+         (conditional.transfer & ~conditional_ok) |
+         (normal_write.transfer & ~normal_ok) {
+        invalid_geometry <- 1
+    }
 
     memory cells : mem<bits<32>,16> {
         read_latency 1
         collision read_first
     }
-    exclusive_write = conditional.transfer & monitor.grant
+    exclusive_write = monitor.conditional.transfer & monitor.grant
+    exclusive_lanes = mux(conditional.payload.size == 0, extend<4>(1),
+                          mux(conditional.payload.size == 1, extend<4>(3), extend<4>(15)))
+    exclusive_mask = bitcast<bits<4>>(exclusive_lanes << truncate<2>(conditional.payload.addr))
     rule fetch when 1 {
         cells.read(read_address)
     }
-    rule normal_store when normal_write.transfer {
+    rule normal_store when monitor.committed_write.transfer {
         cells.write(truncate<4>(normal_write.payload.beat_address >> 2),
                     normal_data, normal_write.payload.strb)
     }
     rule exclusive_store when exclusive_write {
         cells.write(truncate<4>(conditional.payload.addr >> 2),
-                    conditional_data, ones<4>)
+                    conditional_data, exclusive_mask)
     }
     priority normal_store > exclusive_store
     read_data = cells.read_data
-    exclusive_result = mux(conditional.transfer,
-        mux(monitor.grant, bitcast<bits<2>>(extend<2>(1)), zeros<2>),
-        zeros<2>)
-    protocol_error = monitor.protocol_error
+    exclusive_result = mux(exclusive_write, bitcast<bits<2>>(extend<2>(1)), zeros<2>)
+    protocol_error = monitor.protocol_error | invalid_geometry
 }
 
 // Five-channel exclusive-capable endpoint with a deliberately explicit
@@ -184,7 +261,7 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
     out protocol_error : bit
 
     endpoint : AXI4Subordinate<AW,DW,RIW,WIW,D,SW,1>
-    monitor : AXI4ExclusiveMonitor<AW,DW,32,D,SW>
+    monitor : _AXI4ExclusiveMonitorCore<AW,DW,32,D,SW>
     endpoint.axi.ar.payload = axi.ar.payload
     endpoint.axi.ar.valid = axi.ar.valid
     axi.ar.ready = endpoint.axi.ar.ready
@@ -209,6 +286,15 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
                       cache=0 prot=0 qos=0 region=0 }
     reg read_remaining : vec<D,u9> = generate(i in 0..D) 0
     reg read_failed : vec<D,bit> = generate(i in 0..D) 0
+    reg read_invalidated : vec<D,bit> = generate(i in 0..D) 0
+    incoming_read = backend_read_request.payload.address
+    read_started = backend_read_request.transfer & incoming_read.lock
+    monitor.replace_read = read_started
+    monitor.replace_read_id = bitcast<bits<32>>(extend<32>(incoming_read.id))
+    read_admitted = generate(i in 0..D)
+        (backend_read_request.transfer &
+         (backend_read_request.payload.slot ==
+          bitcast<bits<SW>>(truncate<SW>(i))))
     read_slot = generate(i in 0..D)
         (backend_read_beat.payload.slot ==
          bitcast<bits<SW>>(truncate<SW>(i)))
@@ -220,11 +306,15 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
         (read_slot[i] & (read_remaining[i] == 1)))
     previous_read_error = reduce(|, generate(i in 0..D)
         (read_slot[i] & read_failed[i]))
+    read_is_superseded = read_started & (incoming_read.id == selected_read.id)
+    selected_invalidated = reduce(|, generate(i in 0..D)
+        (read_slot[i] & read_invalidated[i])) | read_is_superseded
     successful_read_beat = (backend_read_beat.payload.resp == 0) |
                            (backend_read_beat.payload.resp == 1)
-    reserve_needed = read_final & selected_read.lock &
-        ~previous_read_error & successful_read_beat &
-        backend_read_beat.payload.last & ~endpoint.protocol_error
+    monitoring = selected_read.lock & ~previous_read_error &
+        ~endpoint.protocol_error
+    reserve_needed = read_final & monitoring & ~selected_invalidated &
+        successful_read_beat & backend_read_beat.payload.last
     monitor.reserve.payload = Axi4Address {
         id=extend<32>(selected_read.id)
         addr=selected_read.addr len=selected_read.len
@@ -241,29 +331,20 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
         data=backend_read_beat.payload.data
         resp=mux(backend_read_beat.payload.last != read_final,
                  bitcast<bits<2>>(extend<2>(2)),
-                 mux(selected_read.lock &
-                     (backend_read_beat.payload.resp == 0),
-                     bitcast<bits<2>>(extend<2>(1)),
+                 mux(successful_read_beat,
+                     mux(monitoring, bitcast<bits<2>>(extend<2>(1)), zeros<2>),
                      backend_read_beat.payload.resp))
         last=backend_read_beat.payload.last
     }
     backend_read_beat.ready = endpoint.backend_read_beat.ready & allow_read_beat
     read_requests <- generate(i in 0..D)
-        mux(backend_read_request.transfer &
-            (backend_read_request.payload.slot ==
-             bitcast<bits<SW>>(truncate<SW>(i))),
-            backend_read_request.payload.address, read_requests[i])
+        mux(read_admitted[i], incoming_read, read_requests[i])
     read_remaining <- generate(i in 0..D)
-        mux(backend_read_request.transfer &
-            (backend_read_request.payload.slot ==
-             bitcast<bits<SW>>(truncate<SW>(i))),
-            backend_read_request.payload.address.len + 1,
+        mux(read_admitted[i], incoming_read.len + 1,
             mux(backend_read_beat.transfer & read_slot[i],
                 truncate<9>(read_remaining[i] - 1), read_remaining[i]))
     read_failed <- generate(i in 0..D)
-        mux(backend_read_request.transfer &
-            (backend_read_request.payload.slot ==
-             bitcast<bits<SW>>(truncate<SW>(i))),
+        mux(read_admitted[i],
             0, read_failed[i] |
                (backend_read_beat.transfer & read_slot[i] &
                 (~successful_read_beat |
@@ -291,25 +372,47 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
         prot=selected_write.prot qos=selected_write.qos
         region=selected_write.region
     }
-    granted_commit = monitor.grant &
+    monitor.commit_allowed =
         (backend_write_result.payload.resp == 0) &
         ~endpoint.protocol_error
+    granted_commit = monitor.grant
     exclusive_grant = granted_commit
+    // Each outstanding exclusive read owns its history from request
+    // acceptance through the final backend beat. The monitor handles
+    // conflicts on the installation edge and after installation.
+    read_invalidated <- generate(i in 0..D)
+        mux(read_admitted[i],
+            incoming_read.lock &
+            ((committed_write.transfer &
+              axi4_reservation_conflicts<AW=AW,DW=DW,IW=RIW>(
+                  incoming_read, committed_write.payload)) |
+             (granted_commit &
+              _axi4_reservations_overlap<AW=AW,IW=RIW,RW=WIW>(
+                  incoming_read, selected_write))),
+            read_invalidated[i] |
+            ((read_remaining[i] != 0) & read_requests[i].lock &
+             ((read_started & (incoming_read.id == read_requests[i].id)) |
+              (committed_write.transfer &
+               axi4_reservation_conflicts<AW=AW,DW=DW,IW=RIW>(
+                   read_requests[i], committed_write.payload)) |
+              (granted_commit &
+               _axi4_reservations_overlap<AW=AW,IW=RIW,RW=WIW>(
+                   read_requests[i], selected_write)))))
     endpoint.backend_write_result.valid = backend_write_result.valid
     endpoint.backend_write_result.payload = Axi4BackendWriteResult {
         slot=backend_write_result.payload.slot
         resp=mux(backend_write_result.payload.resp == 1,
                  zeros<2>, backend_write_result.payload.resp)
     }
-    reg successful_write : vec<D,bit> = generate(i in 0..D) 0
-    successful_response = reduce(|, generate(i in 0..D)
-        (successful_write[i] &
-         (endpoint.backend_write_response_slot ==
-          bitcast<bits<SW>>(truncate<SW>(i)))))
+    // The endpoint has one B response register. A backend completion fills
+    // it on transfer. A local reject can refill it without a backend result
+    // only when it was empty or the previous response retired on this edge.
+    reg response_exclusive : bit = 0
+    response_exclusive <- mux(backend_write_result.transfer, granted_commit,
+                              mux(axi.b.transfer, 0, response_exclusive))
     axi.b.payload = Axi4WriteResponse {
         id=endpoint.axi.b.payload.id
-        resp=mux(successful_response,
-                 bitcast<bits<2>>(extend<2>(1)),
+        resp=mux(response_exclusive, bitcast<bits<2>>(extend<2>(1)),
                  endpoint.axi.b.payload.resp)
     }
     write_requests <- generate(i in 0..D)
@@ -317,13 +420,6 @@ where AW >= 1 && AW <= 64 && RIW >= 1 && RIW <= 32 &&
             (backend_write_request.payload.slot ==
              bitcast<bits<SW>>(truncate<SW>(i))),
             backend_write_request.payload.address, write_requests[i])
-    successful_write <- generate(i in 0..D)
-        mux(backend_write_request.transfer &
-            (backend_write_request.payload.slot ==
-             bitcast<bits<SW>>(truncate<SW>(i))),
-            0, mux(backend_write_result.transfer & write_slot[i],
-                   selected_write.lock & granted_commit,
-                   successful_write[i]))
     when backend_write_result.valid {
         invalid_backend_resp <- invalid_backend_resp |
             (backend_write_result.payload.resp == 1)

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from zlang.common import stable_digest
 from zlang.common.serialization import stable_acyclic_digest
+from zlang.ir import expressions as ir_expr
 from zlang.ir.interfaces import (
     InterfaceProtocol,
     ReadyValidSignal,
@@ -1326,3 +1327,29 @@ __all__ = [
     "validate_hierarchical_connections",
     "validate_instance_port_bindings",
 ]
+
+
+def csr_access_constants(
+    child: Module,
+    instance: str,
+    bindings: dict[tuple[str, str], ir_expr.Expression],
+    local_values: dict[str, ir_expr.Expression],
+    input_constants: dict[str, int],
+) -> dict[str, int]:
+    """Collect only exact scalar constants from physical CSR access bindings."""
+    access = child.csr_access
+    if access is None:
+        return {}
+    constants = {}
+    for name in (access.address_port, access.read_port, access.write_port):
+        value = bindings.get((instance, name))
+        visited: set[str] = set()
+        while isinstance(value, ir_expr.InputRef) and value.name not in visited:
+            if value.name in input_constants:
+                constants[name] = input_constants[value.name]
+                break
+            visited.add(value.name)
+            value = local_values.get(value.name)
+        if isinstance(value, ir_expr.Constant) and isinstance(value.value, int):
+            constants[name] = value.value
+    return constants

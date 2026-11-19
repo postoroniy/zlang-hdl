@@ -21,8 +21,15 @@ struct FpRequest<W> {
     operation:u5 rounding:u3 word:bit unsigned_integer:bit
 }
 
+fn _fp_bit_length_wide<M,B>(value:bits<M>) -> uint<B> {
+    // The count ranges from zero through M inclusive.
+    check_count_width = extend<B>(zeros<floor_log2(M)+1>)
+    truncate<B>(sum(generate(i in 0..M) extend<B>(bitcast<uint<1>>((value >> i) != 0))))
+}
+
+// The u8 result admits input widths from 1 through 255.
 fn fp_bit_length<M>(value:bits<M>) -> u8 {
-    truncate<8>(sum(generate(i in 0..M) extend<8>(bitcast<uint<1>>((value >> i) != 0))))
+    _fp_bit_length_wide<M=M,B=8>(value)
 }
 
 fn fp_shift_jam<M>(value:bits<M>,distance:u16) -> bits<M> {
@@ -33,14 +40,18 @@ fn fp_shift_jam<M>(value:bits<M>,distance:u16) -> bits<M> {
 }
 
 fn fp_decode<E,F,W=1+E+F,X=E+5>(value:bits<W>) -> FpDecoded<E,F> {
+    // Check the raw encoding and exponent widths before decoding fields.
+    check_encoding = bitcast<bits<W>>(zeros<1+E+F>)
+    check_exponent = bitcast<bits<X>>(zeros<E+5>)
     fraction = value[F-1:0]
     field = value[F+E-1:F]
     raw = concat(bitcast<bits<1>>(field != 0),fraction)
     length = fp_bit_length<M=F+1>(raw)
     shift = length == 0 ? extend<8>(0) : truncate<8>((F+1)-length)
+    positive_shift = bitcast<sint<X+1>>(concat(zeros<1>,bitcast<bits<X>>(extend<X>(shift))))
     biased = bitcast<sint<E+5>>(extend<X>(field == 0 ? bitcast<bits<E>>(extend<E>(1)) : field))
     FpDecoded {
-        sign=value[W-1] exponent=truncate<X>(biased-((1 << (E-1))-1)-extend<X>(bitcast<s8>(shift)))
+        sign=value[W-1] exponent=truncate<X>(biased-((1 << (E-1))-1)-positive_shift)
         significand=raw << shift
         is_zero=(field == 0) & (fraction == 0)
         subnormal=(field == 0) & (fraction != 0)

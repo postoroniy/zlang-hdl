@@ -2032,6 +2032,24 @@ strb : bits<DW/8>
 
 [Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L14) · [Contract and restrictions](standard-bus-library.md)
 
+### `_axi4_reservation_end` — function
+
+```text
+fn _axi4_reservation_end<AW,IW>(reservation : Axi4Address<AW,IW>) -> uint<80>
+```
+
+[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L19) · [Contract and restrictions](standard-bus-library.md)
+
+### `_axi4_reservations_overlap` — function
+
+```text
+fn _axi4_reservations_overlap<AW,IW,RW=IW>(
+    left : Axi4Address<AW,IW>, right : Axi4Address<AW,RW>
+) -> bit
+```
+
+[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L24) · [Contract and restrictions](standard-bus-library.md)
+
 ### `axi4_reservation_conflicts` — function
 
 ```text
@@ -2041,9 +2059,31 @@ fn axi4_reservation_conflicts<AW,DW,IW>(
 ) -> bit
 ```
 
-[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L19) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L31) · [Contract and restrictions](standard-bus-library.md)
+
+### `_AXI4ExclusiveMonitorCore` — module
+
+```text
+module _AXI4ExclusiveMonitorCore<AW=32,DW=32,IW=4,D=4,SW=2>
+where AW >= 1 && AW <= 64 && IW >= 1 && IW <= 32 &&
+      DW >= 8 && DW <= 1024 && is_power_of_two(DW) &&
+      D >= 2 && is_power_of_two(D) && SW == floor_log2(D)
+in reserve : rv<Axi4Address<AW,IW>>
+in conditional : rv<Axi4Address<AW,IW>>
+in committed_write : rv<Axi4CommittedWrite<AW,DW>>
+in commit_allowed : bit
+in replace_read : bit
+in replace_read_id : bits<IW>
+out grant : bit
+out reserve_can_accept : bit
+out protocol_error : bit
+```
+
+[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L45) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4ExclusiveMonitor` — module
+
+The public monitor's conditional channel presents writes that the caller will commit on a grant. Keep that interface while sharing the reservation state machine with the endpoint that also handles backend errors.
 
 ```text
 module AXI4ExclusiveMonitor<AW=32,DW=32,IW=4,D=4,SW=2>
@@ -2058,11 +2098,19 @@ out reserve_can_accept : bit
 out protocol_error : bit
 ```
 
-[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L35) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L142) · [Contract and restrictions](standard-bus-library.md)
+
+### `_axi4_ram_witness_request_valid` — function
+
+```text
+fn _axi4_ram_witness_request_valid(request : Axi4Address<8,4>) -> bit
+```
+
+[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L164) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4ExclusiveRamWitness` — module
 
-One concrete single-port RAM integration of the atomic backend contract. A normal write wins the one physical port; the exclusive attempt waits for the next edge.  This is a reference witness, not an AXI4 transaction adapter and not a promise about arbitrary external memories.
+One concrete single-port RAM integration of the atomic backend contract. A normal write wins the one physical port; the exclusive attempt waits for the next edge.  This is a reference witness, not an AXI4 transaction adapter and not a promise about arbitrary external memories. The RAM covers byte addresses 0x00..0x3f and accepts one aligned beat per exclusive. Invalid geometry transfers without touching RAM or reservations, latches protocol_error and returns OKAY for a rejected exclusive attempt.
 
 ```text
 module AXI4ExclusiveRamWitness
@@ -2079,7 +2127,7 @@ out exclusive_result : bits<2>
 out protocol_error : bit
 ```
 
-[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L118) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L178) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4ExclusiveSubordinate` — module
 
@@ -2102,7 +2150,7 @@ out protocol_error : bit
 interface axi : AXI4<AW,DW,RIW,WIW>.slave
 ```
 
-[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L171) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi4_exclusive.zhl#L248) · [Contract and restrictions](standard-bus-library.md)
 
 ## `std.bus.axi4_pins`
 
@@ -2628,6 +2676,16 @@ fn axi_single_beat_address<AW,DW>(address : uint<AW>)
 
 [Exact declaration](../stdlib/bus/axi_burst.zhl#L19) · [Contract and restrictions](standard-bus-library.md)
 
+### `_axi_burst_request_valid` — function
+
+Check the inclusive last byte before any narrowing to the address ABI. Nine count bits cover all admitted lengths and each beat is at most 128 bytes.
+
+```text
+fn _axi_burst_request_valid<AW,DW,LW,W=AW+16>(address : uint<AW>, length : uint<LW>) -> bit
+```
+
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L37) · [Contract and restrictions](standard-bus-library.md)
+
 ### `AxiBurstReadData` — struct
 
 ```text
@@ -2637,7 +2695,7 @@ last : bit
 resp : bits<2>
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L35) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L47) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AxiBurstWriteData` — struct
 
@@ -2647,7 +2705,7 @@ data : uint<DW>
 last : bit
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L41) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L53) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AxiBurstWriteResponse` — struct
 
@@ -2656,7 +2714,7 @@ struct AxiBurstWriteResponse
 resp : bits<2>
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L46) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L58) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4BurstSubset` — interface
 
@@ -2672,7 +2730,7 @@ protocol AXI4BurstSubset<AW=32,DW=32> {
 }
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L50) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L62) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4BurstReadSubset` — interface
 
@@ -2687,7 +2745,7 @@ protocol AXI4BurstReadSubset<AW=32,DW=32> {
 }
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L62) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L74) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4BurstWriteSubset` — interface
 
@@ -2701,7 +2759,7 @@ protocol AXI4BurstWriteSubset<AW=32,DW=32> {
 }
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L69) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L81) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AxiBurstReadPhase` — enum
 
@@ -2713,7 +2771,7 @@ Data
 Done
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L77) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L89) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4BurstReader` — module
 
@@ -2734,7 +2792,7 @@ out data : rv<uint<DW>>
 interface axi : AXI4BurstReadSubset<AW,DW>.master
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L86) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L98) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AxiBurstWritePhase` — enum
 
@@ -2747,7 +2805,7 @@ Response
 Done
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L163) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L172) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4BurstWriter` — module
 
@@ -2768,7 +2826,7 @@ out error : bit
 interface axi : AXI4BurstWriteSubset<AW,DW>.master
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L173) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L182) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4SingleBeatReader` — module
 
@@ -2788,7 +2846,7 @@ out data : rv<uint<DW>>
 interface axi : AXI4BurstReadSubset<AW,DW>.master
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L257) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L263) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AxiSingleBeatWritePhase` — enum
 
@@ -2800,7 +2858,7 @@ Response
 Done
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L281) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L287) · [Contract and restrictions](standard-bus-library.md)
 
 ### `AXI4SingleBeatWriter` — module
 
@@ -2820,7 +2878,7 @@ out error : bit
 interface axi : AXI4BurstWriteSubset<AW,DW>.master
 ```
 
-[Exact declaration](../stdlib/bus/axi_burst.zhl#L290) · [Contract and restrictions](standard-bus-library.md)
+[Exact declaration](../stdlib/bus/axi_burst.zhl#L296) · [Contract and restrictions](standard-bus-library.md)
 
 ## `std.bus.axi_lite`
 
@@ -4704,7 +4762,7 @@ in input : rv<fixed<SW,SF>>
 out output : rv<fixed<AW,SF+CF>>
 ```
 
-[Exact declaration](../stdlib/dsp/halfband.zhl#L24) · [Contract and restrictions](stdlib-multirate-coding.md)
+[Exact declaration](../stdlib/dsp/halfband.zhl#L28) · [Contract and restrictions](stdlib-multirate-coding.md)
 
 ### `RvHalfbandInterpolatorExact` — module
 
@@ -4718,7 +4776,7 @@ in input : rv<fixed<SW,SF>>
 out output : rv<fixed<AW,SF+CF>>
 ```
 
-[Exact declaration](../stdlib/dsp/halfband.zhl#L48) · [Contract and restrictions](stdlib-multirate-coding.md)
+[Exact declaration](../stdlib/dsp/halfband.zhl#L52) · [Contract and restrictions](stdlib-multirate-coding.md)
 
 ### `RvHalfbandDecimatorNearestEvenSaturate` — module
 
@@ -4732,7 +4790,7 @@ in input : rv<fixed<SW,SF>>
 out output : rv<fixed<OW,OF>>
 ```
 
-[Exact declaration](../stdlib/dsp/halfband.zhl#L78) · [Contract and restrictions](stdlib-multirate-coding.md)
+[Exact declaration](../stdlib/dsp/halfband.zhl#L82) · [Contract and restrictions](stdlib-multirate-coding.md)
 
 ### `RvHalfbandInterpolatorNearestEvenSaturate` — module
 
@@ -4746,7 +4804,7 @@ in input : rv<fixed<SW,SF>>
 out output : rv<fixed<OW,OF>>
 ```
 
-[Exact declaration](../stdlib/dsp/halfband.zhl#L91) · [Contract and restrictions](stdlib-multirate-coding.md)
+[Exact declaration](../stdlib/dsp/halfband.zhl#L95) · [Contract and restrictions](stdlib-multirate-coding.md)
 
 ## `std.dsp.nco`
 
@@ -4938,7 +4996,7 @@ in input : rv<fixed<SW,SF>>
 out output : rv<fixed<AW,SF+CF>>
 ```
 
-[Exact declaration](../stdlib/dsp/polyphase.zhl#L64) · [Contract and restrictions](stdlib-multirate-coding.md)
+[Exact declaration](../stdlib/dsp/polyphase.zhl#L66) · [Contract and restrictions](stdlib-multirate-coding.md)
 
 ### `RvPolyphaseFirInterpolatorNearestEvenSaturate` — module
 
@@ -4952,7 +5010,7 @@ in input : rv<fixed<SW,SF>>
 out output : rv<fixed<OW,OF>>
 ```
 
-[Exact declaration](../stdlib/dsp/polyphase.zhl#L104) · [Contract and restrictions](stdlib-multirate-coding.md)
+[Exact declaration](../stdlib/dsp/polyphase.zhl#L106) · [Contract and restrictions](stdlib-multirate-coding.md)
 
 ## `std.math.complex`
 
@@ -5390,13 +5448,23 @@ unsigned_integer:bit
 
 [Exact declaration](../stdlib/math/fp_format.zhl#L15) · [Contract and restrictions](stdlib-overview.md)
 
+### `_fp_bit_length_wide` — function
+
+```text
+fn _fp_bit_length_wide<M,B>(value:bits<M>) -> uint<B>
+```
+
+[Exact declaration](../stdlib/math/fp_format.zhl#L24) · [Contract and restrictions](stdlib-overview.md)
+
 ### `fp_bit_length` — function
+
+The u8 result admits input widths from 1 through 255.
 
 ```text
 fn fp_bit_length<M>(value:bits<M>) -> u8
 ```
 
-[Exact declaration](../stdlib/math/fp_format.zhl#L24) · [Contract and restrictions](stdlib-overview.md)
+[Exact declaration](../stdlib/math/fp_format.zhl#L31) · [Contract and restrictions](stdlib-overview.md)
 
 ### `fp_shift_jam` — function
 
@@ -5404,7 +5472,7 @@ fn fp_bit_length<M>(value:bits<M>) -> u8
 fn fp_shift_jam<M>(value:bits<M>,distance:u16) -> bits<M>
 ```
 
-[Exact declaration](../stdlib/math/fp_format.zhl#L28) · [Contract and restrictions](stdlib-overview.md)
+[Exact declaration](../stdlib/math/fp_format.zhl#L35) · [Contract and restrictions](stdlib-overview.md)
 
 ### `fp_decode` — function
 
@@ -5412,7 +5480,7 @@ fn fp_shift_jam<M>(value:bits<M>,distance:u16) -> bits<M>
 fn fp_decode<E,F,W=1+E+F,X=E+5>(value:bits<W>) -> FpDecoded<E,F>
 ```
 
-[Exact declaration](../stdlib/math/fp_format.zhl#L35) · [Contract and restrictions](stdlib-overview.md)
+[Exact declaration](../stdlib/math/fp_format.zhl#L42) · [Contract and restrictions](stdlib-overview.md)
 
 ### `fp_nan` — function
 
@@ -5420,7 +5488,7 @@ fn fp_decode<E,F,W=1+E+F,X=E+5>(value:bits<W>) -> FpDecoded<E,F>
 fn fp_nan<E,F,W=1+E+F>() -> bits<W>
 ```
 
-[Exact declaration](../stdlib/math/fp_format.zhl#L53) · [Contract and restrictions](stdlib-overview.md)
+[Exact declaration](../stdlib/math/fp_format.zhl#L64) · [Contract and restrictions](stdlib-overview.md)
 
 ### `fp_infinity` — function
 
@@ -5428,7 +5496,7 @@ fn fp_nan<E,F,W=1+E+F>() -> bits<W>
 fn fp_infinity<E,F,W=1+E+F>(sign:bit) -> bits<W>
 ```
 
-[Exact declaration](../stdlib/math/fp_format.zhl#L57) · [Contract and restrictions](stdlib-overview.md)
+[Exact declaration](../stdlib/math/fp_format.zhl#L68) · [Contract and restrictions](stdlib-overview.md)
 
 ### `fp_classify` — function
 
@@ -5436,7 +5504,7 @@ fn fp_infinity<E,F,W=1+E+F>(sign:bit) -> bits<W>
 fn fp_classify<E,F,W=1+E+F>(value:bits<W>) -> bits<10>
 ```
 
-[Exact declaration](../stdlib/math/fp_format.zhl#L61) · [Contract and restrictions](stdlib-overview.md)
+[Exact declaration](../stdlib/math/fp_format.zhl#L72) · [Contract and restrictions](stdlib-overview.md)
 
 ### `fp_round_increment` — function
 
@@ -5444,7 +5512,7 @@ fn fp_classify<E,F,W=1+E+F>(value:bits<W>) -> bits<10>
 fn fp_round_increment(sign:bit,rounding:u3,low:bits<3>,odd:bit) -> bit
 ```
 
-[Exact declaration](../stdlib/math/fp_format.zhl#L71) · [Contract and restrictions](stdlib-overview.md)
+[Exact declaration](../stdlib/math/fp_format.zhl#L82) · [Contract and restrictions](stdlib-overview.md)
 
 ## `std.math.fp_round`
 
@@ -5454,13 +5522,24 @@ Import: `import std.math.fp_round`.
 
 ### `fp_round_pack` — function
 
-The sole finite rounding/packing owner. Exact input is magnitude*2^scale; bit zero may carry a right-shift sticky bit. Tininess is after rounding.
+Exact input is magnitude*2^scale. Bit zero may carry a right-shift sticky bit. Tininess is after rounding.
 
 ```text
 fn fp_round_pack<E,F,M,W=1+E+F,X=E+5,P=F+4,Q=F+2,L=M+F+4>(sign:bit,magnitude:bits<M>,scale:sint<E+5>,rounding:u3) -> FpResult
 ```
 
 [Exact declaration](../stdlib/math/fp_round.zhl#L5) · [Contract and restrictions](stdlib-overview.md)
+
+### `_fp_round_pack_scaled` — function
+
+Keep the exact incoming scale through range classification, including when converting from a source format with a larger exponent range.
+
+```text
+fn _fp_round_pack_scaled<E,F,M,S,W=1+E+F,X=E+5,P=F+4,Q=F+2,L=M+F+4,B=M>(
+    sign:bit,magnitude:bits<M>,scale:sint<S>,rounding:u3) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_round.zhl#L13) · [Contract and restrictions](stdlib-overview.md)
 
 ### `fp_sum` — function
 
@@ -5471,7 +5550,16 @@ fn fp_sum<E,F,M,K,X=E+5>(a:bits<M>,b:bits<M>,ea:sint<E+5>,eb:sint<E+5>,
     sa:bit,sb:bit,rounding:u3) -> FpResult
 ```
 
-[Exact declaration](../stdlib/math/fp_round.zhl#L45) · [Contract and restrictions](stdlib-overview.md)
+[Exact declaration](../stdlib/math/fp_round.zhl#L76) · [Contract and restrictions](stdlib-overview.md)
+
+### `_fp_sum_aligned` — function
+
+```text
+fn _fp_sum_aligned<E,F,M,K,P,X=E+5,A=M+P>(a:bits<M>,b:bits<M>,ea:sint<E+5>,eb:sint<E+5>,
+    sa:bit,sb:bit,rounding:u3) -> FpResult
+```
+
+[Exact declaration](../stdlib/math/fp_round.zhl#L85) · [Contract and restrictions](stdlib-overview.md)
 
 ## `std.peripheral.capture`
 
@@ -7836,4 +7924,4 @@ module Xc7z030TargetLibrary
 
 [Exact declaration](../stdlib/target/xilinx/xc7z030.zhl#L19) · [Contract and restrictions](../docs/target-platform-architecture-description.md)
 
-Inventory: 102 source namespaces; 541 top-level declarations.
+Inventory: 102 source namespaces; 549 top-level declarations.

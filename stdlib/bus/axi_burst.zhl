@@ -32,6 +32,18 @@ fn axi_single_beat_address<AW,DW>(address : uint<AW>)
     }
 }
 
+// Check the inclusive last byte before any narrowing to the address ABI.
+// Nine count bits cover all admitted lengths and each beat is at most 128 bytes.
+fn _axi_burst_request_valid<AW,DW,LW,W=AW+16>(address : uint<AW>, length : uint<LW>) -> bit {
+    alignment_mask = extend<AW>((DW / 8) - 1)
+    aligned = (address & alignment_mask) == 0
+    length_valid = (length != 0) & (length <= extend<LW>(256))
+    first = extend<W>(address)
+    span_bytes = extend<W>(truncate<9>(length)) << floor_log2(DW / 8)
+    last = truncate<W>(first + span_bytes - 1)
+    aligned & length_valid & ((last >> AW) == 0) & ((first >> 12) == (last >> 12))
+}
+
 struct AxiBurstReadData<DW=32> {
     data : uint<DW>
     last : bit
@@ -101,10 +113,7 @@ where AW >= 1 && AW >= floor_log2(DW / 8) &&
     reg remaining : uint<LW> = 0
     reg failed : bit = 0
 
-    alignment_mask : uint<AW> = extend<AW>((DW / 8) - 1)
-    aligned : bit = (base_addr & alignment_mask) == 0
-    length_valid : bit = (length != 0) & (length <= extend<LW>(256))
-    request_valid : bit = aligned & length_valid
+    request_valid : bit = _axi_burst_request_valid<AW=AW,DW=DW,LW=LW>(base_addr, length)
     expected_last : bit = remaining == 1
     response_failed : bit = axi.r.payload.resp != 0
     framing_failed : bit = axi.r.payload.last != expected_last
@@ -188,10 +197,7 @@ where AW >= 1 && AW >= floor_log2(DW / 8) &&
     reg remaining : uint<LW> = 0
     reg failed : bit = 0
 
-    alignment_mask : uint<AW> = extend<AW>((DW / 8) - 1)
-    aligned : bit = (base_addr & alignment_mask) == 0
-    length_valid : bit = (length != 0) & (length <= extend<LW>(256))
-    request_valid : bit = aligned & length_valid
+    request_valid : bit = _axi_burst_request_valid<AW=AW,DW=DW,LW=LW>(base_addr, length)
     final_beat : bit = remaining == 1
     size_code : u3 = floor_log2(DW / 8)
 

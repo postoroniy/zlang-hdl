@@ -189,6 +189,7 @@ def emit(
 ) -> str:
     """Emit one design, reporting impossible physical allocations structurally."""
 
+    sv_accounting.validate_protocol_storage_composition(module)
     try:
         return _emit_named_design(
             module,
@@ -359,30 +360,44 @@ def _validate_state_storage_rtl_namespace(
             claim(f"{name}_{suffix}", f"FIFO '{fifo.name}' {suffix}")
     for memory in module.memories:
         name = identifiers.rtl_identifier(memory.name)
+        readable_ports = tuple(
+            port for port in memory.ports
+            if port.kind in {ir_storage.MemoryPortKind.READ, ir_storage.MemoryPortKind.READ_WRITE}
+        )
         if memory.ported:
             implementation = memory_planning.plan_memory_implementation(memory)
             if (
                 implementation.implementation
                 is memory_planning.MemoryImplementationKind.REPLICATED_1R1W
             ):
-                for port in memory.ports:
-                    if port.kind in {ir_storage.MemoryPortKind.READ, ir_storage.MemoryPortKind.READ_WRITE}:
-                        claim(
-                            f"{identifiers.rtl_memory_cells_identifier(memory.name)}_"
-                            f"{identifiers.rtl_identifier(port.name)}",
-                            f"memory '{memory.name}' port '{port.name}' cells",
-                        )
+                for port in readable_ports:
+                    claim(
+                        f"{identifiers.rtl_memory_cells_identifier(memory.name)}_"
+                        f"{identifiers.rtl_identifier(port.name)}",
+                        f"memory '{memory.name}' port '{port.name}' cells",
+                    )
             else:
                 claim(
                     identifiers.rtl_memory_cells_identifier(memory.name),
                     f"memory '{memory.name}' cells",
                 )
-            for port in memory.ports:
-                if port.kind in {ir_storage.MemoryPortKind.READ, ir_storage.MemoryPortKind.READ_WRITE}:
+            for port in readable_ports:
+                claim(
+                    f"{name}_{identifiers.rtl_identifier(port.name)}_read_data",
+                    f"memory '{memory.name}' port '{port.name}' read data",
+                )
+                for index in range(memory.read_latency - 1):
                     claim(
-                        f"{name}_{identifiers.rtl_identifier(port.name)}_read_data",
-                        f"memory '{memory.name}' port '{port.name}' read data",
+                        local_names.memory_read_stage(memory.name, index, port=port.name),
+                        f"memory '{memory.name}' port '{port.name}' read stage {index}",
                     )
+            for port in memory.ports:
+                if port.write_mask is not None:
+                    for role in naming.MEMORY_WRITE_HELPER_ROLES:
+                        claim(
+                            local_names.memory_write_helper(memory.name, port.name, role),
+                            f"memory '{memory.name}' port '{port.name}' {role}",
+                        )
         else:
             claim(
                 identifiers.rtl_memory_cells_identifier(memory.name),
@@ -392,14 +407,20 @@ def _validate_state_storage_rtl_namespace(
                 identifiers.rtl_memory_read_data_identifier(memory.name),
                 f"memory '{memory.name}' read data",
             )
+            if not memory.scheduled:
+                for index in range(memory.read_latency - 1):
+                    claim(
+                        local_names.memory_read_stage(memory.name, index),
+                        f"memory '{memory.name}' read stage {index}",
+                    )
         if memory.scheduled:
             for suffix in (
                 "read_fire", "write_fire", "read_address", "write_address",
                 "write_data",
             ):
                 claim(f"{name}_{suffix}", f"memory '{memory.name}' {suffix}")
-        if memory.write_mask_width is not None:
-            for suffix in ("write_mask", "write_mask_expanded", "write_merged"):
+        if not memory.ported and memory.write_mask_width is not None:
+            for suffix in naming.MEMORY_WRITE_HELPER_ROLES:
                 claim(f"{name}_{suffix}", f"memory '{memory.name}' {suffix}")
     for rom in module.roms:
         name = identifiers.rtl_identifier(rom.name)
@@ -578,6 +599,7 @@ def _emit_packed(
                 *sv_accounting.STATE_GROUPS,
                 module_features.ModuleFeatureGroup.CSR_BLOCKS,
                 module_features.ModuleFeatureGroup.PROTOCOL_PORTS,
+                *sv_accounting.physical_boundary_groups(module),
             )
             body = sv_csr._emit_csr(module)
         elif module.request_responses:
@@ -597,6 +619,8 @@ def _emit_packed(
                 *sv_accounting.physical_boundary_groups(module),
             )
             body = sv_storage._emit_unified_state_module(module)
+        elif module.fifos:
+            body = sv_storage._emit_fifo(module)
         elif module.roms:
             sv_accounting.account_emission_plan(
                 module,
@@ -615,15 +639,6 @@ def _emit_packed(
                 *sv_accounting.physical_boundary_groups(module),
             )
             body = sv_storage._emit_memory(module)
-        elif module.fifos:
-            sv_accounting.account_emission_plan(
-                module,
-                "fifo",
-                module_features.ModuleFeatureGroup.FIFOS,
-                module_features.ModuleFeatureGroup.PROTOCOL_PORTS,
-                *sv_accounting.physical_boundary_groups(module),
-            )
-            body = sv_storage._emit_fifo(module)
         elif module.arbiters:
             sv_accounting.account_emission_plan(
                 module,

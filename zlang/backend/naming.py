@@ -13,7 +13,7 @@ import hashlib
 import re
 from types import MappingProxyType
 
-from zlang.backend.identifiers import rtl_identifier
+from zlang.backend.identifiers import rtl_identifier, rtl_memory_cells_identifier
 from zlang.ir import expressions as expr
 from zlang.ir.hierarchy import HierarchyIndex, HierarchySpecializationKey
 from zlang.ir.interfaces import (
@@ -21,8 +21,13 @@ from zlang.ir.interfaces import (
     VirtualChannelCreditSignal,
 )
 from zlang.ir.module import Module
+from zlang.ir.storage import MemoryPortKind
 from zlang.ir.top_abi import build_top_physical_abi
 from zlang.ir.traversal import ExpressionTraversalPolicy, expression_children
+from zlang.memory_planning import MemoryImplementationKind, plan_memory_implementation
+
+
+MEMORY_WRITE_HELPER_ROLES = ("write_mask", "write_mask_expanded", "write_merged")
 
 
 RTL_NAMING_SCHEMA = "zlang-hierarchy-local-names-v5"
@@ -204,6 +209,12 @@ class ModuleRtlNames:
                 )
             raise
 
+    def memory_read_stage(self, memory: str, index: int, *, port: str | None = None) -> str:
+        return self._name("memory_read_stage", memory, port or "", str(index))
+
+    def memory_write_helper(self, memory: str, port: str, role: str) -> str:
+        return self._name("memory_write_helper", memory, port, role)
+
 
 @dataclass(frozen=True)
 class _Request:
@@ -257,9 +268,24 @@ def _module_reserved_names(module: Module, identifier: Identifier) -> set[str]:
         base = identifier(storage.name)
         names.update(f"{base}_{suffix}" for suffix in (
             "cells", "read_data", "read_fire", "write_fire", "read_address",
-            "write_address", "write_data", "write_mask", "write_mask_expanded",
-            "write_merged", "reset_index",
+            "write_address", "write_data", "reset_index",
         ))
+    has_named_masks = any(port.write_mask is not None for memory in module.memories for port in memory.ports)
+    for memory in module.memories:
+        if not memory.ported and memory.write_mask_width is not None:
+            base = identifier(memory.name)
+            names.update(f"{base}_{role}" for role in MEMORY_WRITE_HELPER_ROLES)
+        if has_named_masks and memory.ported:
+            readers = tuple(
+                port for port in memory.ports
+                if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+            )
+            if (
+                len(readers) > 1 and plan_memory_implementation(memory).implementation
+                is MemoryImplementationKind.REPLICATED_1R1W
+            ):
+                base = rtl_memory_cells_identifier(memory.name)
+                names.update(f"{base}_{identifier(port.name)}" for port in readers)
     for fifo in module.fifos:
         base = identifier(fifo.name)
         names.update(f"{base}_{suffix}" for suffix in (
@@ -357,6 +383,42 @@ def _stage_requests(module: Module) -> tuple[_Request, ...]:
     return tuple(requests.values())
 
 
+def _memory_stage_requests(module: Module, identifier: Identifier) -> Iterable[_Request]:
+    for memory in module.memories:
+        if memory.read_latency <= 1 or memory.scheduled:
+            continue
+        ports: tuple[str | None, ...] = (
+            tuple(
+                port.name for port in memory.ports
+                if port.kind in {MemoryPortKind.READ, MemoryPortKind.READ_WRITE}
+            )
+            if memory.ported else (None,)
+        )
+        for port in ports:
+            base = identifier(memory.name)
+            if port is not None:
+                base += f"_{identifier(port)}"
+            for index in range(memory.read_latency - 1):
+                key = (memory.name, port or "", str(index))
+                # The stage is local to the component. Rendering a child
+                # under its specialization name must keep this allocation.
+                yield _Request(
+                    "memory_read_stage", key, f"memory_read_stage:{key}",
+                    f"{base}_read_stage_{index}",
+                )
+
+
+def _memory_write_helper_requests(module: Module, identifier: Identifier) -> Iterable[_Request]:
+    for memory in module.memories:
+        for port in memory.ports:
+            if port.write_mask is None:
+                continue
+            base = f"{identifier(memory.name)}_{identifier(port.name)}"
+            for role in MEMORY_WRITE_HELPER_ROLES:
+                key = (memory.name, port.name, role)
+                yield _Request("memory_write_helper", key, f"memory_write_helper:{key}", f"{base}_{role}")
+
+
 def module_rtl_names(
     module: Module,
     *,
@@ -400,6 +462,8 @@ def module_rtl_names(
         for role in ("guard", "fire"):
             requests.append(_Request("rule", (rule.name, role), f"{owner_identity}:rule:{rule.name}:{role}", _private_base(f"rule_{label}_{role}")))
     requests.extend(_stage_requests(module))
+    requests.extend(_memory_stage_requests(module, identifier))
+    requests.extend(_memory_write_helper_requests(module, identifier))
     entries.extend(_allocate_requests(requests, used, identifier))
     return ModuleRtlNames(module.name, tuple(entries), frozen_reserved)
 
@@ -435,4 +499,5 @@ __all__ = [
     "ComponentNamePlan", "LocalPhysicalName", "ModuleRtlNames",
     "build_component_name_plan", "validate_component_name_plans",
     "module_rtl_names", "rtl_hierarchy_instance_path",
+    "MEMORY_WRITE_HELPER_ROLES",
 ]

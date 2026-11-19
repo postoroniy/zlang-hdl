@@ -58,7 +58,7 @@ class EdgeProgramLowerer:
         for domain in self.payload["domains"]:
             clock = domain["clock"]
             next_values = self.next_by_domain.setdefault(clock, {})
-            effective_reset = self._effective_reset(domain)
+            effective_reset = self.builder.effective_reset(clock)
             effects: list[dict[str, Any]] = []
             invalid = self._lower_memories(
                 clock,
@@ -89,27 +89,6 @@ class EdgeProgramLowerer:
                 ),
             })
         return programs
-
-    def _effective_reset(self, domain: dict[str, Any]) -> int | None:
-        reset = None
-        if domain["reset"] is not None:
-            reset = self.builder.emit(
-                "load_input",
-                1,
-                attributes={"name": f"$reset:{domain['reset']}"},
-            )
-        if domain["reset_release_mode"] != "synchronized":
-            return reset
-        release = self.builder.truthy(self.builder.emit(
-            "load_state",
-            32,
-            attributes={"name": f"$release:{domain['clock']}"},
-        ))
-        return (
-            release
-            if reset is None
-            else self.builder.binary("or", reset, release, 1)
-        )
 
     def _lower_memories(
         self,

@@ -5,17 +5,19 @@ from pathlib import Path
 
 import pytest
 
+from zlang import sim
 from zlang.backend.systemverilog import (
     SystemVerilogEmissionError,
     emit_experimental,
     emit_target,
 )
-from zlang.compiler import compile_source
+from zlang.compiler import compile_file, compile_source
 from zlang.ir.storage import MemoryCollision, MemoryPortKind
 from zlang.opt.lowering import CanonicalizationError, lower, restore
 from zlang.opt.capabilities import RewriteBarrier, module_rewrite_barriers
 from zlang.semantic.errors import SemanticError
 from zlang.native_simulation import simulate_multiclock_steps, simulate_storage_cycles
+from zlang.simulation_compare import compare_program
 from zlang.targets import select_implementation_graph
 from zlang.toolchain import lint_with_verilator
 
@@ -134,6 +136,137 @@ def test_same_clock_collision_contract(collision: str, expected: int) -> None:
         ],
     )
     assert results[-1]["a_q"] == expected
+
+
+@pytest.mark.parametrize(
+    ("target", "expression"),
+    [
+        ("r.address", "truncate<1>(m.r.read_data)"),
+        ("w.address", "truncate<1>(m.r.read_data)"),
+        ("w.enable", "m.r.read_data[0]"),
+        ("w.data", "~m.r.read_data"),
+        ("w.mask", "bitcast<bits<1>>(m.r.read_data[0])"),
+    ],
+    ids=("read-address", "write-address", "write-enable", "write-data", "write-mask"),
+)
+def test_named_zero_latency_memory_feedback_has_source_diagnostic(
+    tmp_path: Path,
+    target: str,
+    expression: str,
+) -> None:
+    controls = {
+        "r.address": "0",
+        "w.address": "0",
+        "w.enable": "1",
+        "w.data": "0",
+        "w.mask": "1",
+    }
+    controls[target] = expression
+    collision = "read_first" if target == "r.address" else "write_first"
+    declarations = [
+        "module Top {",
+        "  clock clk reset rst out q:u8",
+        f"  memory m:mem<u8,2> {{read_port r write_port w read_latency 0 collision {collision}}}",
+        *(f"  m.{name}={value}" for name, value in controls.items()),
+        "  q=m.r.read_data",
+        "}",
+    ]
+    path = tmp_path / "memory_feedback.zhl"
+    path.write_text("\n".join(declarations))
+
+    for compile_design in (compile_file, sim.compile):
+        with pytest.raises(
+            SemanticError,
+            match="combinational memory dependency cycle: m.r.read_data -> m.r.read_data",
+        ) as error:
+            compile_design(path)
+        origin = error.value.primary
+        assert origin is not None
+        assert origin.source_unit == path.name
+        assert declarations[origin.span.start_line - 1].strip() == f"m.{target}={expression}"
+
+
+def test_named_memory_cycle_crosses_other_readers_and_locals(tmp_path: Path) -> None:
+    path = tmp_path / "memory_cycle.zhl"
+    path.write_text("""
+module Top {
+  clock clk reset rst out q:u8
+  memory m:mem<u8,2> {read_port a read_port b read_latency 0 collision read_first}
+  memory n:mem<u8,2> {read_port r write_port w read_latency 0 collision write_first}
+  m.a.address=truncate<1>(n.r.read_data)
+  m.b.address=0
+  n.r.address=0 n.w.address=0 n.w.enable=1
+  feedback=~m.a.read_data
+  n.w.data=feedback
+  q=m.b.read_data
+}
+""")
+
+    for compile_design in (compile_file, sim.compile):
+        with pytest.raises(
+            SemanticError,
+            match=(
+                "combinational memory dependency cycle: "
+                r"m\.a\.read_data -> n\.r\.read_data -> m\.a\.read_data"
+            ),
+        ) as error:
+            compile_design(path)
+        origin = error.value.primary
+        assert origin is not None
+        assert origin.source_unit == path.name
+        assert path.read_text().splitlines()[origin.span.start_line - 1].strip() == "n.w.data=feedback"
+
+
+@pytest.mark.parametrize(("latency", "collision"), [(0, "read_first"), (1, "write_first")])
+def test_named_memory_legal_feedback_matches_rtl(
+    tmp_path: Path, latency: int, collision: str,
+) -> None:
+    path = tmp_path / "memory_recurrence.zhl"
+    path.write_text(f"""
+module Top {{
+  clock clk reset rst in wr:bit out q:u8
+  memory m:mem<u8,2> {{read_port r write_port w read_latency {latency} collision {collision}}}
+  m.r.address=0 m.w.address=0 m.w.enable=wr m.w.data=~m.r.read_data
+  q=m.r.read_data
+}}
+""")
+    events = [
+        {"reset": {"rst": True}, "set": {"wr": 0}, "edges": ["clk"]},
+        {"reset": {"rst": False}, "set": {"wr": 1}, "edges": ["clk"]},
+        {"set": {"wr": 1}, "edges": ["clk"]},
+    ]
+    compared = compare_program(
+        sim.compile(path), events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30, build_timeout=30,
+    )
+    assert compared.native_trace == compared.rtl_trace == ({"q": 0}, {"q": 255}, {"q": 0})
+
+
+def test_named_memory_read_addresses_remain_independent(tmp_path: Path) -> None:
+    path = tmp_path / "independent_readers.zhl"
+    path.write_text("""
+module Top {
+  clock clk reset rst
+  in en:bit in wa:u1 in data:u8 out a,b:u8
+  memory m:mem<u8,2> {read_port first read_port second write_port w read_latency 0 collision write_first}
+  indirect=truncate<1>(m.second.read_data)
+  m.first.address=indirect m.second.address=0
+  m.w.address=wa m.w.enable=en m.w.data=data
+  a=m.first.read_data b=m.second.read_data
+}
+""")
+    events = [
+        {"reset": {"rst": True}, "set": {"en": 0, "wa": 0, "data": 0}, "edges": ["clk"]},
+        {"reset": {"rst": False}, "set": {"en": 1, "wa": 0, "data": 1}, "edges": ["clk"]},
+        {"set": {"en": 1, "wa": 1, "data": 5}, "edges": ["clk"]},
+    ]
+    compared = compare_program(
+        sim.compile(path), events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30, build_timeout=30,
+    )
+    assert compared.native_trace == compared.rtl_trace == (
+        {"a": 0, "b": 0}, {"a": 0, "b": 1}, {"a": 5, "b": 1},
+    )
 
 
 def test_named_latency_zero_read_and_reset_are_executable() -> None:
@@ -325,6 +458,49 @@ def test_async_memory_resets_are_owned_by_their_domains() -> None:
     # Reader reset clears only its result. Writer reset suppresses the attempted
     # update while the preserve policy keeps the previously committed cell.
     assert [item["read_data"] for item in results] == [0, 0, 55, 0, 0, 55]
+
+
+@pytest.mark.parametrize(
+    "mirrors",
+    [
+        ("m_w_write_mask", "m_w_write_mask_expanded", "m_w_write_merged"),
+        ("m_write_merged",),
+        ("mirror",),
+    ],
+    ids=("real-helpers", "phantom-helper", "unoccupied"),
+)
+def test_named_port_mask_helpers_preserve_public_names(tmp_path: Path, mirrors: tuple[str, ...]) -> None:
+    source = tmp_path / "masked_names.zhl"
+    outputs = " ".join(f"out {name}:u16" for name in mirrors)
+    assignments = " ".join(f"{name}=x" for name in mirrors)
+    source.write_text(f"""
+module Top {{
+    clock clk reset rst
+    in x:u16 in lanes:u2 in write:bit out data:u16 {outputs}
+    memory m:mem<u16,2> {{read_port r write_port w read_latency 1 collision write_first}}
+    m.r.address=0 m.w.address=0 m.w.enable=write m.w.data=x m.w.mask=lanes
+    data=m.r.read_data {assignments}
+}}
+""")
+    writes = ((0, 0, 0), (0x1200, 2, 0x1200), (1, 1, 0x1201), (3, 1, 0x1203))
+    events = [
+        {"set": {"x": value, "lanes": lanes, "write": int(i != 0)},
+         "reset": {"rst": i == 0}, "edges": ["clk"]}
+        for i, (value, lanes, _) in enumerate(writes)
+    ]
+    expected = tuple({"data": result, **dict.fromkeys(mirrors, value)} for value, _, result in writes)
+    program = sim.compile(source)
+    for simulator in ("iverilog", "verilator"):
+        compared = compare_program(
+            program, events, simulator=simulator,
+            artifact_directory=tmp_path / simulator, timeout=30, build_timeout=30,
+        )
+        assert compared.native_trace == compared.rtl_trace == expected
+    with sim.compile(source, logic_state=True).create() as machine:
+        assert tuple(
+            {name: value.require_binary() for name, value in row.items()}
+            for row in machine.run_events(events)
+        ) == expected
 
 
 def test_named_port_mask_keeps_arbitrary_width_lane_semantics() -> None:

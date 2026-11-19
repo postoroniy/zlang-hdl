@@ -141,7 +141,8 @@ def compare_io_program(
             harness = SimulationIOTestbench(product, program.module, count)
             packed = _packed_events(program.module, events)
             tb = render_testbench(
-                product.module, artifact.module, packed, simulation_io=harness
+                product.module, artifact.module, packed, rtl_text=artifact.text,
+                simulation_io=harness,
             )
             (directory / "compare_tb.sv").write_text(tb.text)
             (directory / STIMULUS_FILE).write_text(tb.stimulus)
@@ -185,7 +186,7 @@ def compare_io_program(
                 for channel, path in io_outputs.items()
             }
             compile_command, run_command = _tool_commands(
-                simulator, directory=directory
+                simulator, directory=directory, testbench_module=tb.module_name,
             )
             for phase, command in [("compile", compile_command), ("run", run_command)]:
                 completed = _run_bounded(

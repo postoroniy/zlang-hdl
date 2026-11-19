@@ -26,6 +26,7 @@ from zlang.ir.top_abi import build_top_physical_abi
 from zlang.ir.types import StructType
 from zlang.native_simulation import simulate, simulate_cycles
 from zlang.semantic.errors import SemanticError
+from zlang.simulation_compare import compare_program
 from tests.simulation.differential import run_differential
 
 
@@ -2308,6 +2309,219 @@ def test_axi4_exclusive_ram_witness_gates_atomic_write(engine: str) -> None:
         assert sim.eval()["read_data"] == 0xAABBCCDD
 
 
+def _exclusive_request(identity: int, address: int, *, size: int = 2) -> dict[str, int]:
+    return {**_read_request(identity), "addr": address, "size": size, "lock": 1}
+
+
+@pytest.mark.parametrize("case", ("overlap", "same-edge", "disjoint", "ordinary"))
+def test_axi4_exclusive_ram_preserves_committed_word(tmp_path: Path, case: str) -> None:
+    source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_exclusive.zhl"
+    first_address = 0x10
+    second_address = 0x14 if case == "disjoint" else first_address
+    first = _exclusive_request(1, first_address)
+    second = _exclusive_request(2, second_address)
+    idle = _exclusive_request(0, 0)
+
+    def step(*, reserve=None, conditional=None, conditional_data=0,
+             strobe=0, reset=False, edge=True, read=first_address):
+        return {
+            "reset": {"rst": reset},
+            "edges": ("clk",) if edge else (),
+            "set": {
+                "reserve": {"valid": int(reserve is not None), "payload": reserve or idle},
+                "conditional": {
+                    "valid": int(conditional is not None), "payload": conditional or idle,
+                },
+                "conditional_data": conditional_data,
+                "normal_write": {
+                    "valid": int(strobe != 0),
+                    "payload": {"beat_address": first_address + 1, "strb": strobe},
+                },
+                "normal_data": 0x00003300,
+                "read_address": read // 4,
+            },
+        }
+
+    events = [step(reset=True), step(reserve=first)]
+    if case != "same-edge":
+        events.append(step(reserve=second))
+    first_result = len(events)
+    events.extend([
+        step(reserve=second if case == "same-edge" else None, conditional=first,
+             conditional_data=0x11111111, edge=False),
+        {"edges": ("clk",)},
+    ])
+    if case == "ordinary":
+        # Install a fresh reservation after the exclusive commit and clear it
+        # by changing just one byte of its word.
+        events.extend([step(reserve=second), step(strobe=0b0010)])
+    second_result = len(events)
+    events.extend([
+        step(conditional=second, conditional_data=0x22222222,
+             edge=False, read=second_address),
+        {"edges": ("clk",)},
+        step(read=second_address),
+        step(read=first_address),
+    ])
+
+    compared = compare_program(
+        zlang.sim.compile(source, top="AXI4ExclusiveRamWitness"), events,
+        simulator="iverilog", artifact_directory=tmp_path / "comparison",
+        timeout=30, build_timeout=30,
+    )
+    observed = compared.native_outputs
+    assert observed[first_result]["exclusive_result"] == 1
+    if case == "same-edge":
+        assert observed[first_result]["reserve"]["ready"] == 1
+    assert observed[second_result]["exclusive_result"] == int(case == "disjoint")
+    first_word = 0x11113311 if case == "ordinary" else 0x11111111
+    assert observed[-2]["read_data"] == (0x22222222 if case == "disjoint" else first_word)
+    assert observed[-1]["read_data"] == first_word
+    assert all(sample["protocol_error"] == 0 for sample in observed)
+
+
+def test_axi4_exclusive_ram_masks_and_bounds_single_beat_writes(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_exclusive.zhl"
+    idle = _exclusive_request(0, 0)
+
+    def step(*, reserve=None, conditional=None, data=0, normal=None,
+             reset=False, edge=True, read=0x10):
+        address, strobe = normal or (0, 0)
+        return {
+            "reset": {"rst": reset},
+            "edges": ("clk",) if edge else (),
+            "set": {
+                "reserve": {"valid": int(reserve is not None), "payload": reserve or idle},
+                "conditional": {
+                    "valid": int(conditional is not None), "payload": conditional or idle,
+                },
+                "conditional_data": data,
+                "normal_write": {
+                    "valid": int(normal is not None),
+                    "payload": {"beat_address": address, "strb": strobe},
+                },
+                "normal_data": data,
+                "read_address": read // 4,
+            },
+        }
+
+    events = []
+    expected = {}
+
+    def add(observations=None, **kwargs):
+        if observations is not None:
+            expected[len(events)] = observations
+        events.append(step(**kwargs))
+
+    def attempt(request, response, data, *, read=0x10):
+        add({"exclusive_result": response}, conditional=request, data=data,
+            edge=False, read=read)
+        add(conditional=request, data=data, read=read)
+        add(read=read)
+
+    add(reset=True)
+    add(normal=(0x10, 15), data=0x11223344)
+    byte = _exclusive_request(1, 0x11, size=0)
+    add(reserve=byte)
+    attempt(byte, 1, 0x0000AA00)
+    add({"read_data": 0x1122AA44, "protocol_error": 0})
+
+    add(normal=(0x3C, 15), data=0x55667788, read=0x3C)
+    last_half = _exclusive_request(2, 0x3E, size=1)
+    add(reserve=last_half, read=0x3C)
+    attempt(last_half, 1, 0x12340000, read=0x3C)
+    add({"read_data": 0x12347788, "protocol_error": 0}, read=0x3C)
+    last_byte = _exclusive_request(2, 0x3F, size=0)
+    add(reserve=last_byte, read=0x3C)
+    attempt(last_byte, 1, 0xAB000000, read=0x3C)
+    add({"read_data": 0xAB347788, "protocol_error": 0}, read=0x3C)
+
+    word = _exclusive_request(3, 0x10)
+    alias = _exclusive_request(3, 0x50)
+    add(reserve=word)
+    add(reserve=alias)
+    attempt(alias, 0, 0x11111111)
+    add(normal=(0x50, 0b0010), data=0x00009900)
+    add({"read_data": 0x1122AA44, "protocol_error": 1})
+    attempt(word, 1, 0xDEADBEEF)
+    add({"read_data": 0xDEADBEEF, "protocol_error": 1})
+
+    add(reset=True)
+    add(reserve={**word, "len": 1})
+    attempt({**word, "len": 1}, 0, 0x11111111)
+    add({"protocol_error": 1})
+    add(reset=True)
+    edge_word = _exclusive_request(3, 0x3C)
+    add(reserve=edge_word, read=0x3C)
+    attempt(_exclusive_request(3, 0xFC), 0, 0x11111111, read=0x3C)
+    attempt(_exclusive_request(3, 0x3F, size=1), 0, 0x11111111, read=0x3C)
+    attempt(edge_word, 1, 0x01020304, read=0x3C)
+    add({"read_data": 0x01020304, "protocol_error": 1}, read=0x3C)
+
+    compared = compare_program(
+        zlang.sim.compile(source, top="AXI4ExclusiveRamWitness"), events,
+        simulator="iverilog", artifact_directory=tmp_path / "comparison",
+        timeout=30, build_timeout=30,
+    )
+    assert compared.native_trace == compared.rtl_trace
+    for index, observations in expected.items():
+        for name, value in observations.items():
+            assert compared.native_outputs[index][name] == value, (index, name)
+
+
+def test_axi4_exclusive_monitor_byte_lanes_and_commit(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_exclusive.zhl"
+    first = _exclusive_request(1, 0x10, size=0)
+    second = _exclusive_request(2, 0x11, size=0)
+
+    def step(*, reserve=None, conditional=None, strobe=None, reset=False, edge=True):
+        return {
+            "reset": {"rst": reset},
+            "edges": ("clk",) if edge else (),
+            "set": {
+                "reserve": {"valid": int(reserve is not None), "payload": reserve or first},
+                "conditional": {
+                    "valid": int(conditional is not None), "payload": conditional or first,
+                },
+                "committed_write": {
+                    "valid": int(strobe is not None),
+                    "payload": {"beat_address": 0x10, "strb": strobe or 0},
+                },
+            },
+        }
+
+    events = [
+        step(reset=True), step(reserve=first), step(reserve=second),
+        step(strobe=0), step(strobe=0b0001),
+        step(conditional=first, edge=False), {"edges": ("clk",)},
+        step(conditional=second, edge=False), {"edges": ("clk",)},
+        step(conditional=second, edge=False),
+        step(reserve=first),
+        step(conditional=first, reserve={**first, "id": 3}, edge=False),
+        {"edges": ("clk",)},
+        step(conditional={**first, "id": 3}, edge=False),
+    ]
+    wide = {**_exclusive_request(1, 0x10), "len": 1}
+    upper = _exclusive_request(2, 0x14)
+    overlap_checks = []
+    for committing, other in ((wide, upper), (upper, wide)):
+        events.extend([step(reset=True), step(reserve=committing), step(reserve=other)])
+        overlap_checks.append(len(events))
+        events.extend([step(conditional=committing, edge=False), {"edges": ("clk",)},
+                       step(conditional=other, edge=False)])
+    compared = compare_program(
+        zlang.sim.compile(source, top="AXI4ExclusiveMonitor", root_domain=DEFAULT_ROOT_DOMAIN),
+        events, simulator="iverilog", artifact_directory=tmp_path / "comparison",
+        timeout=30, build_timeout=30,
+    )
+    samples = compared.native_outputs
+    assert [samples[index]["grant"] for index in (5, 7, 9, 11, 13)] == [0, 1, 0, 1, 0]
+    assert samples[11]["reserve"]["ready"] == 1
+    assert [(samples[index]["grant"], samples[index + 2]["grant"])
+            for index in overlap_checks] == [(1, 0), (1, 0)]
+    assert all(sample["protocol_error"] == 0 for sample in samples)
+
+
 @pytest.mark.parametrize("engine", ("native",))
 @pytest.mark.parametrize("conflict", (0, 1))
 @pytest.mark.parametrize("result_resp", (0, 1, 2))
@@ -2400,6 +2614,285 @@ def test_axi4_exclusive_subordinate_same_edge_commit_contract(
             result_resp == 1 or malformed_write_last or
             (malformed_read_last and not reset_between)
         )
+
+
+@pytest.mark.parametrize("first_backend_resp", (0, 2), ids=("okay", "slverr"))
+def test_axi4_exclusive_subordinate_invalidates_only_on_commit(
+    tmp_path: Path, first_backend_resp: int,
+) -> None:
+    source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_exclusive.zhl"
+    first, second = (_exclusive_request(i, 0x100) for i in (1, 2))
+    read_beat = {"slot": 0, "data": 0, "resp": 0, "last": 1}
+    write_beat = {"data": 0x11223344, "strb": 15, "last": 1}
+    write_result = {"slot": 0, "resp": 0}
+
+    def transfer(payload, valid=1):
+        return {"valid": valid, "payload": payload}
+
+    events = [{"reset": {"rst": True}, "edges": ("clk",), "set": {
+        "axi__ar": transfer(first, 0),
+        "axi__r": {"ready": 1},
+        "axi__aw": transfer(first, 0),
+        "axi__w": transfer(write_beat, 0),
+        "axi__b": {"ready": 1},
+        "backend_read_request": {"ready": 1},
+        "backend_read_beat": transfer(read_beat, 0),
+        "backend_write_request": {"ready": 1},
+        "backend_write_beat": {"ready": 1},
+        "backend_write_result": transfer(write_result, 0),
+        "committed_write": transfer({"beat_address": 0, "strb": 0}, 0),
+    }}]
+
+    def step(*, edge=True, **signals):
+        events.append({"reset": {"rst": False}, "edges": ("clk",) if edge else (), "set": signals})
+        return len(events) - 1
+
+    read_responses = []
+    for request in (first, second):
+        step(axi__ar=transfer(request))
+        step(axi__ar=transfer(request, 0), backend_read_beat=transfer(read_beat))
+        read_responses.append(step(edge=False, backend_read_beat=transfer(read_beat, 0)))
+        step()
+    commits, write_responses = [], []
+    # A rejected backend attempt still consumes its own reservation.
+    writes = ((first, first_backend_resp), (first, 0), (second, 0))
+    for request, backend_resp in writes:
+        step(axi__aw=transfer(request))
+        step(axi__aw=transfer(request, 0), axi__w=transfer(write_beat))
+        commits.append(step(edge=False, axi__w=transfer(write_beat, 0),
+                            backend_write_result=transfer({**write_result, "resp": backend_resp})))
+        step()
+        write_responses.append(step(edge=False, backend_write_result=transfer(write_result, 0)))
+        step()
+
+    compared = compare_program(
+        zlang.sim.compile(source, top="AXI4ExclusiveSubordinate", root_domain=DEFAULT_ROOT_DOMAIN),
+        events, simulator="iverilog", artifact_directory=tmp_path / "comparison",
+        timeout=30, build_timeout=30,
+    )
+    observed = compared.native_outputs
+    for identity, sample in enumerate(read_responses, 1):
+        assert observed[sample]["axi__r"]["valid"] == 1
+        assert observed[sample]["axi__r"]["payload"]["id"] == identity
+        assert observed[sample]["axi__r"]["payload"]["resp"] == 1
+    assert [observed[sample]["exclusive_grant"] for sample in commits] == (
+        [1, 0, 0] if first_backend_resp == 0 else [0, 0, 1]
+    )
+    responses = (1, 0, 0) if first_backend_resp == 0 else (2, 0, 1)
+    for (request, _), sample, resp in zip(writes, write_responses, responses, strict=True):
+        assert observed[sample]["axi__b"]["valid"] == 1
+        assert observed[sample]["axi__b"]["payload"] == {"id": request["id"], "resp": resp}
+    assert all(sample["protocol_error"] == 0 for sample in observed)
+
+
+def _check_axi4_exclusive_read_epochs(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_exclusive.zhl"
+    first_beat = {"slot": 0, "data": 0x11223344, "resp": 0, "last": 0}
+    final_beat = {**first_beat, "last": 1}
+    write_beat = {"data": 0x55667788, "strb": 15, "last": 1}
+    result = {"slot": 0, "resp": 0}
+
+    def channel(payload, valid=1):
+        return {"payload": payload, "valid": valid}
+
+    events = []
+
+    def step(*, reset=False, edge=True, **signals):
+        events.append({"reset": {"rst": reset}, "edges": ("clk",) if edge else (), "set": signals})
+        return len(events) - 1
+
+    def read_start(request):
+        sample = step(edge=False, axi__ar=channel(request))
+        step()
+        step(edge=False, axi__ar=channel(request, 0))
+        return sample
+
+    def read_finish(beat):
+        sample = step(edge=False, backend_read_beat=channel(beat))
+        step()
+        response = step(edge=False, backend_read_beat=channel(beat, 0))
+        step()
+        return sample, response
+
+    def write_start(request):
+        step(axi__aw=channel(request))
+        step(axi__aw=channel(request, 0),
+             axi__w=channel({**write_beat, "last": 0 if request["len"] else 1}))
+        if request["len"]:
+            step(axi__w=channel(write_beat))
+
+    def write_finish(response=0):
+        commit = step(edge=False, axi__w=channel(write_beat, 0),
+                      backend_write_result=channel({**result, "resp": response}))
+        step()
+        observed = step(edge=False, backend_write_result=channel(result, 0))
+        return commit, observed
+
+    checks = []
+    for identity, address in ((1, 0x18), (6, 0x50)):
+        burst = {**_exclusive_request(identity, address), "len": 1}
+        previous = _exclusive_request(identity + 1, address)
+        replacement = _exclusive_request(identity, address + 8)
+        for mode in ("clean", "adjacent", "mid", "final", "after", "initial",
+                     "conditional", "rejected-conditional", "failed-replacement",
+                     "successful-replacement", "other-id", "sticky"):
+            # The bench models the accepted history. Each ordinary write uses
+            # one lane of the first word, which has already retired in "mid".
+            committed = {"beat_address": address + (8 if mode == "adjacent" else 0),
+                         "strb": 0 if mode == "clean" else 8}
+            step(reset=True, **{
+                "axi__ar": channel(burst, 0), "axi__r": {"ready": 1},
+                "axi__aw": channel(burst, 0), "axi__w": channel(write_beat, 0),
+                "axi__b": {"ready": 1}, "backend_read_request": {"ready": 1},
+                "backend_read_beat": channel(first_beat, 0),
+                "backend_write_request": {"ready": 1}, "backend_write_beat": {"ready": 1},
+                "backend_write_result": channel(result, 0),
+                "committed_write": channel(committed, mode == "initial"),
+            })
+            if mode in ("conditional", "rejected-conditional"):
+                read_start(previous)
+                read_finish(final_beat)
+                write_start(previous)
+            if mode == "sticky":
+                step(axi__ar=channel({**replacement, "burst": 3}))
+                step(axi__ar=channel(burst, 0))
+                step()
+            request = read_start(burst)
+            step(edge=False, committed_write=channel(committed, 0))
+            _, r0 = read_finish(first_beat)
+            if mode in ("conditional", "rejected-conditional"):
+                commit0, _ = write_finish(0 if mode == "conditional" else 2)
+                step()
+            else:
+                commit0 = None
+            step(committed_write=channel(committed, mode in ("mid", "adjacent", "clean")))
+            step(edge=False, committed_write=channel(committed, mode == "final"))
+            _, r1 = read_finish(final_beat)
+            step(committed_write=channel(committed, mode == "after"))
+            step(edge=False, committed_write=channel(committed, 0))
+            r2 = None
+            if mode in ("failed-replacement", "successful-replacement", "other-id"):
+                read_start({**replacement, "id": identity + int(mode == "other-id")})
+                _, r2 = read_finish({**final_beat, "resp": 2 if mode == "failed-replacement" else 0})
+            step(axi__b={"ready": 0})
+            write_start(burst)
+            commit, response = write_finish()
+            stalled = step()
+            checks.append((mode, identity, request, r0, r1, r2, commit0, commit, response, stalled))
+
+    compared = compare_program(
+        zlang.sim.compile(source, top="AXI4ExclusiveSubordinate", root_domain=DEFAULT_ROOT_DOMAIN),
+        events, simulator="iverilog", artifact_directory=tmp_path / "comparison",
+        timeout=30, build_timeout=30,
+    )
+    for trace in (compared.native_trace, compared.rtl_trace):
+        for mode, identity, request, r0, r1, r2, early, commit, response, stalled in checks:
+            assert trace[request]["backend_read_request_valid"] == 1, mode
+            for sample, last in ((r0, 0), (r1, 1)):
+                frame = trace[sample]
+                assert (frame["axi_r_valid"], frame["axi_r_payload_last"],
+                        frame["axi_r_payload_resp"]) == (1, last, int(mode != "sticky")), mode
+            if r2 is not None:
+                assert trace[r2]["axi_r_payload_resp"] == (2 if mode == "failed-replacement" else 1)
+            if early is not None:
+                assert trace[early]["exclusive_grant"] == int(mode == "conditional"), mode
+            expected = int(mode in ("clean", "adjacent", "rejected-conditional", "other-id"))
+            assert trace[commit]["backend_write_result_ready"] == 1, mode
+            assert trace[commit]["exclusive_grant"] == expected, mode
+            for sample in (response, stalled):
+                frame = trace[sample]
+                assert (frame["axi_b_valid"], frame["axi_b_payload_id"],
+                        frame["axi_b_payload_resp"]) == (1, identity, expected), mode
+
+
+def test_axi4_exclusive_subordinate_b_response_survives_slot_reuse_and_refill(
+    tmp_path: Path,
+) -> None:
+    source = Path(__file__).resolve().parents[2] / "stdlib/bus/axi4_exclusive.zhl"
+    first = _exclusive_request(1, 0x10)
+    bad = {**_exclusive_request(7, 0x20), "lock": 0, "burst": 3}
+    ordinary = {**_exclusive_request(6, 0x30), "lock": 0}
+    read_beat = {"slot": 0, "data": 0, "resp": 0, "last": 1}
+    write_beat = {"data": 0x12345678, "strb": 15, "last": 1}
+    write_result = {"slot": 0, "resp": 0}
+
+    def channel(payload, valid=1):
+        return {"payload": payload, "valid": valid}
+
+    events = []
+    responses = []
+    backend_silent = []
+    can_complete = []
+
+    def step(*, reset=False, edge=True, **signals):
+        events.append({"reset": {"rst": reset}, "edges": ("clk",) if edge else (), "set": signals})
+        return len(events) - 1
+
+    for mode, prime in (("reuse", False), ("reuse", True), ("refill", True), ("error", True)):
+        step(reset=True, **{
+            "axi__ar": channel(first, 0), "axi__r": {"ready": 1},
+            "axi__aw": channel(first, 0), "axi__w": channel(write_beat, 0),
+            "axi__b": {"ready": 0},
+            "backend_read_request": {"ready": 1},
+            "backend_read_beat": channel(read_beat, 0),
+            "backend_write_request": {"ready": 1}, "backend_write_beat": {"ready": 1},
+            "backend_write_result": channel(write_result, 0),
+            "committed_write": channel({"beat_address": 0, "strb": 0}, 0),
+        })
+        if prime:
+            step(axi__ar=channel(first))
+            step(axi__ar=channel(first, 0), backend_read_beat=channel(read_beat))
+            step(backend_read_beat=channel(read_beat, 0))
+        step(axi__aw=channel(first))
+        step(axi__aw=channel(first, 0), axi__w=channel(write_beat))
+        step(axi__w=channel(write_beat, 0), backend_write_result=channel(write_result))
+        responses.append((step(backend_write_result=channel(write_result, 0)), 1, int(prime)))
+        if mode == "reuse":
+            responses.append((step(), 1, int(prime)))
+            step(axi__b={"ready": 1})
+            request = bad
+        else:
+            request = ordinary if mode == "error" else bad
+
+        aw = step(edge=False, axi__aw=channel(request), axi__b={"ready": 0})
+        step()
+        w = step(edge=False, axi__aw=channel(request, 0), axi__w=channel(write_beat))
+        step()
+        if request is bad:
+            backend_silent.append((aw, w))
+        if mode == "reuse":
+            responses.append((step(axi__w=channel(write_beat, 0)), 7, 3))
+        else:
+            result = {"slot": 1, "resp": 2}
+            responses.append((step(axi__w=channel(write_beat, 0),
+                                   backend_write_result=channel(result, mode == "error")), 1, 1))
+            if mode == "error":
+                can_complete.append((step(edge=False), 0))
+                can_complete.append((step(edge=False, axi__b={"ready": 1}), 1))
+            step(axi__b={"ready": 1})
+            responses.append((step(axi__b={"ready": 0},
+                                   backend_write_result=channel(result, 0)),
+                              6 if mode == "error" else 7, 2 if mode == "error" else 3))
+        responses.append((step(), 6 if mode == "error" else 7, 2 if mode == "error" else 3))
+
+    compared = compare_program(
+        zlang.sim.compile(source, top="AXI4ExclusiveSubordinate", root_domain=DEFAULT_ROOT_DOMAIN),
+        events, simulator="iverilog", artifact_directory=tmp_path / "comparison",
+        timeout=30, build_timeout=30,
+    )
+    for trace in (compared.native_trace, compared.rtl_trace):
+        for sample, identity, resp in responses:
+            assert trace[sample]["axi_b_valid"] == 1
+            assert trace[sample]["axi_b_payload_id"] == identity
+            assert trace[sample]["axi_b_payload_resp"] == resp
+        for aw, w in backend_silent:
+            assert trace[aw]["axi_aw_ready"] == 1
+            assert trace[aw]["backend_write_request_valid"] == 0
+            assert trace[w]["axi_w_ready"] == 1
+            assert trace[w]["backend_write_beat_valid"] == 0
+        for sample, ready in can_complete:
+            assert trace[sample]["backend_write_result_ready"] == ready
+    _check_axi4_exclusive_read_epochs(tmp_path / "epochs")
 
 
 @pytest.mark.skipif(shutil.which("verilator") is None, reason="Verilator unavailable")

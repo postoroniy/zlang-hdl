@@ -108,6 +108,51 @@ class RequestResponseChannel(str, Enum):
     RESPONSE = "response"
 
 
+def request_response_field_name(
+    interface: str,
+    channel: RequestResponseChannel | str,
+    signal: ReadyValidSignal | str,
+) -> str:
+    """Return one private scalar request/response field name."""
+
+    channel_name = channel.value if isinstance(channel, RequestResponseChannel) else channel
+    signal_name = signal.value if isinstance(signal, ReadyValidSignal) else signal
+    return f"$zlang_request_response:{interface}:{channel_name}:{signal_name}"
+
+
+def parse_request_response_field_name(
+    name: str,
+) -> tuple[str, RequestResponseChannel, ReadyValidSignal] | None:
+    prefix = "$zlang_request_response:"
+    if not name.startswith(prefix):
+        return None
+    parts = name[len(prefix):].split(":")
+    if len(parts) != 3 or not parts[0]:
+        return None
+    interface, channel_name, signal_name = parts
+    try:
+        channel = RequestResponseChannel(channel_name)
+        signal = ReadyValidSignal(signal_name)
+    except ValueError:
+        return None
+    if signal is ReadyValidSignal.TRANSFER:
+        return None
+    return interface, channel, signal
+
+
+def request_response_signal_is_input(
+    role: RequestResponseRole,
+    channel: RequestResponseChannel,
+    signal: ReadyValidSignal,
+) -> bool:
+    """Physical direction of an explicit request/response leaf."""
+    outbound = (
+        RequestResponseChannel.REQUEST if role is RequestResponseRole.REQUESTER
+        else RequestResponseChannel.RESPONSE
+    )
+    return (signal is ReadyValidSignal.READY) == (channel is outbound)
+
+
 class ConnectionAdapter(str, Enum):
     READY_VALID_TO_CREDIT = "rv_to_credit"
     CREDIT_TO_READY_VALID = "credit_to_rv"

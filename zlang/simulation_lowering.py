@@ -28,6 +28,7 @@ class _Builder:
     max_nodes: int
     semantic_memories: dict[str, dict[str, Any]] = field(default_factory=dict)
     semantic_fifos: dict[str, dict[str, Any]] = field(default_factory=dict)
+    domains: dict[str, dict[str, Any]] = field(default_factory=dict)
     nodes: list[dict[str, Any]] = field(default_factory=list)
     lowered: dict[int, int] = field(default_factory=dict)
     regions: list[dict[str, Any]] = field(default_factory=list)
@@ -50,6 +51,7 @@ class _Builder:
             self.max_nodes,
             semantic_memories=self.semantic_memories,
             semantic_fifos=self.semantic_fifos,
+            domains=self.domains,
             regions=self.regions,
             capture_slots=capture_slots,
             reset_release_clocks=self.reset_release_clocks,
@@ -63,6 +65,7 @@ class _Builder:
             self.max_nodes,
             semantic_memories=self.semantic_memories,
             semantic_fifos=self.semantic_fifos,
+            domains=self.domains,
             nodes=self.nodes,
             lowered=lowered,
             regions=self.regions,
@@ -110,6 +113,21 @@ class _Builder:
 
     def event(self, clock: str) -> int:
         return self.emit("load_event", 1, attributes={"name": clock})
+
+    def effective_reset(self, clock: str) -> int | None:
+        """Return the active reset used for state and observations in this domain."""
+        domain = self.domains[clock]
+        name = domain["reset"]
+        reset = (
+            self.emit("load_input", 1, attributes={"name": f"$reset:{name}"})
+            if name is not None else None
+        )
+        if domain["reset_release_mode"] != "synchronized":
+            return reset
+        release = self.truthy(self.emit(
+            "load_state", 32, attributes={"name": f"$release:{clock}"},
+        ))
+        return release if reset is None else self.binary("or", reset, release, 1)
 
     def unary(self, op: str, value: int, width: int | None = None) -> int:
         return self.emit(op, width or self.width(value), (value,))
@@ -477,6 +495,7 @@ def lower_to_primitive_plan(
         max_nodes,
         semantic_memories={item["name"]: item for item in payload["memories"]},
         semantic_fifos={item["name"]: item for item in payload.get("fifos", [])},
+        domains={item["clock"]: item for item in payload["domains"]},
         reset_release_clocks={
             str(item["reset"]): str(item["clock"])
             for item in payload["domains"]
@@ -602,40 +621,18 @@ def lower_to_primitive_plan(
         item["name"]: builder.lower(item["node"])
         for item in payload["outputs"]
     }
-    domain_by_clock = {
-        item["clock"]: item for item in payload["domains"]
-    }
     output_enabled_cache: dict[str, int] = {}
 
     def output_enabled(domain: str) -> int:
         cached = output_enabled_cache.get(domain)
         if cached is not None:
             return cached
-        metadata = domain_by_clock.get(domain)
-        if metadata is None:
-            enabled = builder.constant(1, 1)
-        else:
-            effective_reset = None
-            reset = metadata.get("reset")
-            if reset is not None:
-                effective_reset = builder.emit(
-                    "load_input", 1, attributes={"name": f"$reset:{reset}"}
-                )
-            if metadata.get("reset_release_mode") == "synchronized":
-                release = builder.emit(
-                    "load_state", 32, attributes={"name": f"$release:{domain}"}
-                )
-                release = builder.truthy(release)
-                effective_reset = (
-                    release
-                    if effective_reset is None
-                    else builder.binary("or", effective_reset, release, 1)
-                )
-            enabled = (
-                builder.constant(1, 1)
-                if effective_reset is None
-                else builder.unary("not", builder.truthy(effective_reset), 1)
-            )
+        effective_reset = builder.effective_reset(domain) if domain in builder.domains else None
+        enabled = (
+            builder.constant(1, 1)
+            if effective_reset is None
+            else builder.unary("not", builder.truthy(effective_reset), 1)
+        )
         output_enabled_cache[domain] = enabled
         return enabled
 

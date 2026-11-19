@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass, replace
 
 from zlang.ir import expressions as expr
+from zlang.ir.module import Module
+from zlang.ir.static_projection import narrow_static_view
 
 
 class SimulationExpressionRewriter:
@@ -104,4 +106,30 @@ class SimulationExpressionRewriter:
         return None
 
 
-__all__ = ["SimulationExpressionRewriter"]
+class _LocalStorageViews(SimulationExpressionRewriter):
+    def __init__(self, module: Module) -> None:
+        super().__init__()
+        self.locals = {item.name: item.expression for item in module.locals}
+
+    def rewrite_special(self, value: expr.Expression) -> expr.Expression | None:
+        narrowed = narrow_static_view(value, self.locals)
+        return self.expression(narrowed) if narrowed is not None else None
+
+
+def lower_local_storage_views(module: Module) -> Module:
+    """Keep a storage control's unused packed lanes out of the primitive DAG."""
+    if not (module.fifos or any(memory.read_latency == 0 for memory in module.memories)):
+        return module
+    rewriter = _LocalStorageViews(module)
+    return replace(
+        module,
+        memories=rewriter.value(module.memories),
+        fifos=rewriter.value(module.fifos),
+        locals=rewriter.value(module.locals),
+        assignments=rewriter.value(module.assignments),
+        rules=rewriter.value(module.rules),
+        resolved_transition=rewriter.value(module.resolved_transition),
+    )
+
+
+__all__ = ["SimulationExpressionRewriter", "lower_local_storage_views"]

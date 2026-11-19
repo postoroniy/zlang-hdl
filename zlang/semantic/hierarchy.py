@@ -10,20 +10,36 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from zlang.ast import nodes as ast
 from zlang.ir import cdc as ir_cdc
+from zlang.ir import csr as ir_csr
 from zlang.ir import expressions as ir_expr
 from zlang.ir import module as ir_module
 from zlang.ir import state as ir_state
 from zlang.ir import storage as ir_storage
 from zlang.ir import hierarchy as ir_hierarchy
-from zlang.ir.interfaces import InterfaceProtocol
+from zlang.ir.interfaces import (
+    InterfaceProtocol,
+    ReadyValidSignal,
+    parse_ready_valid_field_name,
+    parse_request_response_field_name,
+    ready_valid_field_name,
+    request_response_field_name,
+    request_response_signal_is_input,
+    RequestResponseChannel,
+)
 from zlang.ir.traversal import expression_children
+from zlang.ir.static_projection import StaticView, project_static_bits, static_parts, static_view
+from zlang.ir.types import HardwareType, UIntType
 from zlang.source import SourceOrigin
 
+from .connection_validation import hierarchy_connection_drivers
+from .csr.bindings import csr_output_controls
 from .errors import SemanticError
 from .module_validation import reject_dependency_cycles
+from .storage_validation import fifo_observation_dependencies, memory_read_dependencies
 
 
 @dataclass(frozen=True)
@@ -492,8 +508,74 @@ class HierarchyAnalyzer:
                     )
 
 
+class _DependencyNode(NamedTuple):
+    kind: str
+    name: str
+    field: str
+    read_bits: tuple[int, ...] = ()
+
+
+class _InputDependency(NamedTuple):
+    name: str
+    bits: tuple[int, ...] = ()
+
+
+def _project_dependency(
+    expression: ir_expr.Expression,
+    bits: tuple[int, ...],
+    locals_: dict[str, ir_expr.Expression],
+) -> ir_expr.Expression:
+    if not bits:
+        return expression
+    msb, lsb = bits
+    return project_static_bits(StaticView(expression, msb, lsb), locals_, UIntType(msb - lsb + 1))
+
+
+def _storage_dependency_controls(
+    memories: tuple[ir_storage.Memory, ...],
+    fifos: tuple[ir_storage.Fifo, ...],
+) -> dict[_DependencyNode, tuple[ir_expr.Expression, ...]]:
+    return {
+        **{
+            _DependencyNode("memory", memory.name, port): controls
+            for memory in memories
+            for port, controls in memory_read_dependencies(memory).items()
+        },
+        **{
+            _DependencyNode("fifo", fifo.name, signal.value): controls
+            for fifo in fifos
+            for signal, controls in fifo_observation_dependencies(fifo).items()
+        },
+    }
+
+
+def _protocol_assignment_drivers(
+    assignments: Iterable[ir_module.Assignment],
+) -> dict[str, tuple[ir_expr.Expression, ...]]:
+    drivers = {}
+    for assignment in assignments:
+        if not isinstance(assignment.signal, ReadyValidSignal):
+            continue
+        target = assignment.target
+        if (
+            isinstance(target, ir_module.Port)
+            and target.protocol is InterfaceProtocol.READY_VALID
+            and assignment.channel is None
+        ):
+            leaf = ready_valid_field_name(target.name, assignment.signal)
+        elif (
+            isinstance(target, ir_module.RequestResponseInterface)
+            and assignment.channel is not None
+        ):
+            leaf = request_response_field_name(target.name, assignment.channel, assignment.signal)
+        else:
+            continue
+        drivers[leaf] = (assignment.expression,)
+    return drivers
+
+
 class HierarchyDependencyValidator:
-    """Reject current-cycle cycles through typed child outputs."""
+    """Reject current-cycle feedback through typed child and storage outputs."""
 
     def validate(
         self,
@@ -503,131 +585,81 @@ class HierarchyDependencyValidator:
         memories: tuple[ir_storage.Memory, ...] = (),
         fifos: tuple[ir_storage.Fifo, ...] = (),
         instance_origins: dict[str, SourceOrigin | None] | None = None,
+        module_name: str = "",
+        connections: tuple[ir_module.Connection, ...] = (),
+        hierarchical_connections: tuple[ir_module.HierarchicalConnection, ...] = (),
+        request_response_connections: tuple[ir_module.RequestResponseConnection, ...] = (),
+        assignments: tuple[ir_module.Assignment, ...] = (),
+        csr_output_paths: dict[
+            tuple[str, ...], tuple[str, HardwareType, str | None]
+        ] | None = None,
     ) -> None:
-        """Reject current-cycle cycles across scalar child instance boundaries.
-
-        An InstanceOutputRef is a read-only value, but a combinational child's
-        output can still depend on one of its input bindings.  Model exactly that
-        typed dependency relation.  Registers, latency-one storage and explicit
-        delay/pipeline nodes terminate the current-cycle walk.  A latency-zero
-        memory instead exposes the exact controls that affect its current read,
-        so asynchronous-read hierarchy cannot hide a combinational loop.
-        """
+        """Follow typed child bindings and current-cycle storage observations."""
 
         local_values = {item.name: item.expression for item in locals_}
-        parent_memories = {item.name: item for item in memories}
-        parent_fifos = {item.name: item for item in fifos}
-
-        def fifo_observation_controls(
-            reference: ir_expr.FifoRef,
-            resources: dict[str, ir_storage.Fifo],
-        ) -> tuple[ir_expr.Expression, ...]:
-            """Return only current-cycle controls observed by a FIFO signal.
-
-            A scheduled FIFO publishes state-derived observations.  A legacy
-            globally controlled FIFO additionally exposes accepted-pop lookahead
-            through ``ready`` and request diagnostics through overflow/underflow.
-            Keep the state observations as cycle cuts while following exactly the
-            legacy control expressions used by the typed simulator and backends.
-            """
-
-            fifo = resources.get(reference.fifo)
-            if fifo is None or fifo.scheduled:
-                return ()
-            controls: tuple[ir_expr.Expression | None, ...]
-            if reference.signal is ir_storage.FifoSignal.READY:
-                controls = (fifo.pop,)
-            elif reference.signal is ir_storage.FifoSignal.OVERFLOW:
-                controls = (fifo.push, fifo.pop)
-            elif reference.signal is ir_storage.FifoSignal.UNDERFLOW:
-                controls = (fifo.pop,)
-            else:
-                controls = ()
-            return tuple(item for item in controls if item is not None)
+        parent_storage = _storage_dependency_controls(memories, fifos)
+        parent_signals, connected_inputs = hierarchy_connection_drivers(
+            module_name, connections, hierarchical_connections, request_response_connections,
+        )
+        parent_signals.update(_protocol_assignment_drivers(assignments))
+        bindings = (*bindings, *connected_inputs)
+        routed_inputs = {(item.instance, item.port) for item in connected_inputs}
 
         def references(
             expression: ir_expr.Expression,
             *,
             local_expressions: dict[str, ir_expr.Expression],
-            memory_resources: dict[str, ir_storage.Memory],
-            fifo_resources: dict[str, ir_storage.Fifo],
+            storage_controls: dict[_DependencyNode, tuple[ir_expr.Expression, ...]],
             known_inputs: set[str] | None = None,
+            signal_sources: dict[str, tuple[ir_expr.Expression, ...]] | None = None,
             instance_inputs: Callable[
-                [ir_expr.InstanceOutputRef], Iterable[ir_expr.Expression]
+                [_DependencyNode], Iterable[ir_expr.Expression]
             ] | None = None,
             active_locals: frozenset[str] = frozenset(),
-        ) -> tuple[set[str], set[tuple[str, str]]]:
-            input_names: set[str] = set()
-            instance_outputs: set[tuple[str, str]] = set()
-
+        ) -> tuple[set[_InputDependency], dict[_DependencyNode, SourceOrigin | None]]:
+            input_names: set[_InputDependency] = set()
+            local_signals = signal_sources or {}
+            outputs: dict[_DependencyNode, SourceOrigin | None] = {}
             def visit(
                 value: object,
                 active: frozenset[str],
-                active_memories: frozenset[str] = frozenset(),
-                active_fifos: frozenset[str] = frozenset(),
+                active_storage: frozenset[_DependencyNode] = frozenset(),
             ) -> None:
+                selected = static_view(value)
+                if selected is not None:
+                    for item, msb, lsb in static_parts(selected, local_expressions, active):
+                        bits = () if lsb == 0 and msb == item.type.width - 1 else (msb, lsb)
+                        if isinstance(item, ir_expr.InstanceOutputRef):
+                            visit_child_output(item, bits, active, active_storage)
+                        elif isinstance(item, ir_expr.InputRef):
+                            visit_name(item.name, active, active_storage, bits=bits)
+                        elif isinstance(item, (ir_expr.ReadyValidRef, ir_expr.RequestResponseRef)):
+                            visit_protocol(item, active, active_storage, bits=bits)
+                        else:
+                            visit(item, active, active_storage)
+                    return
                 if isinstance(value, ir_expr.InputRef):
-                    replacement = local_expressions.get(value.name)
-                    if replacement is not None:
-                        if value.name in active:
-                            raise SemanticError(
-                                f"cyclic immutable local '{value.name}' in child "
-                                "dependency analysis"
-                            )
-                        visit(
-                            replacement,
-                            active | {value.name},
-                            active_memories,
-                            active_fifos,
-                        )
-                    elif known_inputs is None or value.name in known_inputs:
-                        input_names.add(value.name)
+                    visit_name(value.name, active, active_storage)
+                    return
+                if isinstance(value, (ir_expr.ReadyValidRef, ir_expr.RequestResponseRef)):
+                    visit_protocol(value, active, active_storage)
                     return
                 if isinstance(value, ir_expr.InstanceOutputRef):
-                    if instance_inputs is None:
-                        instance_outputs.add((value.instance, value.port))
+                    visit_child_output(value, (), active, active_storage)
+                    return
+                if isinstance(value, (ir_expr.MemoryRef, ir_expr.FifoRef)):
+                    if isinstance(value, ir_expr.MemoryRef):
+                        if value.signal is not ir_storage.MemorySignal.READ_DATA:
+                            return
+                        node = _DependencyNode("memory", value.memory, value.port or "")
                     else:
-                        for binding in instance_inputs(value):
-                            visit(
-                                binding,
-                                active,
-                                active_memories,
-                                active_fifos,
-                            )
-                    return
-                if isinstance(value, ir_expr.MemoryRef):
-                    memory = memory_resources.get(value.memory)
-                    if (
-                        value.signal is ir_storage.MemorySignal.READ_DATA
-                        and memory is not None
-                        and memory.read_latency == 0
-                        and memory.name not in active_memories
-                    ):
-                        controls = [memory.read_address]
-                        if memory.collision is ir_storage.MemoryCollision.WRITE_FIRST:
-                            controls.extend((
-                                memory.write_enable,
-                                memory.write_address,
-                                memory.write_data,
-                                memory.write_mask,
-                            ))
-                        nested_active = active_memories | {memory.name}
-                        for control in controls:
-                            if control is not None:
-                                visit(control, active, nested_active, active_fifos)
-                    return
-                if isinstance(value, ir_expr.FifoRef):
-                    if value.fifo not in active_fifos:
-                        nested_active = active_fifos | {value.fifo}
-                        for control in fifo_observation_controls(
-                            value, fifo_resources
-                        ):
-                            visit(
-                                control,
-                                active,
-                                active_memories,
-                                nested_active,
-                            )
+                        node = _DependencyNode("fifo", value.fifo, value.signal.value)
+                    if node in storage_controls:
+                        if instance_inputs is None:
+                            outputs[node] = value.origin
+                        elif node not in active_storage:
+                            for control in storage_controls[node]:
+                                visit(control, active, active_storage | {node})
                     return
                 if isinstance(
                     value,
@@ -649,20 +681,79 @@ class HierarchyDependencyValidator:
                         visit(
                             child,
                             active,
-                            active_memories,
-                            active_fifos,
+                            active_storage,
                         )
 
-            visit(expression, active_locals)
-            return input_names, instance_outputs
+            def visit_name(
+                name: str,
+                active: frozenset[str],
+                active_storage: frozenset[_DependencyNode],
+                *,
+                bits: tuple[int, ...] = (),
+            ) -> None:
+                replacement = local_expressions.get(name)
+                controls = (
+                    (replacement,) if replacement is not None
+                    else local_signals.get(name, ())
+                )
+                if controls:
+                    if name in active:
+                        raise SemanticError(
+                            f"cyclic local dependency '{name}' in child dependency analysis"
+                        )
+                    for control in controls:
+                        visit(_project_dependency(control, bits, {}), active | {name}, active_storage)
+                elif known_inputs is None or name in known_inputs:
+                    input_names.add(_InputDependency(name, bits))
 
-        output_summary_cache: dict[int, dict[str, frozenset[str]]] = {}
+            def visit_protocol(
+                value: ir_expr.ReadyValidRef | ir_expr.RequestResponseRef,
+                active: frozenset[str],
+                active_storage: frozenset[_DependencyNode],
+                *,
+                bits: tuple[int, ...] = (),
+            ) -> None:
+                signals = (
+                    (ReadyValidSignal.VALID, ReadyValidSignal.READY)
+                    if value.signal is ReadyValidSignal.TRANSFER else (value.signal,)
+                )
+                for signal in signals:
+                    name = (
+                        request_response_field_name(value.interface, value.channel, signal)
+                        if isinstance(value, ir_expr.RequestResponseRef)
+                        else ready_valid_field_name(value.interface, signal)
+                    )
+                    visit_name(name, active, active_storage, bits=bits)
+
+            def visit_child_output(
+                reference: ir_expr.InstanceOutputRef,
+                bits: tuple[int, ...],
+                active: frozenset[str],
+                active_storage: frozenset[_DependencyNode],
+            ) -> None:
+                node = _DependencyNode("child", reference.instance, reference.port, bits)
+                if instance_inputs is None:
+                    outputs[node] = reference.origin
+                else:
+                    for binding in instance_inputs(node):
+                        visit(binding, active, active_storage)
+
+            visit(expression, active_locals)
+            return input_names, outputs
+
+        output_summary_cache: dict[
+            tuple[int, tuple[tuple[str, int], ...], str, tuple[int, ...]],
+            dict[str, frozenset[_InputDependency]],
+        ] = {}
         active_summary_modules: set[int] = set()
 
         def output_input_dependencies(
             current: ir_module.Module,
-        ) -> dict[str, frozenset[str]]:
-            """Summarize each wire output in terms of this module's inputs.
+            access_constants: dict[str, int],
+            observed_output: str = "",
+            read_bits: tuple[int, ...] = (),
+        ) -> dict[str, frozenset[_InputDependency]]:
+            """Summarize each observed output in terms of its physical input leaves.
 
             A direct child output is not itself an input dependency.  Resolve it
             through that child's already typed output summary and exact scalar
@@ -671,26 +762,53 @@ class HierarchyDependencyValidator:
             explicit current-cycle cuts.
             """
 
-            key = id(current)
+            module_key = id(current)
+            key = (module_key, tuple(sorted(access_constants.items())), observed_output, read_bits)
             cached = output_summary_cache.get(key)
             if cached is not None:
                 return cached
-            if key in active_summary_modules:
+            if module_key in active_summary_modules:
                 raise SemanticError(
                     f"cyclic typed child hierarchy while summarizing '{current.name}'"
                 )
-            active_summary_modules.add(key)
+            active_summary_modules.add(module_key)
             try:
-                current_inputs = {item.name for item in current.inputs}
+                current_inputs = {
+                    port.name for port in current.inputs if port.protocol is InterfaceProtocol.WIRE
+                }
+                for port in current.ports:
+                    if port.protocol is not InterfaceProtocol.READY_VALID:
+                        continue
+                    signals = (
+                        (ReadyValidSignal.PAYLOAD, ReadyValidSignal.VALID)
+                        if port.direction is ir_module.PortDirection.INPUT
+                        else (ReadyValidSignal.READY,)
+                    )
+                    current_inputs.update(
+                        ready_valid_field_name(port.name, signal) for signal in signals
+                    )
+                current_inputs.update(
+                    request_response_field_name(interface.name, channel, signal)
+                    for interface in current.request_responses
+                    for channel in RequestResponseChannel
+                    for signal in (ReadyValidSignal.PAYLOAD, ReadyValidSignal.VALID, ReadyValidSignal.READY)
+                    if request_response_signal_is_input(interface.role, channel, signal)
+                )
+                read_data = current.csr_access.read_data_port if current.csr_access else None
+                csr_bits = read_bits if observed_output == read_data else ()
+                signal_sources = csr_output_controls(current, access_constants, csr_bits)
+                connected_signals, connected_inputs = hierarchy_connection_drivers(
+                    current.name, current.connections, current.hierarchical_connections,
+                    current.request_response_connections,
+                )
+                signal_sources.update(connected_signals)
+                signal_sources.update(_protocol_assignment_drivers(current.assignments))
                 current_locals = {
                     item.name: item.expression for item in current.locals
                 }
-                current_memories = {
-                    item.name: item for item in current.memories
-                }
-                current_fifos = {
-                    item.name: item for item in current.fifos
-                }
+                current_storage = _storage_dependency_controls(
+                    current.memories, current.fifos,
+                )
                 current_children = {
                     elaborated.instance.name: child
                     for child, elaborated in zip(
@@ -701,38 +819,51 @@ class HierarchyDependencyValidator:
                 }
                 current_bindings = {
                     (item.instance, item.port): item.expression
-                    for item in current.instance_bindings
+                    for item in (*current.instance_bindings, *connected_inputs)
                 }
 
+                nested_constants: dict[str, dict[str, int]] = {}
+
                 def nested_instance_inputs(
-                    reference: ir_expr.InstanceOutputRef,
+                    reference: _DependencyNode,
                 ) -> Iterable[ir_expr.Expression]:
-                    nested = current_children.get(reference.instance)
+                    nested = current_children.get(reference.name)
                     if nested is None:
                         return ()
-                    nested_summary = output_input_dependencies(nested)
+                    if reference.name not in nested_constants:
+                        nested_constants[reference.name] = ir_hierarchy.csr_access_constants(
+                            nested, reference.name, current_bindings, current_locals, access_constants,
+                        )
+                    nested_summary = output_input_dependencies(
+                        nested, nested_constants[reference.name],
+                        reference.field if reference.read_bits else "", reference.read_bits,
+                    )
                     return tuple(
-                        binding
-                        for nested_input in nested_summary.get(reference.port, ())
-                        if (
-                            binding := current_bindings.get(
-                                (reference.instance, nested_input)
-                            )
-                        ) is not None
+                        _project_dependency(binding, nested_input.bits, current_locals)
+                        for nested_input in nested_summary.get(reference.field, ())
+                        if (binding := current_bindings.get((reference.name, nested_input.name))) is not None
                     )
 
                 def summarize_expression(
                     expression: ir_expr.Expression,
-                ) -> set[str]:
+                ) -> set[_InputDependency]:
                     dependencies, _ = references(
                         expression,
                         local_expressions=current_locals,
-                        memory_resources=current_memories,
-                        fifo_resources=current_fifos,
+                        storage_controls=current_storage,
                         known_inputs=current_inputs,
+                        signal_sources=signal_sources,
                         instance_inputs=nested_instance_inputs,
                     )
                     return dependencies
+
+                if csr_bits:
+                    controls = signal_sources.get(observed_output, ())
+                    summary = {
+                        observed_output: frozenset().union(*(summarize_expression(control) for control in controls))
+                    }
+                    output_summary_cache[key] = summary
+                    return summary
 
                 scheduled_guard_cache: dict[
                     str, tuple[ir_expr.Expression, ...]
@@ -795,18 +926,33 @@ class HierarchyDependencyValidator:
                     scheduled_guard_cache[rule_name] = result
                     return result
 
-                summary: dict[str, frozenset[str]] = {}
+                output_names = {port.name for port in current.outputs}
+                summary: dict[str, frozenset[_InputDependency]] = {
+                    name: frozenset().union(*(
+                        summarize_expression(_project_dependency(control, read_bits, current_locals))
+                        for control in controls
+                    ))
+                    for name, controls in signal_sources.items()
+                    if (not observed_output or name == observed_output)
+                    and (name in output_names
+                         or parse_ready_valid_field_name(name) is not None
+                         or parse_request_response_field_name(name) is not None)
+                }
                 for output in current.outputs:
-                    if output.protocol is not InterfaceProtocol.WIRE:
+                    if observed_output and output.name != observed_output:
+                        continue
+                    if output.protocol is not InterfaceProtocol.WIRE or output.name in summary:
                         continue
                     if output.registered:
                         # A public register exposes pre-edge state. Its rule
                         # guards and operands affect the next state only.
                         summary[output.name] = frozenset()
                         continue
-                    dependencies: set[str] = set()
+                    dependencies: set[_InputDependency] = set()
                     dependencies.update(*(
-                        summarize_expression(assignment.expression)
+                        summarize_expression(_project_dependency(
+                            assignment.expression, read_bits, current_locals,
+                        ))
                         for assignment in current.assignments
                         if assignment.target.name == output.name
                         and assignment.signal is None
@@ -835,46 +981,154 @@ class HierarchyDependencyValidator:
                 output_summary_cache[key] = summary
                 return summary
             finally:
-                active_summary_modules.remove(key)
+                active_summary_modules.remove(module_key)
 
         binding_by_input = {
             (item.instance, item.port): item.expression for item in bindings
         }
-        graph: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        graph: dict[_DependencyNode, set[_DependencyNode]] = {}
         dependency_origins: dict[
-            tuple[tuple[str, str], tuple[str, str]], SourceOrigin | None
+            tuple[_DependencyNode, _DependencyNode], SourceOrigin | None
         ] = {}
-        for instance, child in child_irs.items():
-            # The declaration-name alias and each physical name point at the same
-            # child IR.  Only physical instances that own bindings participate.
-            if not any(item.instance == instance for item in bindings):
-                continue
-            child_output_dependencies = output_input_dependencies(child)
-            for output in child.outputs:
-                if output.protocol is not InterfaceProtocol.WIRE:
+
+        csr_outputs_by_instance = {
+            instance: ir_csr.csr_projection_port_names(child.csr_blocks).union(
+                name for name, _ in child.csr_access.output_types
+            )
+            for instance, child in child_irs.items()
+            if child.csr_access is not None
+        }
+        demanded_outputs: set[_DependencyNode] = set()
+
+        def is_csr_output(node: _DependencyNode) -> bool:
+            return (
+                node.kind == "child"
+                and node.field in csr_outputs_by_instance.get(node.name, ())
+            )
+
+        def connect_controls(
+            node: _DependencyNode,
+            controls: Iterable[ir_expr.Expression],
+        ) -> None:
+            edges = graph.setdefault(node, set())
+            for control in controls:
+                _, dependencies = references(
+                    control,
+                    local_expressions=local_values,
+                    storage_controls=parent_storage,
+                    signal_sources=parent_signals,
+                )
+                edges.update(dependencies)
+                demanded_outputs.update(
+                    target for target in dependencies
+                    if target.kind == "child" and (target.read_bits or is_csr_output(target))
+                )
+                for target, origin in dependencies.items():
+                    dependency_origins[(node, target)] = control.origin or origin
+
+        for node, controls in parent_storage.items():
+            connect_controls(node, controls)
+
+        def connect_child_output(
+            output: _DependencyNode, inputs: frozenset[_InputDependency],
+        ) -> None:
+            edges = graph.setdefault(output, set())
+            for input_name, bits in sorted(inputs):
+                bound = binding_by_input.get((output.name, input_name))
+                if bound is None:
                     continue
-                dependencies: set[tuple[str, str]] = set()
-                for input_name in child_output_dependencies.get(output.name, ()):
-                    bound = binding_by_input.get((instance, input_name))
-                    if bound is None:
-                        continue
-                    _, referenced_outputs = references(
-                        bound,
-                        local_expressions=local_values,
-                        memory_resources=parent_memories,
-                        fifo_resources=parent_fifos,
+                input_node = _DependencyNode("input", output.name, input_name, bits)
+                if input_node not in graph:
+                    connect_controls(input_node, (_project_dependency(bound, bits, local_values),))
+                for target in graph[input_node]:
+                    # Keep the established direct path for child-only cycles.
+                    # A storage edge retains the input port that closes the path.
+                    edge = (
+                        target if target.kind == "child" and (output.name, input_name) not in routed_inputs
+                        else input_node
                     )
-                    dependencies.update(referenced_outputs)
-                    for referenced in referenced_outputs:
-                        dependency_origins[((instance, output.name), referenced)] = bound.origin
-                graph[(instance, output.name)] = dependencies
+                    edges.add(edge)
+                    dependency_origins[(output, edge)] = bound.origin
+
+        bound_instances = {item.instance for item in bindings}
+        constants_by_child: dict[str, dict[str, int]] = {}
+        for instance, child in child_irs.items():
+            # A declaration alias is not a physical instance unless it owns bindings.
+            if instance not in bound_instances:
+                continue
+            constants = ir_hierarchy.csr_access_constants(child, instance, binding_by_input, local_values, {})
+            constants_by_child[instance] = constants
+            for name, input_names in output_input_dependencies(child, constants).items():
+                output = _DependencyNode("child", instance, name)
+                if not is_csr_output(output):
+                    connect_child_output(output, input_names)
+
+        # Follow observed child ranges and CSR leaves on demand.
+        while demanded_outputs:
+            pending = sorted(demanded_outputs)
+            demanded_outputs.clear()
+            for output in pending:
+                if output in graph:
+                    continue
+                child = child_irs[output.name]
+                constants = constants_by_child.get(output.name, {})
+                sources = output_input_dependencies(
+                    child, constants, output.field if output.read_bits else "", output.read_bits,
+                )
+                connect_child_output(output, sources.get(output.field, frozenset()))
+
+        def render_node(node: _DependencyNode) -> str:
+            if node.kind == "memory":
+                path = f"{node.name}.{node.field}" if node.field else node.name
+                return f"{path}.read_data"
+            rr_signal = parse_request_response_field_name(node.field)
+            if rr_signal is not None:
+                endpoint, channel, leaf = rr_signal
+                return f"{node.name}.{endpoint}.{channel.value}.{leaf.value}"
+            signal = parse_ready_valid_field_name(node.field)
+            endpoint = signal[0] if signal is not None else node.field
+            suffix = f".{signal[1].value}" if signal is not None else ""
+            child = child_irs.get(node.name)
+            if child is not None:
+                for aggregate in child.aggregate_protocol_endpoints:
+                    for member in aggregate.members:
+                        if endpoint == f"{aggregate.name}__{member.name}":
+                            return f"{node.name}.{aggregate.name}.{member.name}{suffix}"
+            if signal is not None:
+                return f"{node.name}.{endpoint}{suffix}"
+            if node.kind == "child" and csr_output_paths:
+                paths = [
+                    path for path, (port, _, _) in csr_output_paths.items()
+                    if path[0] == node.name and port == node.field
+                ]
+                if paths:
+                    path = min(paths, key=lambda parts: (parts[2] != "status", len(parts), parts))
+                    return ".".join(path)
+            return f"{node.name}.{node.field}"
+
+        def describe_cycle(nodes: tuple[_DependencyNode, ...]) -> str:
+            kinds = {node.kind for node in nodes}
+            if len(kinds) == 1:
+                return "FIFO" if "fifo" in kinds else nodes[0].kind
+            if kinds <= {"child", "input"}:
+                return "child"
+            return "storage"
+
+        def cycle_origin(nodes: tuple[_DependencyNode, ...]) -> SourceOrigin | None:
+            source, target = nodes[-2:]
+            if source.kind not in {"memory", "fifo"} and any(node.read_bits for node in nodes):
+                # A selected range can change which edge closes the DFS.
+                # Highlight the controlling storage expression when available.
+                for left, right in zip(nodes, nodes[1:]):
+                    if left.kind in {"memory", "fifo"}:
+                        location = dependency_origins.get((left, right))
+                        if location is not None:
+                            return location
+            return dependency_origins.get((source, target)) or (instance_origins or {}).get(source.name)
 
         reject_dependency_cycles(
             graph,
-            render_node=lambda node: f"{node[0]}.{node[1]}",
-            description="child",
-            origin=lambda source, target: (
-                dependency_origins.get((source, target))
-                or (instance_origins or {}).get(source[0])
-            ),
+            render_node=render_node,
+            description=describe_cycle,
+            origin=cycle_origin,
         )

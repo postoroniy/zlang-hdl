@@ -29,10 +29,13 @@ def uses_dedicated_legacy_storage(module: ir_module.Module) -> bool:
     if (
         module.fifos
         and all(not fifo.scheduled for fifo in module.fifos)
-        and not module.memories
-        and not module.roms
+        and all(not memory.scheduled for memory in module.memories)
     ):
-        return resource_kinds <= {ir_state.StateResourceKind.FIFO}
+        # These storage controls are already resolved as independent global
+        # expressions. ROM contributes no transition resource.
+        return resource_kinds <= {
+            ir_state.StateResourceKind.FIFO, ir_state.StateResourceKind.MEMORY
+        }
     if (
         module.memories
         and all(not memory.scheduled for memory in module.memories)

@@ -471,6 +471,54 @@ def test_edge_free_logic_event_advances_trace_time_once(tmp_path: Path) -> None:
         assert outputs == [{"y": LogicVector.parse("u1x0", 4)}]
         trace = instance.drain_logic_trace()
         assert trace == [{"$event": 1, "y": LogicVector.parse("u1x0", 4)}]
+    _check_rejected_event_admission_is_atomic(tmp_path)
+
+
+def _check_rejected_event_admission_is_atomic(tmp_path: Path) -> None:
+    source = _source(tmp_path, "event_admission", """
+module EventAdmission {
+    clock clk async reset rst @clk { release externally_synchronized }
+    in d:u8 out reg q:u8=0 out seen:u8=d
+    q <- d
+}
+""")
+    for logic_state in (False, True):
+        with zlang.sim.load(source, logic_state=logic_state) as instance:
+            instance.run_events((
+                {"reset": {"rst": True}},
+                {"reset": {"rst": False}, "set": {"d": 37}, "edges": ["clk"]},
+            ))
+            bad_events = (
+                ({"reset": {"rst": True}, "edges": ["clk", "clk"]}, "a clock twice"),
+                ({"reset": {"rst": True}, "edges": ["missing"]}, "unknown clock"),
+                ({"reset": {"rst": True, "missing": False}}, "unknown reset"),
+                ({"reset": {"rst": True, "missing": 2}}, "must be boolean"),
+                ({"set": {"d": 99, "seen": 2}}, "is not an input"),
+            )
+            for invalid, message in bad_events:
+                event = {"set": {"d": 99}, **invalid}
+                with pytest.raises(SimulationRuntimeError, match=message):
+                    instance.run_events((event,))
+                assert tuple(instance.get(name) for name in ("q", "d", "seen")) == (37, 37, 37)
+                instance.edge("clk")
+                assert instance.get("q") == 37  # The rejected reset stayed inactive.
+            if logic_state:
+                with pytest.raises(SimulationRuntimeError):
+                    instance.run_events((
+                        {"set": {"d": 99}, "set_logic": {"missing": "01ux0011"}},
+                    ))
+                assert instance.get("d") == 37
+            with pytest.raises(SimulationRuntimeError, match="a clock twice"):
+                instance.run_events((
+                    {"set": {"d": 41}, "edges": ["clk"]},
+                    {"set": {"d": 99}, "reset": {"rst": True}, "edges": ["clk", "clk"]},
+                    {"set": {"d": 63}, "edges": ["clk"]},
+                ))
+            assert (instance.get("q"), instance.get("d")) == (41, 41)
+            instance.run_events(({"reset": {"rst": True}},))
+            assert (instance.get("q"), instance.get("d")) == (0, 41)
+            instance.run_events(({"reset": {"rst": False}, "edges": ["clk"]},))
+            assert instance.get("q") == 41
 
 
 def test_typed_reads_require_binary_but_logic_reads_remain_available(

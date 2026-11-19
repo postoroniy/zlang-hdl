@@ -35,9 +35,12 @@ fn fp_to_integer<E,F,W=1+E+F,X=E+5>(value:bits<W>,word:bit,unsigned_integer:bit,
 }
 
 fn fp_convert<SE,SF,DE,DF,SW=1+SE+SF,X=DE+5,Z=SE+DE+5>(value:bits<SW>,rounding:u3) -> FpResult {
+    check_scale_width = bitcast<bits<X>>(zeros<DE+5>)
+    check_input_scale_width = extend<Z>(zeros<X-1>)
     d = fp_decode<E=SE,F=SF>(value)
-    finite = fp_round_pack<E=DE,F=DF,M=SF+1>(d.sign,d.significand,
-        truncate<X>(extend<Z>(d.exponent)-SF),rounding)
+    scale = extend<Z>(d.exponent)-SF
+    finite = _fp_round_pack_scaled<E=DE,F=DF,M=SF+1,S=Z+1>(
+        d.sign,d.significand,scale,rounding)
     FpResult {
         value=d.nan ? extend<64>(fp_nan<E=DE,F=DF>())
             : d.infinity ? extend<64>(fp_infinity<E=DE,F=DF>(d.sign)) : finite.value

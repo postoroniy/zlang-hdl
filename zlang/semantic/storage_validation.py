@@ -18,14 +18,12 @@ from zlang.ir import storage as ir_storage
 from zlang.ir import types as ir_types
 from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
 from zlang.ir.signed_reductions import expression_semantic_identity
-from zlang.ir.traversal import expression_children
 from zlang.source import SourceOrigin
 
 from .errors import SemanticError
 from . import actions as semantic_actions
 from . import expression_domains
 from . import observations
-from .module_validation import reject_dependency_cycles
 from .storage_symbols import FifoSymbol, MemoryPortSymbol, MemorySymbol, RomSymbol
 
 if TYPE_CHECKING:
@@ -1066,98 +1064,50 @@ class StorageAnalyzer:
         )
 
 
-class MemoryDependencyValidator:
-    """Reject current-cycle feedback through combinational memory reads."""
-
-    def validate(
-        self,
-        memories: tuple[ir_storage.Memory, ...],
-        locals_: tuple[ir_module.LocalValue, ...],
-    ) -> None:
-        """Reject current-cycle feedback through combinational memory reads.
-
-        A latency-one memory terminates a combinational path.  A latency-zero
-        memory does not: its read address always affects ``read_data``, while a
-        ``write_first`` profile also observes the active write controls and the
-        fully merged write word.  Model those typed dependencies before either
-        backend can publish a combinational loop.  Read-first write-data feedback
-        remains legal because it only changes the cell state at the next edge.
-        """
-
-        combinational = {
-            memory.name: memory
-            for memory in memories
-            if memory.read_latency == 0
-        }
-        if not combinational:
-            return
-        local_values = {item.name: item.expression for item in locals_}
-
-        def referenced_memories(
-            expression: ir_expr.Expression,
-            *,
-            active_locals: frozenset[str] = frozenset(),
-        ) -> set[str]:
-            referenced: set[str] = set()
-            boundaries = (
-                ir_expr.RegisterRef,
-                ir_expr.FifoRef,
-                ir_expr.RomRef,
-                ir_expr.Delay,
-                ir_expr.Pipeline,
-                ir_expr.Constant,
-                ir_expr.ParameterRef,
-                ir_expr.FunctionalCaptureRef,
-                ir_expr.FunctionalValue,
-                ir_expr.FunctionalTableLookup,
-                ir_expr.InstanceOutputRef,
+def memory_read_dependencies(
+    memory: ir_storage.Memory,
+) -> dict[str, tuple[ir_expr.Expression, ...]]:
+    """Return current-cycle controls for each latency-zero read observation."""
+    if memory.read_latency != 0:
+        return {}
+    readers = (
+        {port.name: port.address for port in memory.ports if port.read_enable is not None}
+        if memory.ported else
+        {"": memory.read_address}
+    )
+    bypass: tuple[ir_expr.Expression | None, ...] = ()
+    if memory.collision is ir_storage.MemoryCollision.WRITE_FIRST:
+        bypass = (
+            tuple(
+                control
+                for port in memory.ports
+                if port.write_enable is not None
+                for control in (port.write_enable, port.address, port.write_data, port.write_mask)
             )
-
-            def visit(value: ir_expr.Expression, active: frozenset[str]) -> None:
-                if isinstance(value, ir_expr.InputRef):
-                    replacement = local_values.get(value.name)
-                    if replacement is not None and value.name in active:
-                        raise SemanticError(
-                            f"cyclic immutable local '{value.name}' in memory "
-                            "dependency analysis"
-                        )
-                    if replacement is not None:
-                        visit(replacement, active | {value.name})
-                    return
-                if isinstance(value, ir_expr.MemoryRef):
-                    if value.signal is ir_storage.MemorySignal.READ_DATA:
-                        referenced.add(value.memory)
-                    return
-                if isinstance(value, boundaries):
-                    return
-                for child in expression_children(value):
-                    visit(child, active)
-
-            visit(expression, active_locals)
-            return referenced & combinational.keys()
-
-        graph: dict[str, set[str]] = {}
-        dependency_origins = {}
-        for name, memory in combinational.items():
-            controls = [memory.read_address]
-            if memory.collision is ir_storage.MemoryCollision.WRITE_FIRST:
-                controls.extend((
-                    memory.write_enable,
-                    memory.write_address,
-                    memory.write_data,
-                    memory.write_mask,
-                ))
-            graph[name] = set()
-            for control in controls:
-                if control is None:
-                    continue
-                for dependency in referenced_memories(control):
-                    graph[name].add(dependency)
-                    dependency_origins[(name, dependency)] = control.origin or memory.origin
-
-        reject_dependency_cycles(
-            graph,
-            render_node=lambda name: f"{name}.read_data",
-            description="memory",
-            origin=lambda source, target: dependency_origins.get((source, target)),
+            if memory.ported else
+            (memory.write_enable, memory.write_address, memory.write_data, memory.write_mask)
         )
+    return {
+        name: tuple(control for control in (address, *bypass) if control is not None)
+        for name, address in readers.items()
+    }
+
+
+def fifo_observation_dependencies(
+    fifo: ir_storage.Fifo,
+) -> dict[ir_storage.FifoSignal, tuple[ir_expr.Expression, ...]]:
+    """Return legacy lookahead and request-diagnostic dependencies."""
+    if fifo.scheduled:
+        return {}
+    # Occupancy-derived observations, including valid, are state boundaries.
+    # The legacy FIFO exposes accepted-pop lookahead on ready.
+    controls = {
+        ir_storage.FifoSignal.READY: (fifo.pop,),
+        ir_storage.FifoSignal.OVERFLOW: (fifo.push, fifo.pop),
+        ir_storage.FifoSignal.UNDERFLOW: (fifo.pop,),
+    }
+    return {
+        signal: dependencies
+        for signal, values in controls.items()
+        if (dependencies := tuple(value for value in values if value is not None))
+    }

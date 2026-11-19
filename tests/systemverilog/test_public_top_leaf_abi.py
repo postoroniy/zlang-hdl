@@ -13,7 +13,7 @@ import pytest
 from zlang import sim
 from zlang.backend.manifest import BackendArtifact
 from zlang.backend.systemverilog import SystemVerilogEmissionError, emit_artifact
-from zlang.compiler import compile_source
+from zlang.compiler import compile_file, compile_source
 from zlang.simulation_compare import compare_program
 from zlang.toolchain import lint_with_verilator
 
@@ -407,6 +407,7 @@ module AxiStorage {
                                  artifact_directory=comparison_dir, timeout=30)
     assert comparison.native_trace == tuple(expected)
     assert comparison.rtl_trace == tuple(expected)
+
     if storage == "rom":
         images = list(comparison_dir.glob("*.mem"))
         assert len(images) == 1
@@ -418,6 +419,180 @@ module AxiStorage {
     with pytest.raises(SystemVerilogEmissionError, match=r"unclaimed=.*\.phantom:ready_valid") as caught:
         emit_artifact(altered)
     assert caught.value.code == "ZL-BACKEND-SYSTEMVERILOG-FEATURE-ACCOUNTING"
+    if storage == "ram":
+        _check_protocol_storage_admission(tmp_path)
+
+
+def _check_protocol_storage_admission(tmp_path: Path) -> None:
+    from zlang.semantic import SemanticError
+
+    events = [
+        {"reset": {"rst": rst}, "set": {"wr": wr}, "edges": ["clk"]}
+        for rst, wr in ((True, 0), (False, 1), (False, 1), (False, 0))
+    ]
+    storage = (
+        ("memory m:mem<u13,4> {read_latency 1 collision write_first}",
+         "m.read_address=0 m.write_address=0 m.write_enable=wr m.write_data=35 q=m.read_data", 35),
+        ("fifo m:fifo<u13,4>", "m.push=wr & m.ready m.pop=0 m.data=35 q=mux(m.valid,m.front,0)", 35),
+        ("rom m:rom<u13,2> {read_latency 1 init [9,13]}", "m.read_address=0 q=m.read_data", 9),
+    )
+    protocols = (
+        ("packet", "in a:packet<u13> in b:packet<u13> out tx:packet<u13>",
+         "arbiter [a,b] -> tx {policy fixed_priority grant packet}"),
+        ("vc", "out tx:vc_credit<u13,4,2>", "tx.payload=0 tx.vc=0 tx.send=0"),
+        ("credit", "out tx:credit<u13,2>", "tx.payload=0 tx.send=0"),
+        ("rv", "out tx:rv<u13>", "tx.payload=0 tx.valid=0"),
+    )
+    for declaration, behavior, value in storage:
+        for name, ports, logic in protocols:
+            kind = declaration.split()[0]
+            case = tmp_path / f"{name}-{kind}"
+            case.mkdir()
+            path = case / "dut.zhl"
+            source = f"""
+module Top {{
+    clock clk reset rst in wr:bit out q:u13
+    {ports}
+    {logic}
+    {declaration}
+    {behavior}
+}}
+"""
+            path.write_text(source)
+            if name == "credit":
+                with pytest.raises(SemanticError, match="storage resources cannot yet be mixed"):
+                    compile_file(path)
+                continue
+            ir = compile_file(path).ir
+            if name in ("packet", "vc"):
+                with pytest.raises(SystemVerilogEmissionError) as caught:
+                    emit_artifact(ir)
+                error = caught.value
+                assert error.code == "ZL-BACKEND-SYSTEMVERILOG-PROTOCOL-STORAGE"
+                assert error.semantic_path == ("Top", "m")
+                assert error.primary is not None and error.primary.source_unit == path.name
+                assert declaration in source.splitlines()[error.primary.span.start_line - 1]
+            expected = [0, value, value, value]
+            if name == "vc":
+                with sim.compile(path).create() as runtime:
+                    assert [row["q"] for row in runtime.run_events(events)] == expected
+            if name == "rv":
+                compared = compare_program(
+                    sim.compile(path), events, simulator="iverilog",
+                    artifact_directory=case / "comparison", timeout=30, build_timeout=30,
+                )
+                assert [row["q"] for row in compared.native_trace] == expected
+                assert [row["q"] for row in compared.rtl_trace] == expected
+
+def test_axi_stream_with_csr_preserves_sidebands_and_register_access(tmp_path: Path) -> None:
+    source = tmp_path / "axi_stream_csr.zhl"
+    source.write_text("""import std.bus.axi_stream
+module AxiCsr {
+    clock clk reset rst
+    interface rx:AXIStream<32>.sink @clk
+    interface tx:AXIStream<32>.source @clk
+    csr bank @0 { CONTROL @0 { value u8 @7:0 rw=0x5a } }
+    rx.t.ready=tx.t.ready
+    tx.t.valid=rx.t.valid
+    tx.t.payload=rx.t.payload
+}
+""")
+    a = dict(data=0x0123ABCD, keep=0xF, strb=0x9, last=0)
+    b = dict(data=0xFEDCBA98, keep=0x5, strb=0x1, last=1)
+    # Reset, clock edge, stream beat, valid, ready, CSR address/read/write,
+    # write data and the reference readback after the event.
+    rows = (
+        (1, 1, a, 0, 0, 0, 1, 1, 0xFF, 0x5A),
+        (0, 0, a, 1, 0, 0, 1, 1, 0x26, 0x5A),
+        (0, 1, a, 1, 0, 0, 1, 1, 0x26, 0x26),
+        (0, 1, a, 1, 1, 4, 1, 1, 0xFF, 0),
+        (0, 0, b, 1, 0, 0, 1, 0, 0, 0x26),
+        (0, 1, b, 1, 1, 0, 0, 0, 0, 0),
+        (1, 1, b, 0, 0, 0, 1, 0, 0, 0x5A),
+    )
+    events, expected = [], []
+    for reset, edge, beat, valid, ready, addr, read, write, wdata, rdata in rows:
+        events.append({
+            "reset": {"rst": bool(reset)},
+            "set": {"rx__t": {"payload": beat, "valid": valid}, "tx__t": {"ready": ready},
+                    "addr": addr, "read": read, "write": write, "wdata": wdata},
+            "edges": ["clk"] if edge else [],
+        })
+        expected.append({
+            "rx_t_ready": ready, "tx_t_valid": valid, "rdata": rdata,
+            "ready": int(addr == 0 and bool(read or write)),
+            **{f"tx_t_payload_{field}": value for field, value in beat.items()},
+        })
+    program = sim.compile(source)
+    comparison = compare_program(
+        program, events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30,
+    )
+    assert comparison.native_trace == tuple(expected)
+    assert comparison.rtl_trace == tuple(expected)
+
+    module = program.module
+    artifact = emit_artifact(module)
+    assert "csr_field_0_0_0_state" not in artifact.text
+    assert not any(
+        binding.semantic_signal_id.startswith("port:csr_field_")
+        for binding in artifact.bindings
+    )
+    phantom = replace(module.protocol_endpoints[0], name="phantom")
+    phantom_bundle = replace(module.aggregate_protocol_endpoints[0], name="phantom_bundle")
+    invalid = (
+        (replace(module, protocol_endpoints=(*module.protocol_endpoints, phantom)),
+         r"unclaimed=.*\.phantom:ready_valid"),
+        (replace(module, aggregate_protocol_endpoints=(*module.aggregate_protocol_endpoints, phantom_bundle)),
+         r"unclaimed=.*aggregate_endpoint:phantom_bundle:"),
+    )
+    for changed, diagnostic in invalid:
+        with pytest.raises(SystemVerilogEmissionError, match=diagnostic) as caught:
+            emit_artifact(changed)
+        assert caught.value.code == "ZL-BACKEND-SYSTEMVERILOG-FEATURE-ACCOUNTING"
+
+
+def test_standalone_csr_comparison_uses_public_access_ports(tmp_path: Path) -> None:
+    source = tmp_path / "csr.zhl"
+    source.write_text("""module Top {
+    clock clk reset rst
+    csr bank @0 { CONTROL @0 { value u8 @7:0 rw=0x5a } }
+}
+""")
+    events = (
+        {"reset": {"rst": True}, "set": {"addr": 0, "read": 1}, "edges": ["clk"]},
+        {"reset": {"rst": False}, "set": {"write": 1, "wdata": 0xA5}, "edges": ["clk"]},
+        {"set": {"addr": 4, "wdata": 0xFF}, "edges": ["clk"]},
+        {"set": {"addr": 0, "write": 0}},
+        {"reset": {"rst": True}, "edges": ["clk"]},
+    )
+    expected = (
+        {"ready": 1, "rdata": 0x5A},
+        {"ready": 1, "rdata": 0xA5},
+        {"ready": 0, "rdata": 0},
+        {"ready": 1, "rdata": 0xA5},
+        {"ready": 1, "rdata": 0x5A},
+    )
+
+    program = sim.compile(source)
+    comparison = compare_program(
+        program, events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30,
+    )
+    assert comparison.native_trace == expected
+    assert comparison.rtl_trace == expected
+
+    module = program.module
+    public_ports = {"addr", "write", "wdata", "read", "rdata", "ready"}
+    child_projections = {port.name for port in module.ports} - public_ports
+    assert "csr_field_0_0_0_state" in child_projections
+    assert {leaf.external_name for leaf in module.top_physical_abi.leaves} == {
+        "clk", "rst", *public_ports,
+    }
+    artifact = emit_artifact(module)
+    bindings = {binding.semantic_signal_id: binding for binding in artifact.bindings}
+    assert all(bindings[f"port:{name}"].rtl_path == name for name in public_ports)
+    assert all(f"port:{name}" not in bindings for name in child_projections)
 
 
 def test_public_names_colliding_after_sv_mangling_are_rejected() -> None:

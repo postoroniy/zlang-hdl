@@ -167,6 +167,14 @@ def lower_ready_valid_module(module: ir_module.Module) -> ir_module.Module:
                 destination_ready,
                 expr.FifoRef(fifo_name, FifoSignal.VALID, ir_types.BitType()),
             )
+            ready = expr.FifoRef(fifo_name, FifoSignal.READY, ir_types.BitType())
+            push = _bit_binary(
+                expr.BinaryOperator.BIT_AND,
+                expr.ReadyValidRef(
+                    source.name, ir_interfaces.ReadyValidSignal.VALID, ir_types.BitType(),
+                ),
+                ready,
+            )
             expanded_fifos.append(
                 Fifo(
                     fifo_name,
@@ -177,11 +185,7 @@ def lower_ready_valid_module(module: ir_module.Module) -> ir_module.Module:
                         ir_interfaces.ReadyValidSignal.PAYLOAD,
                         source.type,
                     ),
-                    expr.ReadyValidRef(
-                        source.name,
-                        ir_interfaces.ReadyValidSignal.VALID,
-                        ir_types.BitType(),
-                    ),
+                    push,
                     pop,
                     domain=source.domain,
                 )
@@ -199,7 +203,7 @@ def lower_ready_valid_module(module: ir_module.Module) -> ir_module.Module:
                 ),
                 ir_module.Assignment(
                     source,
-                    expr.FifoRef(fifo_name, FifoSignal.READY, ir_types.BitType()),
+                    ready,
                     ir_interfaces.ReadyValidSignal.READY,
                 ),
             )

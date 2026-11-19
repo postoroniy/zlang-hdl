@@ -7,6 +7,7 @@ import pytest
 
 from tests.simulation.differential import run_differential
 import zlang.sim
+from zlang.simulation_compare import compare_program
 from zlang.simulation_lowering import PRIMITIVE_OPS
 
 
@@ -194,6 +195,102 @@ def test_native_legacy_fifo_matches_direct_sv_under_stall_and_wraparound(
         directory=tmp_path / "fifo_rtl",
     )
     assert trace.native == trace.direct_sv
+
+
+@pytest.mark.parametrize(
+    "reset_clause,scheduled,synchronized",
+    (
+        ("async reset rst @clk", False, True),
+        ("async reset rst @clk", True, True),
+        ("reset rst @clk", False, False),
+        (
+            "async reset rst @clk { release externally_synchronized }",
+            False,
+            False,
+        ),
+    ),
+    ids=("synchronized-global", "synchronized-scheduled", "sync", "external"),
+)
+def test_fifo_ready_tracks_own_domain_reset_release(
+    tmp_path: Path, reset_clause: str, scheduled: bool, synchronized: bool,
+) -> None:
+    controls = (
+        "rule enqueue when rx.transfer { q.push(rx.payload) }\n"
+        "rule dequeue when pop { q.pop() }"
+        if scheduled else
+        "q.data=rx.payload q.push=rx.transfer q.pop=pop"
+    )
+    source = _source(
+        tmp_path, "fifo_release",
+        f"""
+        module Top {{
+            clock aux async reset arst @aux
+            clock clk {reset_clause}
+            in rx:rv<u8> @clk in pop:bit @clk
+            out count:u2 @clk out head:u8 @clk out handshake:bit @clk
+            out present:bit @clk out fault:bit @clk
+            fifo q:fifo<u8,3> @clk
+            {controls}
+            rx.ready=q.ready handshake=rx.transfer
+            count=q.count present=q.valid head=q.valid ? q.front : 0
+            fault=q.underflow | q.overflow
+        }}
+        """,
+    )
+    events = []
+    expected = []
+    for hold in (0, 1):
+        # Separate observations around release edges distinguish ready
+        # advertisement from acceptance. Keep the other domain in reset.
+        rows = (
+            (True,  ("clk",), 0,    0),
+            (False, (),       1,    1),  # request pop without a clock edge
+            (False, ("aux",), 1,    0),  # unrelated clock edge
+            (False, ("clk",), 1,    0),  # first FIFO-domain edge
+            (False, (),       hold, 0),
+            (False, ("clk",), hold, 0),  # second FIFO-domain edge
+            (False, (),       hold, 0),  # before the first eligible edge
+            (False, ("clk",), hold, 0),  # third FIFO-domain edge
+            (False, (),       0,    0),
+        )
+        if synchronized:
+            counts = (0, 0, 0, 0, 0, 0, 0, hold, hold)
+            readiness = (0, 0, 0, 0, 0, 1, 1, 1, 1)
+        else:
+            counts = (0, 0, 0, 1, 1, 1 + hold, 1 + hold, 1 + 2 * hold, 1 + 2 * hold)
+            readiness = (0, 1, 1, 1, 1, 1, 1, 1 - hold, 1 - hold)
+        for (reset, edges, valid, pop), count, ready in zip(
+            rows, counts, readiness, strict=True,
+        ):
+            events.append({
+                "reset": {"rst": reset, "arst": True},
+                "set": {"rx": {"valid": valid, "payload": 0x5A}, "pop": pop},
+                "edges": edges,
+            })
+            expected.append({
+                "rx_ready": ready,
+                "handshake": ready & valid,
+                "count": count,
+                "present": int(count != 0),
+                "head": 0x5A if count else 0,
+                "fault": int(ready and pop and not scheduled),
+            })
+
+    program = zlang.sim.compile(source, engine="native")
+    comparison = compare_program(program, events, simulator="iverilog", timeout=30)
+    assert comparison.native_trace == tuple(expected)
+    assert comparison.rtl_trace == tuple(expected)
+
+    logic_program = zlang.sim.compile(source, engine="native", logic_state=True)
+    known_trace = []
+    with logic_program.create() as instance:
+        for event in events:
+            (row,) = instance.run_events((event,))
+            known_trace.append({
+                "rx_ready": instance.get("rx")["ready"],
+                **{name: value.require_binary() for name, value in row.items()},
+            })
+    assert known_trace == expected
 
 
 def test_native_scheduled_fifo_matches_direct_sv_and_memory_is_cycle_exact(

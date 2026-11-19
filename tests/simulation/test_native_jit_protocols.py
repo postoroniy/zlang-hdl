@@ -18,6 +18,7 @@ from zlang.native_simulation import (
     simulate_request_response_cycles,
     simulate_vc_credit_cycles,
 )
+from zlang.simulation_compare import compare_program
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1655,3 +1656,53 @@ def test_protocol_trace_selection_is_lowered_to_scalar_names(
             "tx.valid",
             "tx.ready",
         }
+
+
+def test_buffer_one_holds_unaccepted_offer_and_replaces_full_head(tmp_path: Path) -> None:
+    path = _source(tmp_path, "offered_buffer", """
+module Buffered {
+    clock clk reset rst
+    in rx:rv<u8> out tx:rv<u8>
+    out q:u8 out reg last:u8=0
+    rx -> tx { buffer 1 }
+    q=tx.valid ? tx.payload : 0
+    when tx.transfer { last <- tx.payload }
+}
+module Top {
+    clock clk reset rst
+    in offered:bit in data:u8 in drain:bit
+    out q:u8 out last:u8
+    stage:Buffered
+    stage.rx.valid=offered stage.rx.payload=data stage.tx.ready=drain
+    q=stage.q last=stage.last
+}
+""")
+    rows = (
+        (True, 0, 0, 0),
+        (False, 1, 0x5A, 0),
+        (False, 1, 0xC3, 0),
+        (False, 1, 0xC3, 0),
+        (False, 1, 0xC3, 1),
+        (False, 1, 0x17, 1),
+        (False, 0, 0, 1),
+    )
+    events = [
+        {"reset": {"rst": rst}, "edges": ["clk"], "set": {
+            "offered": valid, "data": payload, "drain": ready,
+        }}
+        for rst, valid, payload, ready in rows
+    ]
+    expected_q = (0, 0x5A, 0x5A, 0x5A, 0xC3, 0x17, 0)
+    expected_last = (0, 0, 0, 0, 0x5A, 0xC3, 0x17)
+    compare = compare_program(
+        zlang.sim.compile(path, top="Top"), events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30, build_timeout=30,
+    )
+    for trace in (compare.native_trace, compare.rtl_trace):
+        assert tuple(sample["q"] for sample in trace) == expected_q
+        assert tuple(sample["last"] for sample in trace) == expected_last
+
+    with zlang.sim.compile(path, top="Top", logic_state=True).create() as instance:
+        trace = instance.run_events(events)
+    assert tuple(sample["q"].require_binary() for sample in trace) == expected_q
+    assert tuple(sample["last"].require_binary() for sample in trace) == expected_last

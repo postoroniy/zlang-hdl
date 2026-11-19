@@ -24,10 +24,13 @@ from zlang.backend.companions import publish_companion_bundle
 from zlang.backend.systemverilog import emit_artifact
 from zlang.ir.interfaces import InterfaceProtocol
 from zlang.ir.module import Module, PortDirection
+from zlang.ir.top_abi import TopPhysicalABI
 from zlang.sim import Program, SimulationRuntimeError, Simulator, _pack_value
 from zlang.common.subprocess import run_bounded_process, subprocess_text
 from zlang.common.files import file_digest
-from zlang.simulation_comparison_testbench import STIMULUS_FILE,render_testbench
+from zlang.simulation_comparison_testbench import (
+    DEFAULT_TESTBENCH_MODULE, STIMULUS_FILE, render_testbench,
+)
 
 
 SIMULATION_COMPARISON_SCHEMA = "zlang-simulation-comparison-v1"
@@ -51,7 +54,9 @@ class SimulationComparison:
     artifact_directory: Path | None = None
 
 
-def _public_port_paths(module: Module) -> dict[str, tuple[str, ...]]:
+def _public_port_paths(
+    module: Module, abi: TopPhysicalABI,
+) -> dict[str, tuple[str, ...]]:
     paths = {port.name: (port.name,) for port in module.ports}
     for aggregate in module.aggregate_protocol_endpoints:
         for member in aggregate.members:
@@ -61,7 +66,12 @@ def _public_port_paths(module: Module) -> dict[str, tuple[str, ...]]:
                     f"aggregate member '{physical}' has no compiler-owned port"
                 )
             paths[physical] = (aggregate.name, member.name)
-    return paths
+    public_paths = {
+        leaf.member_path[:2 if leaf.category == "aggregate" else 1]
+        for leaf in abi.leaves
+        if leaf.category in {"port", "aggregate"}
+    }
+    return {name: path for name, path in paths.items() if path in public_paths}
 
 
 def _nested_value(value: object, path: Sequence[str], *, name: str) -> object:
@@ -97,13 +107,13 @@ def _packed_events(
 ) -> tuple[dict[str, object], ...]:
     """Project public semantic event updates onto exact physical ABI leaves."""
 
-    paths = _public_port_paths(module)
+    abi = module.top_physical_abi
+    paths = _public_port_paths(module, abi)
     request_responses = {item.name for item in module.request_responses}
     inputs = tuple(
         leaf
-        for leaf in module.top_physical_abi.leaves
-        if leaf.direction is PortDirection.INPUT
-        and leaf.category not in {"clock", "reset"}
+        for leaf in abi.inputs
+        if leaf.category not in {"clock", "reset"}
     )
     result: list[dict[str, object]] = []
     for event in events:
@@ -169,19 +179,18 @@ def _packed_events(
 
 def _physical_output_sample(instance: Simulator) -> dict[str, int]:
     module = instance.program.module
-    paths = _public_port_paths(module)
+    abi = module.top_physical_abi
+    paths = _public_port_paths(module, abi)
     ports = {port.name: port for port in module.ports}
     request_responses = {item.name: item for item in module.request_responses}
     public_values: dict[str, object] = {}
-    for name in ports:
+    for name in paths:
         public_values[name] = instance.get(name)
     for name in request_responses:
         public_values[name] = instance.get(name)
 
     result: dict[str, int] = {}
-    for leaf in module.top_physical_abi.leaves:
-        if leaf.direction is not PortDirection.OUTPUT:
-            continue
+    for leaf in abi.outputs:
         if leaf.packed_root_type is None:
             raise SimulationComparisonError(
                 f"physical output '{leaf.external_name}' has no packed type"
@@ -269,6 +278,7 @@ def _tool_commands(
     simulator: ExternalSimulator,
     *,
     directory: Path,
+    testbench_module: str = DEFAULT_TESTBENCH_MODULE,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     build = directory / "build"
     build.mkdir(parents=True, exist_ok=True)
@@ -284,7 +294,7 @@ def _tool_commands(
                 compiler,
                 "-g2012",
                 "-s",
-                "zlang_compare_tb",
+                testbench_module,
                 "-o",
                 "build/compare_sim.vvp",
                 "design.sv",
@@ -304,7 +314,7 @@ def _tool_commands(
                 "--binary",
                 "--timing",
                 "--top-module",
-                "zlang_compare_tb",
+                testbench_module,
                 "--Mdir",
                 "build/obj",
                 "-o",
@@ -457,7 +467,9 @@ def compare_program(
         testbench_path = directory / "compare_tb.sv"
         stimulus_path = directory / STIMULUS_FILE
         try:
-            testbench = render_testbench(program.module, artifact.module, packed_events)
+            testbench = render_testbench(
+                program.module, artifact.module, packed_events, rtl_text=artifact.text,
+            )
         except ValueError as error:
             raise SimulationComparisonError(str(error)) from error
         if STIMULUS_FILE in {item.logical_path for item in artifact.companions}:
@@ -466,7 +478,9 @@ def compare_program(
         testbench_path.write_text(testbench.text, encoding="utf-8")
         stimulus_path.write_text(testbench.stimulus, encoding="utf-8")
         publish_companion_bundle(artifact.companions, directory)
-        compile_command, run_command = _tool_commands(simulator, directory=directory)
+        compile_command, run_command = _tool_commands(
+            simulator, directory=directory, testbench_module=testbench.module_name,
+        )
         compiled = _run_bounded(
             compile_command, directory=directory, timeout=build_timeout, phase="compile",
         )

@@ -271,7 +271,7 @@ class ProtocolDependencyValidator:
             ),
             description=describe_interface_cycle,
             stable_sort=False,
-            origin=lambda source, target: driven[source].expression.origin,
+            origin=lambda cycle: driven[cycle[-2]].expression.origin,
         )
 
     def _dependencies(
@@ -347,3 +347,128 @@ class ProtocolDependencyValidator:
                 children = expression_children(current)
             stack.extend(reversed(children))
         return dependencies
+
+
+def hierarchy_connection_drivers(
+    module_name: str,
+    connections: tuple[ir_module.Connection, ...],
+    hierarchical_connections: tuple[ir_module.HierarchicalConnection, ...],
+    request_response_connections: tuple[ir_module.RequestResponseConnection, ...],
+) -> tuple[
+    dict[str, tuple[ir_expr.Expression, ...]],
+    tuple[ir_module.InstancePortBinding, ...],
+]:
+    """Project exact physical link dependencies for the hierarchy cycle graph."""
+    signals: dict[str, tuple[ir_expr.Expression, ...]] = {}
+    bindings: list[ir_module.InstancePortBinding] = []
+    ready = ir_interfaces.ReadyValidSignal.READY
+
+    for connection in connections:
+        if (
+            connection.buffer_depth
+            and not connection.adapter and not connection.crossing
+            and connection.source.protocol is ir_interfaces.InterfaceProtocol.READY_VALID
+            and connection.destination.protocol is ir_interfaces.InterfaceProtocol.READY_VALID
+        ):
+            # Simple RV buffers admit a replacement when the full head retires.
+            signals[ir_interfaces.ready_valid_field_name(connection.source.name, ready)] = (
+                ir_expr.ReadyValidRef(connection.destination.name, ready, BitType()),
+            )
+
+    def scalar_name(
+        endpoint: ir_module.ProtocolEndpoint,
+        signal: ir_interfaces.ReadyValidSignal | None,
+    ) -> str:
+        if signal is None:
+            return endpoint.name
+        if endpoint.channel is None:
+            return ir_interfaces.ready_valid_field_name(endpoint.name, signal)
+        return ir_interfaces.request_response_field_name(
+            endpoint.name, endpoint.channel, signal,
+        )
+
+    def source_ref(
+        endpoint: ir_module.ProtocolEndpoint,
+        signal: ir_interfaces.ReadyValidSignal | None,
+    ) -> ir_expr.Expression:
+        leaf = scalar_name(endpoint, signal)
+        type_ = (
+            endpoint.payload_type
+            if signal in (None, ir_interfaces.ReadyValidSignal.PAYLOAD)
+            else BitType()
+        )
+        if endpoint.owner != module_name:
+            return ir_expr.InstanceOutputRef(endpoint.owner, leaf, type_, domain=endpoint.domain)
+        if signal is None:
+            return ir_expr.InputRef(endpoint.name, type_)
+        if endpoint.channel is not None:
+            return ir_expr.RequestResponseRef(endpoint.name, endpoint.channel, signal, type_)
+        return ir_expr.ReadyValidRef(endpoint.name, signal, type_)
+
+    def drive(
+        destination: ir_module.ProtocolEndpoint,
+        signal: ir_interfaces.ReadyValidSignal | None,
+        dependencies: tuple[ir_expr.Expression, ...],
+    ) -> None:
+        leaf = scalar_name(destination, signal)
+        if destination.owner == module_name:
+            signals[leaf] = dependencies
+        else:
+            # Admission is the conjunction of the signal and any live
+            # permission terms. Stateful qualifiers cannot close this graph.
+            value, *admission = dependencies
+            for condition in admission:
+                value = ir_expr.Binary(
+                    ir_expr.BinaryOperator.BIT_AND, value, condition, BitType(), BitType(),
+                )
+            bindings.append(ir_module.InstancePortBinding(destination.owner, leaf, value))
+
+    def route(
+        source: ir_module.ProtocolEndpoint,
+        destination: ir_module.ProtocolEndpoint,
+        signal: ir_interfaces.ReadyValidSignal | None,
+        admission: tuple[ir_expr.Expression, ...] = (),
+    ) -> None:
+        drive(destination, signal, (source_ref(source, signal), *admission))
+
+    for edge in hierarchical_connections:
+        if (
+            edge.source.protocol is edge.destination.protocol is ir_interfaces.InterfaceProtocol.WIRE
+            and not (edge.buffer_depth or edge.adapter or edge.crossing)
+        ):
+            route(edge.source, edge.destination, None)
+            continue
+        if (
+            edge.source.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID
+            or edge.destination.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID
+            or edge.source.channel is not None or edge.destination.channel is not None
+            or edge.request_buffer_depth or edge.response_buffer_depth
+            or edge.adapter or edge.crossing
+        ):
+            # RR buffers use conservative admission; CDC also cuts dependencies.
+            continue
+        if not edge.buffer_depth:
+            route(edge.source, edge.destination, ir_interfaces.ReadyValidSignal.PAYLOAD)
+            route(edge.source, edge.destination, ir_interfaces.ReadyValidSignal.VALID)
+        route(edge.destination, edge.source, ready)
+    payload = ir_interfaces.ReadyValidSignal.PAYLOAD
+    valid = ir_interfaces.ReadyValidSignal.VALID
+    for connection in request_response_connections:
+        request, response = connection.request, connection.response
+        # The tracked count is state. An unbuffered request can also open
+        # the response admission on the very edge it transfers. With a
+        # buffered request the live part of that transfer is sink ready.
+        request_transfer = (source_ref(request.destination, ready),)
+        if not request.request_buffer_depth:
+            route(request.source, request.destination, payload)
+            route(request.source, request.destination, valid)
+            route(request.destination, request.source, ready)
+            request_transfer += (source_ref(request.source, valid),)
+        if response.response_buffer_depth:
+            # Conservative upstream ready and payload come from the FIFO.
+            drive(response.destination, valid, request_transfer)
+        else:
+            route(response.source, response.destination, payload)
+            route(response.source, response.destination, valid, request_transfer)
+            route(response.destination, response.source, ready, request_transfer)
+    return signals, tuple(bindings)

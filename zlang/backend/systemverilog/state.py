@@ -49,6 +49,14 @@ def _ported_memory_fragments(
         port for port in memory.ports
         if port.kind in {ir_storage.MemoryPortKind.READ, ir_storage.MemoryPortKind.READ_WRITE}
     )
+    local_names = emission_context.cached_module_rtl_names(module)
+    read_stages = {
+        port.name: tuple(
+            local_names.memory_read_stage(memory.name, index, port=port.name)
+            for index in range(memory.read_latency - 1)
+        )
+        for port in readable
+    }
     writable = tuple(
         port for port in memory.ports
         if port.kind in {ir_storage.MemoryPortKind.WRITE, ir_storage.MemoryPortKind.READ_WRITE}
@@ -94,8 +102,7 @@ def _ported_memory_fragments(
                 prefix = f"{name}_{sv_rendering._identifier(port.name)}"
                 logic.append(f"    {prefix}_read_data = '0;")
                 logic.extend(
-                    f"    {prefix}_read_stage_{index} = '0;"
-                    for index in range(memory.read_latency - 1)
+                    f"    {stage} = '0;" for stage in read_stages[port.name]
                 )
         if initialize_contents:
             for cells in cell_arrays:
@@ -126,41 +133,43 @@ def _ported_memory_fragments(
         )
         higher.append(port)
     for port in readable:
-        if memory.read_latency > 1:
-            declarations.extend(
-                f"  logic [{width - 1}:0] {name}_{sv_rendering._identifier(port.name)}_read_stage_{index};"
-                for index in range(memory.read_latency - 1)
-            )
+        declarations.extend(
+            f"  logic [{width - 1}:0] {stage};" for stage in read_stages[port.name]
+        )
         declarations.append(
             f"  logic [{width - 1}:0] {name}_{sv_rendering._identifier(port.name)}_read_data;"
         )
+    merged_values: dict[str, str] = {}
     for port in writable:
         if port.write_mask is None:
             continue
         lanes = memory.write_mask_width
         assert lanes is not None
-        prefix = f"{name}_{sv_rendering._identifier(port.name)}"
+        mask = local_names.memory_write_helper(memory.name, port.name, "write_mask")
+        expanded_mask = local_names.memory_write_helper(memory.name, port.name, "write_mask_expanded")
+        merged = local_names.memory_write_helper(memory.name, port.name, "write_merged")
+        merged_values[port.name] = merged
         declarations.extend((
-            f"  logic [{lanes - 1}:0] {prefix}_write_mask;",
-            f"  logic [{width - 1}:0] {prefix}_write_mask_expanded;",
-            f"  logic [{width - 1}:0] {prefix}_write_merged;",
+            f"  logic [{lanes - 1}:0] {mask};",
+            f"  logic [{width - 1}:0] {expanded_mask};",
+            f"  logic [{width - 1}:0] {merged};",
         ))
         expanded = sv_memory.byte_mask_concatenation(
-            f"{prefix}_write_mask", element_width=width, lane_count=lanes
+            mask, element_width=width, lane_count=lanes
         )
         assert port.write_data is not None
         logic.extend((
-            f"  assign {prefix}_write_mask = {render(port.write_mask)};",
-            f"  assign {prefix}_write_mask_expanded = {{{expanded}}};",
-            f"  assign {prefix}_write_merged = "
-            f"({cell_arrays[0]}[{render(port.address)}] & ~{prefix}_write_mask_expanded) | "
-            f"({render(port.write_data)} & {prefix}_write_mask_expanded);",
+            f"  assign {mask} = {render(port.write_mask)};",
+            f"  assign {expanded_mask} = {{{expanded}}};",
+            f"  assign {merged} = "
+            f"({cell_arrays[0]}[{render(port.address)}] & ~{expanded_mask}) | "
+            f"({render(port.write_data)} & {expanded_mask});",
         ))
 
     def write_value(port) -> str:
         assert port.write_data is not None
         return (
-            f"{name}_{sv_rendering._identifier(port.name)}_write_merged"
+            merged_values[port.name]
             if port.write_mask is not None else render(port.write_data)
         )
     writer_domains = {port.domain for port in writable}
@@ -194,20 +203,17 @@ def _ported_memory_fragments(
         for port in domain_ports:
             target = f"{name}_{sv_rendering._identifier(port.name)}_read_data"
             if memory.read_data_reset is ir_storage.MemoryResetPolicy.CLEAR:
-                for index in range(memory.read_latency - 1):
-                    logic.append(
-                        f"{indent}{name}_{sv_rendering._identifier(port.name)}_read_stage_{index} <= '0;"
-                    )
+                logic.extend(
+                    f"{indent}{stage} <= '0;" for stage in read_stages[port.name]
+                )
                 logic.append(f"{indent}{target} <= '0;")
 
     def append_reads(domain_ports, indent: str) -> None:
         for port in domain_ports:
             assert port.read_enable is not None
             prefix = f"{name}_{sv_rendering._identifier(port.name)}"
-            target = (
-                f"{prefix}_read_stage_0"
-                if memory.read_latency > 1 else f"{prefix}_read_data"
-            )
+            stages = read_stages[port.name]
+            target = stages[0] if stages else f"{prefix}_read_data"
             read_cells = cells_by_read_port[port.name]
             collisions = [
                 (writer, f"({effective_enable[writer.name]} && "
@@ -238,15 +244,12 @@ def _ported_memory_fragments(
             return
         for port in domain_ports:
             prefix = f"{name}_{sv_rendering._identifier(port.name)}"
-            for index in range(1, memory.read_latency - 1):
-                logic.append(
-                    f"{indent}{prefix}_read_stage_{index} <= "
-                    f"{prefix}_read_stage_{index - 1};"
-                )
-            logic.append(
-                f"{indent}{prefix}_read_data <= "
-                f"{prefix}_read_stage_{memory.read_latency - 2};"
+            stages = read_stages[port.name]
+            logic.extend(
+                f"{indent}{target} <= {previous};"
+                for previous, target in zip(stages[:-1], stages[1:], strict=True)
             )
+            logic.append(f"{indent}{prefix}_read_data <= {stages[-1]};")
 
     read_domains = tuple(dict.fromkeys(port.domain for port in readable))
     common_registered = (
@@ -559,7 +562,13 @@ def _append_unified_state(
             declarations.extend(memory_declarations)
             logic.extend(memory_logic)
         elif not memory.scheduled:
-            logic.extend(sv_memory.global_memory_fragments(module, memory, render))
+            memory_declarations, memory_logic = sv_memory.global_memory_fragments(
+                module, memory, render
+            )
+            # An independent ROM can use RAM's registered read result in
+            # its address. Put RAM's declarations ahead of the ROM logic.
+            (declarations if module.roms else logic).extend(memory_declarations)
+            logic.extend(memory_logic)
 
     def action_enable(group, action) -> str:
         fire = local_names.rule(group.rule_name, "fire")

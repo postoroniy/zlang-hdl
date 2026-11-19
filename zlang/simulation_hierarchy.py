@@ -15,9 +15,12 @@ import json
 from typing import Callable
 
 from zlang.ir import expressions as expr
+from zlang.ir.hierarchy import csr_access_constants
 from zlang.ir.interfaces import InterfaceProtocol
-from zlang.ir.module import Assignment, Module, Port, PortDirection
+from zlang.ir.module import Assignment, InstancePortBinding, Module, Port, PortDirection
+from zlang.ir.static_projection import StaticView, project_static_bits, static_parts, static_view
 from zlang.simulation_rewrite import SimulationExpressionRewriter
+from zlang.simulation_csr import lower_csr_module
 
 
 class HierarchicalSimulationError(ValueError):
@@ -90,6 +93,206 @@ class _InstanceOutputRewriter(SimulationExpressionRewriter):
                 f"unresolved hierarchical output '{value.instance}.{value.port}'"
             ) from error
         return expr.InputRef(name, value.type, origin=value.origin)
+
+
+class _ChildOutputProjectionRewriter(SimulationExpressionRewriter):
+    """Materialize observed child slices before linking scalar leaf plans."""
+
+    def __init__(
+        self, module: Module, path: tuple[str, ...], children: dict[str, Module],
+    ) -> None:
+        super().__init__()
+        self.children = children
+        self.locals = {item.name: item.expression for item in module.locals}
+        self.path = path
+        self.projections: dict[str, dict[Port, tuple[str, int, int]]] = {}
+        self.ports: dict[tuple[str, str, int, int, object], Port] = {}
+        self.used_names: dict[str, set[str]] = {}
+        self.output_assignments = {
+            (owner, item.target.name): item.expression
+            for owner, child in children.items()
+            for item in child.assignments
+            if isinstance(item.target, Port) and item.target.direction is PortDirection.OUTPUT
+            and not item.target.registered
+            and item.signal is None and item.channel is None
+        }
+
+    def rewrite_special(self, value: expr.Expression) -> expr.Expression | None:
+        selected = static_view(value)
+        if selected is None:
+            return None
+        parts = iter(static_parts(selected, self.locals))
+        head = next(parts, None)
+        if head is None:
+            return None
+        reference, msb, lsb = head
+        if not isinstance(reference, expr.InstanceOutputRef) or next(parts, None) is not None:
+            return None
+        owner = reference.instance
+        child = self.children.get(owner)
+        if child is None:
+            return None
+        csr_read = child.csr_access is not None and reference.port == child.csr_access.read_data_port
+        if not csr_read and (owner, reference.port) not in self.output_assignments:
+            return None
+        if not csr_read and (lsb, msb) == (0, reference.type.width - 1):
+            return None
+        key = (owner, reference.port, msb, lsb, value.type)
+        port = self.ports.get(key)
+        if port is None:
+            names = self.used_names.setdefault(owner, {item.name for item in child.ports})
+            kind = "csr_read" if csr_read else "view"
+            label = (
+                f"{(msb, lsb)}:{value.type}" if csr_read
+                else f"{reference.port}:{msb}:{lsb}:{value.type}"
+            )
+            name = _allocate_private_name(
+                kind, self.path, owner, label, names,
+            )
+            port = Port(PortDirection.OUTPUT, name, value.type, domain=reference.domain)
+            self.ports[key] = port
+            self.projections.setdefault(owner, {})[port] = (reference.port, msb, lsb)
+        return expr.InstanceOutputRef(
+            owner, port.name, port.type, domain=port.domain, origin=value.origin,
+        )
+
+
+class _ProjectedChildInputs(SimulationExpressionRewriter):
+    """Bind a slice of a child's input without demanding its other bits."""
+
+    def __init__(
+        self,
+        child: Module,
+        owner: str,
+        parent: _ChildOutputProjectionRewriter,
+        bindings: dict[tuple[str, str], expr.Expression],
+    ) -> None:
+        super().__init__()
+        self.owner = owner
+        self.parent = parent
+        self.bindings = bindings
+        self.inputs = {port.name: port for port in child.inputs}
+        self.locals = {item.name: item.expression for item in child.locals}
+        self.projected: dict[tuple[str, int, int, object], Port] = {}
+        self.new_bindings: list[InstancePortBinding] = []
+        self.used_names = {port.name for port in child.ports}
+
+    def rewrite_special(self, value: expr.Expression) -> expr.Expression | None:
+        selected = static_view(value)
+        if selected is None:
+            return None
+        parts = iter(static_parts(selected, self.locals))
+        head = next(parts, None)
+        if head is None:
+            return None
+        reference, msb, lsb = head
+        if (
+            not isinstance(reference, expr.InputRef)
+            or reference.name not in self.inputs
+            or next(parts, None) is not None
+            or (lsb, msb) == (0, reference.type.width - 1)
+        ):
+            return None
+        key = (reference.name, msb, lsb, value.type)
+        port = self.projected.get(key)
+        if port is None:
+            bound = self.bindings[(self.owner, reference.name)]
+            if isinstance(bound, (expr.InputRef, expr.RegisterRef, expr.Constant)) and (
+                not isinstance(bound, expr.InputRef) or bound.name not in self.parent.locals
+            ):
+                # The full scalar leaf is already a current-cycle boundary.
+                return None
+            narrowed = project_static_bits(
+                StaticView(bound, msb, lsb), self.parent.locals, value.type,
+            )
+            name = _allocate_private_name(
+                "view_in", self.parent.path, self.owner,
+                f"{reference.name}:{msb}:{lsb}:{value.type}", self.used_names,
+            )
+            port = Port(
+                PortDirection.INPUT, name, value.type,
+                domain=self.inputs[reference.name].domain,
+            )
+            self.projected[key] = port
+            self.new_bindings.append(InstancePortBinding(
+                self.owner, port.name, self.parent.expression(narrowed),
+            ))
+        return expr.InputRef(port.name, port.type, origin=value.origin)
+
+
+def _prepare_child_projections(module: Module, path: tuple[str, ...]) -> Module:
+    children = {
+        instance.instance.name: child
+        for instance, child in zip(module.elaborated_instances, module.children, strict=True)
+    }
+    if not children:
+        return module
+    rewriter = _ChildOutputProjectionRewriter(module, path, children)
+    updates = {}
+    for field in fields(module):
+        if not field.init or field.name in {"children", "elaborated_instances", "instances"}:
+            continue
+        value = getattr(module, field.name)
+        rewritten = rewriter.value(value)
+        if rewritten is not value:
+            updates[field.name] = rewritten
+    bindings = {(item.instance, item.port): item.expression for item in module.instance_bindings}
+    constants = {
+        owner: csr_access_constants(child, owner, bindings, rewriter.locals, {})
+        for owner, child in children.items()
+    }
+    prepared = {}
+    by_owner_bindings: dict[str, list[InstancePortBinding]] = {}
+    projection_counts: dict[str, int] = {}
+    # Narrowing an input binding may request another child's output. Revisit
+    # only owners that acquire new views, and keep source bindings immutable.
+    while any(
+        projection_counts.get(owner) != len(rewriter.projections.get(owner, ()))
+        for owner in children
+    ):
+        for owner, child in children.items():
+            projections = rewriter.projections.get(owner, {})
+            if projection_counts.get(owner) == len(projections):
+                continue
+            projection_counts[owner] = len(projections)
+            read_data = child.csr_access.read_data_port if child.csr_access else None
+            csr = {p: (msb, lsb) for p, (name, msb, lsb) in projections.items() if name == read_data}
+            lowered = (
+                lower_csr_module(child, access_constants=constants[owner], read_projections=csr)
+                if constants[owner] or csr else child
+            )
+            locals_ = {item.name: item.expression for item in child.locals}
+            ordinary = tuple(
+                Assignment(port, project_static_bits(
+                    StaticView(rewriter.output_assignments[owner, name], msb, lsb), locals_, port.type,
+                ))
+                for port, (name, msb, lsb) in projections.items() if name != read_data
+            )
+            inputs = _ProjectedChildInputs(child, owner, rewriter, bindings)
+            projected = set(projections) | {
+                item.target for item in child.assignments
+                if (owner, item.target.name) in rewriter.output_assignments
+            }
+            prepared[owner] = replace(
+                lowered,
+                ports=(*lowered.ports, *(item.target for item in ordinary)),
+                assignments=tuple(
+                    inputs.value(item) if item.target in projected else item
+                    for item in (*lowered.assignments, *ordinary)
+                ),
+            )
+            if inputs.projected:
+                prepared[owner] = replace(
+                    prepared[owner], ports=(*prepared[owner].ports, *inputs.projected.values()),
+                )
+            by_owner_bindings[owner] = inputs.new_bindings
+    updated_bindings = updates.pop("instance_bindings", module.instance_bindings)
+    return replace(
+        module, **updates, children=tuple(prepared[owner] for owner in children),
+        instance_bindings=(*updated_bindings, *(
+            item for owner in children for item in by_owner_bindings[owner]
+        )),
+    )
 
 
 def _scalar_shell(
@@ -235,7 +438,8 @@ def _build_frames(
     parent: _Frame | None = None,
     parent_instance: str | None = None,
 ) -> _Frame:
-    shell, boundary = _scalar_shell(module, path)
+    prepared = _prepare_child_projections(module, path)
+    shell, boundary = _scalar_shell(prepared, path)
     plan = build_leaf(shell)
     frame = _Frame(
         path,
@@ -249,7 +453,7 @@ def _build_frames(
     )
     children = []
     for elaborated, child in zip(
-        module.elaborated_instances, module.children, strict=True
+        prepared.elaborated_instances, prepared.children, strict=True
     ):
         child_domain_map: dict[str, str] = {}
         child_reset_map: dict[str, str] = {}

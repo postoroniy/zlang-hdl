@@ -66,6 +66,107 @@
       ]
     },
     {
+      "id": "BUS-005",
+      "source_paths": [
+        "tests/systemverilog/test_backend_correctness.py",
+        "zlang/backend/systemverilog/storage.py"
+      ],
+      "status": "included",
+      "summary": "A globally controlled FIFO can connect ready/valid to scalar controls in either direction, preserving backpressure and transfer ordering.",
+      "tests": [
+        "tests/systemverilog/test_backend_correctness.py::test_global_fifo_supports_one_sided_ready_valid"
+      ]
+    },
+    {
+      "id": "BUS-006",
+      "source_paths": [
+        "tests/systemverilog/test_public_top_leaf_abi.py",
+        "zlang/backend/systemverilog/boundary.py",
+        "zlang/backend/systemverilog/csr.py",
+        "zlang/backend/systemverilog/emitter.py"
+      ],
+      "status": "included",
+      "summary": "Direct SystemVerilog preserves AXIStream handshakes and payload fields next to local CSR access and rejects endpoints without rendered ports.",
+      "tests": [
+        "tests/systemverilog/test_public_top_leaf_abi.py::test_axi_stream_with_csr_preserves_sidebands_and_register_access"
+      ]
+    },
+    {
+      "id": "BUS-007",
+      "source_paths": [
+        "tests/systemverilog/test_backend_correctness.py",
+        "zlang/backend/systemverilog/storage.py"
+      ],
+      "status": "included",
+      "summary": "Keep legacy FIFO declarations and observations under the same escaped SystemVerilog name.",
+      "tests": [
+        "tests/systemverilog/test_backend_correctness.py::test_legacy_fifo_uses_physical_storage_names"
+      ]
+    },
+    {
+      "id": "BUS-008",
+      "source_paths": [
+        "stdlib/bus/axi4_exclusive.zhl",
+        "tests/integration/test_axi4_source.py"
+      ],
+      "status": "included",
+      "summary": "Invalidate overlapping AXI4 reservations on a successful exclusive commit while retaining reservations after unrelated failed writes.",
+      "tests": [
+        "tests/integration/test_axi4_source.py::test_axi4_exclusive_monitor_byte_lanes_and_commit",
+        "tests/integration/test_axi4_source.py::test_axi4_exclusive_ram_preserves_committed_word",
+        "tests/integration/test_axi4_source.py::test_axi4_exclusive_subordinate_invalidates_only_on_commit"
+      ]
+    },
+    {
+      "id": "BUS-009",
+      "source_paths": [
+        "stdlib/bus/axi4_exclusive.zhl",
+        "tests/integration/test_axi4_source.py"
+      ],
+      "status": "included",
+      "summary": "Honor narrow exclusive byte lanes and reject requests outside the single-beat RAM witness geometry.",
+      "tests": [
+        "tests/integration/test_axi4_source.py::test_axi4_exclusive_ram_masks_and_bounds_single_beat_writes"
+      ]
+    },
+    {
+      "id": "BUS-010",
+      "source_paths": [
+        "stdlib/bus/axi4_exclusive.zhl",
+        "tests/integration/test_axi4_source.py"
+      ],
+      "status": "included",
+      "summary": "Bind exclusive success to the held AXI4 B response and preserve locally rejected and backend error responses.",
+      "tests": [
+        "tests/integration/test_axi4_source.py::test_axi4_exclusive_subordinate_b_response_survives_slot_reuse_and_refill"
+      ]
+    },
+    {
+      "id": "BUS-011",
+      "source_paths": [
+        "stdlib/bus/axi4_exclusive.zhl",
+        "tests/integration/test_axi4_source.py"
+      ],
+      "status": "included",
+      "summary": "Keep byte-overlap conflicts for the full AXI4 exclusive read and invalidate older same-ID reservations at replacement.",
+      "tests": [
+        "tests/integration/test_axi4_source.py::test_axi4_exclusive_subordinate_b_response_survives_slot_reuse_and_refill"
+      ]
+    },
+    {
+      "id": "BUS-012",
+      "source_paths": [
+        "stdlib/bus/axi_burst.zhl",
+        "tests/integration/test_ztpu_axi_burst.py"
+      ],
+      "status": "included",
+      "summary": "Reject incrementing burst commands that cross a 4 KiB boundary or exceed the address width before issuing AR or AW.",
+      "tests": [
+        "tests/integration/test_ztpu_axi_burst.py::test_reader_rejects_bad_lengths_and_alignment_without_bus_activity",
+        "tests/integration/test_ztpu_axi_burst.py::test_writer_rejects_bad_lengths_and_alignment_without_bus_activity"
+      ]
+    },
+    {
       "id": "CI-001",
       "source_paths": [
         ".github/dependabot.yml",
@@ -596,6 +697,92 @@
       "tests": [
         "tests/simulation/test_program_diagnostics.py::test_program_repr_preserves_identity_and_modes_without_graph_expansion",
         "tests/simulation/test_program_diagnostics.py::test_pytest_long_traceback_retains_original_failure_and_program_identity"
+      ]
+    },
+    {
+      "id": "SIM-009",
+      "source_paths": [
+        "tests/systemverilog/test_public_top_leaf_abi.py",
+        "zlang/backend/systemverilog/boundary.py",
+        "zlang/ir/csr.py",
+        "zlang/ir/top_abi.py",
+        "zlang/simulation_compare.py",
+        "zlang/simulation_io_abi.py"
+      ],
+      "summary": "Standalone CSR comparison and physical manifests use public access ports while reusable children retain internal observations.",
+      "status": "included",
+      "tests": [
+        "tests/systemverilog/test_public_top_leaf_abi.py::test_axi_stream_with_csr_preserves_sidebands_and_register_access",
+        "tests/systemverilog/test_public_top_leaf_abi.py::test_standalone_csr_comparison_uses_public_access_ports"
+      ]
+    },
+    {
+      "id": "SIM-010",
+      "source_paths": [
+        "tests/simulation/test_native_jit_storage.py",
+        "zlang/simulation_edge_lowering.py",
+        "zlang/simulation_lowering.py",
+        "zlang/simulation_primitive_model.py",
+        "zlang/simulation_storage_lowering.py"
+      ],
+      "summary": "FIFO readiness and fault observations follow effective reset in their own domain, including synchronized release.",
+      "status": "included",
+      "tests": [
+        "tests/simulation/test_native_jit_storage.py::test_fifo_ready_tracks_own_domain_reset_release"
+      ]
+    },
+    {
+      "id": "SIM-011",
+      "source_paths": [
+        "tests/integration/test_comparison_stimulus.py",
+        "zlang/simulation_comparison_testbench.py"
+      ],
+      "summary": "The generated comparison testbench gives its DUT instance a name distinct from the physical signal names.",
+      "status": "included",
+      "tests": [
+        "tests/integration/test_comparison_stimulus.py::test_comparison_allocates_dut_instance_apart_from_physical_ports"
+      ]
+    },
+    {
+      "id": "SIM-012",
+      "source_paths": [
+        "tests/integration/test_comparison_stimulus.py",
+        "tests/integration/test_simulation_io_rtl.py",
+        "zlang/simulation_compare.py",
+        "zlang/simulation_comparison_testbench.py",
+        "zlang/simulation_io_compare.py"
+      ],
+      "status": "included",
+      "summary": "Choose a comparison testbench module name distinct from the physical design definitions.",
+      "tests": [
+        "tests/integration/test_comparison_stimulus.py::test_comparison_allocates_testbench_module_apart_from_dut"
+      ]
+    },
+    {
+      "id": "SIM-013",
+      "source_paths": [
+        "tests/simulation/test_logic_state.py",
+        "tests/simulation/test_simulation_io.py",
+        "zlang/simulation_event_runner.py",
+        "zlang/simulation_io_runtime.py"
+      ],
+      "status": "included",
+      "summary": "Reject malformed native events before input or reset mutation while retaining the accepted prefix.",
+      "tests": [
+        "tests/simulation/test_logic_state.py::test_edge_free_logic_event_advances_trace_time_once",
+        "tests/simulation/test_simulation_io.py::test_conditional_consumption_pre_edge_values_eof_and_reset"
+      ]
+    },
+    {
+      "id": "SIM-014",
+      "source_paths": [
+        "tests/simulation/test_native_union_padding.py",
+        "zlang/simulation_values.py"
+      ],
+      "status": "included",
+      "summary": "Require the declared nominal union type for typed native inputs and events while retaining explicit packed writes.",
+      "tests": [
+        "tests/simulation/test_native_union_padding.py::test_short_union_native_projection_and_raw_abi_agree"
       ]
     },
     {
@@ -1381,6 +1568,320 @@
       "tests": [
         "tests/systemverilog/test_backend_correctness.py::test_two_global_fifos_preserve_independent_transactions",
         "tests/systemverilog/test_backend_correctness.py::test_two_global_memories_preserve_independent_reads_and_writes"
+      ]
+    },
+    {
+      "id": "ZL-091",
+      "source_paths": [
+        "tests/systemverilog/test_backend_correctness.py",
+        "zlang/backend/systemverilog/composed.py",
+        "zlang/backend/systemverilog/emitter.py",
+        "zlang/backend/systemverilog/memory.py",
+        "zlang/backend/systemverilog/state.py",
+        "zlang/backend/systemverilog/state_planning.py",
+        "zlang/backend/systemverilog/storage.py"
+      ],
+      "status": "included",
+      "summary": "Mixed RAM, ROM and FIFO pairs preserve complete storage, controls and ROM images in both top modules and child specializations.",
+      "tests": [
+        "tests/systemverilog/test_backend_correctness.py::test_mixed_global_storage_preserves_resource_behavior"
+      ]
+    },
+    {
+      "id": "ZL-092",
+      "source_paths": [
+        "stdlib/dsp/halfband.zhl",
+        "stdlib/dsp/polyphase.zhl",
+        "stdlib/math/fp_format.zhl",
+        "tests/integration/test_stdlib_coherence.py"
+      ],
+      "status": "included",
+      "summary": "Halfband, floating-point decoding and polyphase interpolation check derived layout parameters before consuming taps or fields.",
+      "tests": [
+        "tests/integration/test_stdlib_coherence.py::test_stdlib_explicit_derived_parameters_match_native_and_rtl",
+        "tests/integration/test_stdlib_coherence.py::test_stdlib_rejects_inconsistent_derived_parameters"
+      ]
+    },
+    {
+      "id": "ZL-093",
+      "source_paths": [
+        "stdlib/math/fp_format.zhl",
+        "stdlib/math/fp_round.zhl",
+        "tests/integration/test_stdlib_coherence.py"
+      ],
+      "summary": "Floating-point round-and-pack retains the unsigned leading-bit count through subtraction and checks the widths of the count and signed bit index.",
+      "status": "included",
+      "tests": [
+        "tests/integration/test_stdlib_coherence.py::test_fp_bit_length_rejects_a_count_that_would_overflow_u8",
+        "tests/integration/test_stdlib_coherence.py::test_fp_round_pack_keeps_wide_highest_bit_nonnegative",
+        "tests/integration/test_stdlib_coherence.py::test_fp_round_pack_rejects_an_unrepresentable_highest_bit"
+      ]
+    },
+    {
+      "id": "ZL-094",
+      "source_paths": [
+        "tests/systemverilog/test_memory_reset_policy.py",
+        "zlang/backend/naming.py",
+        "zlang/backend/systemverilog/emitter.py",
+        "zlang/backend/systemverilog/memory.py",
+        "zlang/backend/systemverilog/state.py"
+      ],
+      "summary": "Global and named-port RAM read pipeline stages avoid collisions with public signals and retain their established names when free.",
+      "status": "included",
+      "tests": [
+        "tests/systemverilog/test_memory_reset_policy.py::test_ram_read_stages_do_not_alias_public_ports"
+      ]
+    },
+    {
+      "id": "ZL-095",
+      "source_paths": [
+        "stdlib/math/fp_round.zhl",
+        "tests/integration/test_stdlib_coherence.py"
+      ],
+      "summary": "Floating-point packing classifies the exact exponent before narrowing and preserves rounding-carry and underflow flags.",
+      "status": "included",
+      "tests": [
+        "tests/integration/test_stdlib_coherence.py::test_fp_round_pack_checks_exponent_before_narrowing",
+        "tests/integration/test_stdlib_coherence.py::test_fp_round_pack_classifies_carry_after_rounding"
+      ]
+    },
+    {
+      "id": "ZL-096",
+      "source_paths": [
+        "stdlib/math/fp_round.zhl",
+        "tests/integration/test_stdlib_coherence.py"
+      ],
+      "status": "included",
+      "summary": "Preserve the carry from adding same-sign floating-point magnitudes through final rounding.",
+      "tests": [
+        "tests/integration/test_stdlib_coherence.py::test_fp_sum_preserves_same_sign_carry_and_flags"
+      ]
+    },
+    {
+      "id": "ZL-097",
+      "source_paths": [
+        "stdlib/math/fp_convert.zhl",
+        "stdlib/math/fp_round.zhl",
+        "tests/integration/test_stdlib_coherence.py"
+      ],
+      "status": "included",
+      "summary": "Classify floating-point conversion overflow and underflow using the exact source scale.",
+      "tests": [
+        "tests/integration/test_stdlib_coherence.py::test_fp_convert_preserves_source_scale_through_range_classification"
+      ]
+    },
+    {
+      "id": "ZL-098",
+      "source_paths": [
+        "stdlib/math/fp_format.zhl",
+        "tests/integration/test_stdlib_coherence.py"
+      ],
+      "status": "included",
+      "summary": "Decode wide subnormal significands using an unsigned normalization distance.",
+      "tests": [
+        "tests/integration/test_stdlib_coherence.py::test_fp_decode_subnormal_uses_unsigned_normalization_distance"
+      ]
+    },
+    {
+      "id": "ZL-099",
+      "source_paths": [
+        "tests/integration/test_ported_memories.py",
+        "zlang/backend/naming.py",
+        "zlang/backend/systemverilog/emitter.py",
+        "zlang/backend/systemverilog/state.py"
+      ],
+      "status": "included",
+      "summary": "Allocate named-port RAM byte-mask signals in the module RTL namespace while preserving public port names.",
+      "tests": [
+        "tests/integration/test_ported_memories.py::test_named_port_mask_helpers_preserve_public_names"
+      ]
+    },
+    {
+      "id": "ZL-100",
+      "source_paths": [
+        "stdlib/math/fp_round.zhl",
+        "tests/integration/test_stdlib_coherence.py"
+      ],
+      "status": "included",
+      "summary": "Preserve the signed scale of a floating-point sum through range classification and rounding.",
+      "tests": [
+        "tests/integration/test_stdlib_coherence.py::test_fp_sum_keeps_scale_below_signed_exponent_minimum"
+      ]
+    },
+    {
+      "id": "ZL-101",
+      "source_paths": [
+        "stdlib/math/fp_round.zhl",
+        "tests/integration/test_stdlib_coherence.py"
+      ],
+      "status": "included",
+      "summary": "Retain the needed alignment precision for floating-point sums before the single final rounding.",
+      "tests": [
+        "tests/integration/test_stdlib_coherence.py::test_fp_sum_aligns_before_its_only_rounding"
+      ]
+    },
+    {
+      "id": "ZL-102",
+      "source_paths": [
+        "tests/integration/test_ported_memories.py",
+        "zlang/semantic/hierarchy.py",
+        "zlang/semantic/module_hierarchy_analysis.py",
+        "zlang/semantic/storage_validation.py"
+      ],
+      "status": "included",
+      "summary": "Reject same-cycle feedback through named RAM read and write controls, with reader-specific source diagnostics.",
+      "tests": [
+        "tests/integration/test_ported_memories.py::test_named_memory_cycle_crosses_other_readers_and_locals",
+        "tests/integration/test_ported_memories.py::test_named_memory_legal_feedback_matches_rtl",
+        "tests/integration/test_ported_memories.py::test_named_memory_read_addresses_remain_independent",
+        "tests/integration/test_ported_memories.py::test_named_zero_latency_memory_feedback_has_source_diagnostic"
+      ]
+    },
+    {
+      "id": "ZL-103",
+      "source_paths": [
+        "tests/semantic/test_hierarchical_async_memory_cycles.py",
+        "zlang/semantic/hierarchy.py",
+        "zlang/semantic/module_hierarchy_analysis.py",
+        "zlang/semantic/storage_validation.py"
+      ],
+      "status": "included",
+      "summary": "Reject current-cycle feedback across FIFO lookahead, RAM bypass and the exact wire-output and input bindings of a child.",
+      "tests": [
+        "tests/semantic/test_hierarchical_async_memory_cycles.py::test_combinational_storage_and_child_feedback_is_rejected_before_lowering"
+      ]
+    },
+    {
+      "id": "ZL-104",
+      "source_paths": [
+        "tests/integration/test_csr_hierarchy_projection.py",
+        "tests/semantic/test_hierarchical_async_memory_cycles.py",
+        "zlang/semantic/csr/bindings.py",
+        "zlang/semantic/hierarchy.py",
+        "zlang/semantic/module_hierarchy_analysis.py"
+      ],
+      "status": "included",
+      "summary": "Reject combinational feedback through exact child ready/valid and CSR output leaves while preserving registered CSR state and independent protocol signals.",
+      "tests": [
+        "tests/integration/test_csr_hierarchy_projection.py::test_child_csr_readback_keeps_unobserved_inputs_and_state_out_of_feedback",
+        "tests/semantic/test_hierarchical_async_memory_cycles.py::test_child_protocol_and_csr_feedback_is_rejected_before_lowering",
+        "tests/semantic/test_hierarchical_async_memory_cycles.py::test_child_ready_feedback_uses_the_input_endpoint_ready_leaf"
+      ]
+    },
+    {
+      "id": "ZL-105",
+      "source_paths": [
+        "tests/integration/test_csr_hierarchy_projection.py",
+        "tests/semantic/test_hierarchical_async_memory_cycles.py",
+        "tests/simulation/test_native_jit_protocols.py",
+        "zlang/ir/hierarchy.py",
+        "zlang/semantic/connection_validation.py",
+        "zlang/semantic/hierarchy.py",
+        "zlang/semantic/module_hierarchy_analysis.py",
+        "zlang/simulation_csr.py",
+        "zlang/simulation_hierarchy.py",
+        "zlang/simulation_ready_valid.py"
+      ],
+      "status": "included",
+      "summary": "Diagnose feedback through nested ready/valid connections and full-buffer ready. Admit buffered native pushes only on transfer and preserve precise child CSR readback dependencies.",
+      "tests": [
+        "tests/integration/test_csr_hierarchy_projection.py::test_child_csr_readback_keeps_unobserved_inputs_and_state_out_of_feedback",
+        "tests/semantic/test_hierarchical_async_memory_cycles.py::test_ready_valid_links_preserve_feedback_and_registered_cuts",
+        "tests/simulation/test_native_jit_protocols.py::test_buffer_one_holds_unaccepted_offer_and_replaces_full_head"
+      ]
+    },
+    {
+      "id": "ZL-106",
+      "source_paths": [
+        "tests/semantic/test_hierarchical_async_memory_cycles.py",
+        "zlang/ir/interfaces.py",
+        "zlang/semantic/connection_validation.py",
+        "zlang/semantic/hierarchy.py",
+        "zlang/semantic/module_hierarchy_analysis.py",
+        "zlang/simulation_protocol_shared.py"
+      ],
+      "status": "included",
+      "summary": "Resolve scalar protocol member and request/response payload feedback through exact typed hierarchy links.",
+      "tests": [
+        "tests/semantic/test_hierarchical_async_memory_cycles.py::test_linked_scalar_and_request_response_feedback"
+      ]
+    },
+    {
+      "id": "ZL-107",
+      "source_paths": [
+        "tests/integration/test_csr_hierarchy_projection.py",
+        "zlang/ir/hierarchy.py"
+      ],
+      "status": "included",
+      "summary": "Compose static CSR readback slice offsets through immutable local bindings.",
+      "tests": [
+        "tests/integration/test_csr_hierarchy_projection.py::test_child_csr_readback_keeps_unobserved_inputs_and_state_out_of_feedback"
+      ]
+    },
+    {
+      "id": "ZL-108",
+      "source_paths": [
+        "tests/semantic/test_hierarchical_async_memory_cycles.py",
+        "zlang/semantic/hierarchy.py",
+        "zlang/semantic/module_hierarchy_analysis.py"
+      ],
+      "status": "included",
+      "summary": "Reject ready/valid feedback through live RAM and FIFO controls in the enclosing module and preserve registered cuts.",
+      "tests": [
+        "tests/semantic/test_hierarchical_async_memory_cycles.py::test_fifo_state_and_scheduled_observations_remain_cycle_cuts"
+      ]
+    },
+    {
+      "id": "ZL-109",
+      "source_paths": [
+        "tests/integration/test_csr_hierarchy_projection.py",
+        "zlang/ir/static_projection.py",
+        "zlang/semantic/csr/bindings.py",
+        "zlang/semantic/hierarchy.py",
+        "zlang/simulation_hierarchy.py",
+        "zlang/simulation_rewrite.py"
+      ],
+      "status": "included",
+      "summary": "Track selected packed bits across hierarchy and CSR bindings so independent stored lanes remain usable.",
+      "tests": [
+        "tests/integration/test_csr_hierarchy_projection.py::test_child_csr_readback_keeps_unobserved_inputs_and_state_out_of_feedback"
+      ]
+    },
+    {
+      "id": "ZL-110",
+      "source_paths": [
+        "tests/systemverilog/test_public_top_leaf_abi.py",
+        "zlang/backend/systemverilog/emitter.py",
+        "zlang/backend/systemverilog/feature_accounting.py"
+      ],
+      "status": "included",
+      "summary": "Report unsupported packet arbitration or VC credit with storage at Direct-SV selection and preserve supported native storage.",
+      "tests": [
+        "tests/systemverilog/test_public_top_leaf_abi.py::test_axi_stream_with_registered_storage"
+      ]
+    },
+    {
+      "id": "ZL-111",
+      "source_paths": [
+        "tests/integration/test_csr_hierarchy_projection.py",
+        "zlang/ir/static_projection.py"
+      ],
+      "status": "included",
+      "summary": "Resolve constant vector-element dependencies through hierarchy and preserve real or dynamically selected storage feedback.",
+      "tests": [
+        "tests/integration/test_csr_hierarchy_projection.py::test_child_csr_readback_keeps_unobserved_inputs_and_state_out_of_feedback"
+      ]
+    },
+    {
+      "id": "ZL-112",
+      "source_paths": [
+        "tests/integration/test_multi_clock_stateful.py",
+        "zlang/semantic/state.py"
+      ],
+      "status": "included",
+      "summary": "Diagnose foreign-clock predicates in nested rule branches before state lowering.",
+      "tests": [
+        "tests/integration/test_multi_clock_stateful.py::test_cross_domain_read_cannot_be_hidden_behind_an_inferred_local"
       ]
     }
   ],

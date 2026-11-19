@@ -11,6 +11,7 @@ from typing import Callable, Generic, Iterable, Mapping, TypeVar
 
 from zlang.ir import expressions as expr
 from zlang.ir import interfaces as ir_interfaces
+from zlang.ir.interfaces import request_response_field_name as request_response_field_name
 from zlang.ir import module as ir_module
 from zlang.ir import types as ir_types
 from zlang.ir import verification as ir_verification
@@ -192,11 +193,6 @@ def request_response_scalar_fields(
 ) -> tuple[RequestResponseScalarField, ...]:
     """Return the exact ordered scalar boundary of one request/response endpoint."""
 
-    outbound = (
-        ir_interfaces.RequestResponseChannel.REQUEST
-        if interface.role is ir_interfaces.RequestResponseRole.REQUESTER
-        else ir_interfaces.RequestResponseChannel.RESPONSE
-    )
     return tuple(
         RequestResponseScalarField(
             channel,
@@ -208,15 +204,7 @@ def request_response_scalar_fields(
             )
             if signal is ir_interfaces.ReadyValidSignal.PAYLOAD
             else ir_types.BitType(),
-            (
-                signal is ir_interfaces.ReadyValidSignal.READY
-                if channel is outbound
-                else signal
-                in {
-                    ir_interfaces.ReadyValidSignal.PAYLOAD,
-                    ir_interfaces.ReadyValidSignal.VALID,
-                }
-            ),
+            ir_interfaces.request_response_signal_is_input(interface.role, channel, signal),
         )
         for channel in ir_interfaces.RequestResponseChannel
         for signal in (
@@ -658,18 +646,6 @@ def packet_state_name(kind: str, source: str | None = None) -> str:
 
     suffix = "" if source is None else f":{source}"
     return f"$zlang_protocol_packet:{kind}{suffix}"
-
-
-def request_response_field_name(
-    interface: str,
-    channel: ir_interfaces.RequestResponseChannel | str,
-    signal: ir_interfaces.ReadyValidSignal | str,
-) -> str:
-    """Return one private scalar request/response field name."""
-
-    channel_name = channel.value if isinstance(channel, ir_interfaces.RequestResponseChannel) else channel
-    signal_name = signal.value if isinstance(signal, ir_interfaces.ReadyValidSignal) else signal
-    return f"$zlang_request_response:{interface}:{channel_name}:{signal_name}"
 
 
 def request_response_state_name(interface: str, kind: str) -> str:

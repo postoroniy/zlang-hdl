@@ -33,11 +33,21 @@ def prepare(tmp_path, source=SOURCE, records='{"sample":7}\n{"sample":11}\n'):
     )
 
 
-def test_conditional_consumption_pre_edge_values_eof_and_reset(tmp_path):
+def test_conditional_consumption_pre_edge_values_eof_and_reset(tmp_path, monkeypatch):
     program, inputs, outputs = prepare(tmp_path)
     with program.create(
         simulation="vectors", io_inputs=inputs, io_outputs=outputs
     ) as dut:
+        with pytest.raises(sim.SimulationRuntimeError, match="a clock twice"):
+            dut.run_events(({"set": {"enable": 1}, "edges": ["clk", "clk"]},))
+        assert dut.get("enable") == 0 and dut._io.index == 0
+        from zlang import simulation_io_runtime
+
+        with monkeypatch.context() as patch:
+            patch.setattr(simulation_io_runtime, "MAX_IO_EVENTS", 0)
+            with pytest.raises(sim.SimulationRuntimeError, match="expanded-event limit"):
+                dut.run_events(({"set": {"enable": 1}},))
+        assert dut.get("enable") == 0 and dut._io.index == 0
         dut.set("enable", 1)
         dut.reset("rst", asserted=True)
         dut.edge("clk")

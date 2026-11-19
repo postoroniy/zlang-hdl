@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from zlang import sim
+from zlang.ir.packing import pack_tagged_union_runtime
+from zlang.ir.runtime_values import TaggedUnionValue
 from tests.simulation.differential import run_differential
 
 SOURCE = """
@@ -46,6 +48,38 @@ def test_short_union_native_projection_and_raw_abi_agree(tmp_path: Path, logic_s
         instance.eval()
         assert instance.get_packed("forwarded") == 249
         assert instance.get("selected") == 249
+    _check_nominal_union_input(tmp_path, logic_state)
+
+
+def _check_nominal_union_input(tmp_path: Path, logic_state: bool) -> None:
+    path = tmp_path / "UnionAdmission.zhl"
+    path.write_text("""
+union Command { Idle Write { amount:u4 } }
+union Fault { Okay Fatal { code:u4 } }
+module UnionAdmission {
+    in action:Command in fault:Fault out result:u4 out observed:u4
+    result=match action {Command.Idle=>0 Command.Write{amount}=>amount}
+    observed=match fault {Fault.Okay=>0 Fault.Fatal{code}=>code}
+}
+""")
+    program = sim.compile(path, logic_state=logic_state)
+    types = {port.name: port.type for port in program.module.inputs}
+    assert types["action"].width == types["fault"].width
+    good = TaggedUnionValue(types["action"], "Write", (("amount", 3),))
+    wrong = TaggedUnionValue(types["fault"], "Fatal", (("code", 13),))
+    with program.create() as instance:
+        instance.run_events(({"set": {"action": good}},))
+        assert instance.get("result") == 3
+        with pytest.raises(sim.SimulationRuntimeError, match="Fault.*nominal type 'Command'"):
+            instance.set("action", wrong)
+        with pytest.raises(sim.SimulationRuntimeError, match="Fault.*nominal type 'Command'"):
+            instance.run_events(({"set": {"action": wrong}},))
+        assert instance.get_packed("action") == pack_tagged_union_runtime(good)
+        instance.eval()
+        assert instance.get("result") == 3
+        instance.set_packed("action", pack_tagged_union_runtime(wrong))
+        instance.eval()
+        assert instance.get("result") == 13
 
 
 def test_short_union_four_state_payload_preserves_ux_and_zero_padding(tmp_path: Path) -> None:

@@ -12,7 +12,7 @@ from zlang.simulation_compare import SimulationComparisonError
 @pytest.mark.parametrize("simulator", ["iverilog", "verilator"])
 def test_independent_guarded_input_and_pre_edge_logs(tmp_path, simulator):
     path = tmp_path / "pilot.zhl"
-    path.write_text(SOURCE)
+    path.write_text(SOURCE.replace("module Pilot ", "module zlang_compare_tb ", 1))
     vectors = tmp_path / "vectors.jsonl"
     vectors.write_text('{"sample":7}\n{"sample":11}\n{"sample":255}\n')
     events = [
@@ -25,7 +25,7 @@ def test_independent_guarded_input_and_pre_edge_logs(tmp_path, simulator):
         {"edges": ["clk"]},
     ]
     result = compare_io_program(
-        sim.compile(path, top="Pilot"),
+        sim.compile(path, top="zlang_compare_tb"),
         events,
         simulation="vectors",
         io_inputs={"stimulus": vectors},
@@ -34,6 +34,7 @@ def test_independent_guarded_input_and_pre_edge_logs(tmp_path, simulator):
         artifact_directory=tmp_path / "rtl",
     )
     assert result.native_trace == result.rtl_trace
+    assert "module zlang_compare_tb_;" in (tmp_path / "rtl/compare_tb.sv").read_text()
     receipt = json.loads((tmp_path / "rtl/comparison.json").read_text())
     assert receipt["status"] == "passed"
     assert receipt["native_reads"] == [[1, 0], [4, 1], [5, 2]]

@@ -15,6 +15,7 @@ from zlang.ir.module import (
     PortDirection,
     Register,
 )
+from zlang.ir.static_projection import StaticView, project_static_bits
 from zlang.ir.types import BitType, UIntType
 from zlang.simulation_primitives import bit_binary as _bit_binary
 
@@ -342,7 +343,35 @@ class _CsrOutputPublisher:
         )
 
 
-def lower_csr_module(module: Module) -> Module:
+def _project_read_fields(
+    fields: list[tuple[int, int, expr.Expression]], msb: int, lsb: int,
+) -> expr.Expression:
+    """Assemble only bits in the consumer's readback slice."""
+    result_type = UIntType(msb - lsb + 1)
+    result: expr.Expression = expr.Constant(0, result_type)
+    for high, low, value in fields:
+        first, last = max(lsb, low), min(msb, high)
+        if first > last:
+            continue
+        if (first, last) != (low, high):
+            value = project_static_bits(
+                StaticView(value, last - low, first - low), {}, UIntType(last - first + 1),
+            )
+        widened = expr.Extend(value, result_type)
+        shifted = _binary(
+            expr.BinaryOperator.SHIFT_LEFT, widened,
+            expr.Constant(first - lsb, result_type), result_type,
+        )
+        result = _binary(expr.BinaryOperator.BIT_OR, result, shifted, result_type)
+    return result
+
+
+def lower_csr_module(
+    module: Module,
+    *,
+    access_constants: dict[str, int] | None = None,
+    read_projections: dict[Port, tuple[int, ...]] | None = None,
+) -> Module:
     """Erase CSR decode/policies into ordinary typed registers and equations."""
 
     if not module.csr_blocks:
@@ -354,6 +383,14 @@ def lower_csr_module(module: Module) -> Module:
         raise CsrSimulationLoweringError(
             "CSR lowering requires ordinary scalar wire ports"
         )
+
+    constants = access_constants or {}
+    read_projections = read_projections or {}
+    selected_address = constants.get(access.address_port)
+    selected_read = constants.get(access.read_port)
+    read_terms: dict[Port, list[tuple[expr.Expression, expr.Expression]]] = {
+        port: [] for port in read_projections
+    }
 
     ports = {port.name: port for port in module.ports}
     for name, type_ in (*access.input_types, *access.output_types):
@@ -420,6 +457,7 @@ def lower_csr_module(module: Module) -> Module:
                 address_match,
             )
             register_value: expr.Expression = expr.Constant(0, data_type)
+            readable_fields: list[tuple[int, int, expr.Expression]] = []
             for field_index, field in enumerate(csr_register.fields):
                 if field.identity is None:
                     raise CsrSimulationLoweringError(
@@ -578,6 +616,8 @@ def lower_csr_module(module: Module) -> Module:
                         field.type,
                         origin=field.source_origin,
                     )
+                if read_projections:
+                    readable_fields.append((field.msb, field.lsb, field_value))
                 widened = expr.Extend(field_value, data_type)
                 shifted = _binary(
                     expr.BinaryOperator.SHIFT_LEFT,
@@ -635,7 +675,18 @@ def lower_csr_module(module: Module) -> Module:
                 read,
                 address_match,
             )
+            if selected_read == 0 or selected_address not in (None, absolute_address):
+                continue
+            if selected_address is not None:
+                read_hit = read
+            if selected_read == 1:
+                read_hit = (
+                    address_match if selected_address is None else expr.Constant(1, BitType())
+                )
             read_values.append((read_hit, register_value))
+            for port, (msb, lsb) in read_projections.items():
+                value = _project_read_fields(readable_fields, msb, lsb)
+                read_terms[port].append((read_hit, value))
 
     publisher = _CsrOutputPublisher(
         module,
@@ -657,9 +708,18 @@ def lower_csr_module(module: Module) -> Module:
     publisher.publish_state_bindings()
     publisher.publish_blocks()
     publisher.publish_access_response()
+    for port, terms in read_terms.items():
+        unsigned = UIntType(port.type.width)
+        value: expr.Expression = expr.Constant(0, unsigned)
+        for hit, data in reversed(terms):
+            value = expr.Mux(hit, data, value, unsigned)
+        if port.type != unsigned:
+            value = expr.Bitcast(value, port.type)
+        generated_assignments.append(Assignment(port, value))
 
     return replace(
         module,
+        ports=(*module.ports, *read_projections),
         assignments=(*module.assignments, *generated_assignments),
         registers=(*module.registers, *generated_registers),
         next_assignments=(*module.next_assignments, *generated_next),

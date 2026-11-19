@@ -278,6 +278,9 @@ def _build_leaf_simulation_plan(
     except SelectedValueNormalizationError as error:
         raise JitUnsupportedFeatureError(str(error)) from error
     module = _erase_non_runtime_metadata(module)
+    from zlang.simulation_rewrite import lower_local_storage_views
+
+    module = lower_local_storage_views(module)
 
     unsupported = _unsupported_module_features(module)
     if unsupported:

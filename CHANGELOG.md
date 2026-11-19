@@ -11,8 +11,57 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a24 — 2026-11-18
+## 0.1.0a24 — 2026-11-19
 
+- Reject AXI burst commands that cross a 4 KiB boundary or exceed the
+  address width before issuing AR or AW (BUS-012).
+- Validate native event inputs, resets and edges before applying an event
+  and retain preceding accepted events (SIM-013).
+- Require the declared nominal union type for typed native simulation input
+  (SIM-014).
+- Diagnose foreign-clock conditions inside nested rule branches (ZL-112).
+- Keep only the selected vector element in static hierarchy dependency checks
+  and preserve diagnostics for live feedback (ZL-111).
+- Track intervening writes across all beats of an AXI4 exclusive read and
+  replace older reservations for the same ID (BUS-011).
+- Detect local ready/valid feedback through zero-latency RAM and FIFO
+  look-ahead controls (ZL-108).
+- Keep stored and live bits separate across hierarchy bindings, packed values
+  and CSR status readback (ZL-109).
+- Report unsupported Direct-SV packet arbitration and VC-credit compositions
+  with local storage at the declaration (ZL-110).
+- Keep exclusive AXI4 success with the held B response across slot reuse and
+  same-edge response replacement (BUS-010).
+- Diagnose RAM feedback through scalar protocol members and request/response
+  links before lowering (ZL-106).
+- Compose nested CSR readback slices through immutable locals (ZL-107).
+- Diagnose feedback through nested ready/valid and buffered ready. Preserve
+  native backpressure and precise CSR readback dependencies (ZL-105).
+- Diagnose combinational feedback through child ready/valid signals and CSR
+  projections while preserving registered and independent paths (ZL-104).
+- Diagnose combinational loops through FIFO lookahead, RAM bypass and child
+  port bindings before lowering (ZL-103).
+- Respect narrow exclusive byte lanes and validate RAM witness addresses
+  before accepting a write or updating reservations (BUS-009).
+- Invalidate overlapping AXI4 reservations when an exclusive write commits
+  and preserve unrelated reservations after failed writes (BUS-008).
+- Diagnose combinational feedback through named-port RAM controls at the
+  source and preserve independent read paths (ZL-102).
+- Preserve public port names beside masked named-port RAM helpers (ZL-099).
+- Carry the exact signed sum scale through floating-point range
+  classification and rounding (ZL-100).
+- Retain alignment precision for floating-point sums through their single
+  final rounding (ZL-101).
+- Keep legacy FIFO declarations and references under the same escaped
+  SystemVerilog name (BUS-007).
+- Choose a comparison testbench module name distinct from the emitted
+  design modules (SIM-012).
+- Preserve the carry from adding same-sign floating-point magnitudes
+  through final rounding (ZL-096).
+- Classify floating-point conversion overflow and underflow using the exact
+  source scale (ZL-097).
+- Decode wide subnormal significands using an unsigned normalization
+  distance (ZL-098).
 - Emit typed AXIStream FIFO ports through Direct SystemVerilog with exact
   endpoint accounting and unchanged ready/valid behavior (BUS-003).
 - Build generic SECDED parity masks within the existing elaboration budget,
@@ -23,6 +72,17 @@ incompatible input explicitly.
   registered ROM (BUS-004).
 - Emit multiple globally controlled FIFOs or RAMs with independent state and
   controls (ZL-090).
+- Support ready/valid on either side of a globally controlled FIFO (BUS-005).
+- Preserve AXIStream handshakes and payload fields beside a CSR bank (BUS-006).
+- Emit mixed RAM, ROM and FIFO storage in top and child modules (ZL-091).
+- Reject inconsistent layout parameters in halfband, floating-point decoding
+  and polyphase interpolation (ZL-092).
+- Preserve the leading bit when rounding wide floating-point magnitudes (ZL-093).
+- Allocate RAM read-pipeline names without changing the public port names (ZL-094).
+- Use the physical CSR access ports for standalone native/RTL comparison (SIM-009).
+- Gate FIFO readiness on the effective reset of its own clock domain (SIM-010).
+- Allocate the native/RTL testbench instance name alongside its physical signals (SIM-011).
+- Preserve the exact exponent through floating-point overflow and underflow classification (ZL-095).
 
 - Keep Z3 5.4.1 and VSCE 4.1.1 coherent with solver extras, release metadata,
   editor manifests, lockfiles and installed build dependencies (CI-001).

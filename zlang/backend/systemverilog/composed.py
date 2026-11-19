@@ -19,10 +19,12 @@ from zlang.ir import types as ir_types
 from zlang.ir.traversal import walk_expression
 from zlang.backend import expression_materialization as materialization
 from zlang.backend import identifiers
+from zlang.backend import module_features
 from zlang.backend import naming as naming
 from zlang.backend.systemverilog import boundary as sv_boundary
 from zlang.backend.systemverilog import context as emission_context
 from zlang.backend.systemverilog import csr as sv_csr
+from zlang.backend.systemverilog import feature_accounting as sv_accounting
 from zlang.backend.systemverilog import materialized as sv_materialized
 from zlang.backend.systemverilog import module_rendering as sv_module_rendering
 from zlang.backend.systemverilog import physicalization as sv_physicalization
@@ -133,6 +135,8 @@ def emit_composed_design(module: ir_module.Module, rendering: ComposedRendering)
                 emitted_current.resolved_transition.resources
                 or emitted_current.resolved_transition.action_groups
                 or emitted_current.fifos
+                or emitted_current.memories
+                or emitted_current.roms
                 or emitted_current.registers
                 or emitted_current.rules
                 or emitted_current.next_assignments
@@ -144,8 +148,8 @@ def emit_composed_design(module: ir_module.Module, rendering: ComposedRendering)
         # A child with a resolved transition is a complete stateful
         # specialization, not a FIFO-only helper.  Preserve all of its
         # registers, rules, protocol ports, and scalar expressions in one
-        # reusable component. The standalone FIFO path handles globally
-        # controlled FIFO storage.
+        # reusable component. A global FIFO also owns any independent RAMs
+        # and ROMs in the same component.
         if emitted_current.external_contract is not None:
             definitions.append(rendering.emit_external(emitted_current, name))
         elif (
@@ -165,10 +169,26 @@ def emit_composed_design(module: ir_module.Module, rendering: ComposedRendering)
             and not emitted_current.rules
         ):
             definitions.append(
-                sv_storage._emit_fifo(replace(emitted_current, name=name))
+                sv_storage._emit_fifo(emitted_current, name=name)
+            )
+        elif (
+            closed_state_component
+            and emitted_current.memories
+            and emitted_current.roms
+        ):
+            sv_accounting.account_emission_plan(
+                emitted_current, "unified_state",
+                *sv_accounting.STATE_GROUPS,
+                *sv_accounting.STORAGE_GROUPS,
+                module_features.ModuleFeatureGroup.PROTOCOL_PORTS,
+                *sv_accounting.physical_boundary_groups(emitted_current),
+            )
+            definitions.append(
+                sv_storage._emit_unified_state_module(replace(emitted_current, name=name))
             )
         elif (
             emitted_current.memories
+            and not emitted_current.roms
             and not emitted_current.elaborated_instances
             and all(
                 not memory.scheduled for memory in emitted_current.memories
@@ -181,6 +201,8 @@ def emit_composed_design(module: ir_module.Module, rendering: ComposedRendering)
             )
         elif (
             emitted_current.roms
+            and not emitted_current.memories
+            and not emitted_current.fifos
             and not emitted_current.elaborated_instances
             and not emitted_current.registers
             and not emitted_current.rules
@@ -238,6 +260,13 @@ def emit_composed_design(module: ir_module.Module, rendering: ComposedRendering)
                 )
             )
         else:
+            if (
+                (emitted_current.memories or emitted_current.fifos)
+                and not sv_state_planning.requires_unified_state(emitted_current)
+            ):
+                raise SystemVerilogEmissionError(
+                    f"composed storage in '{emitted_current.name}' requires resolved transition IR"
+                )
             definitions.append(
                 _emit_composed_component(
                     emitted_current, name, child_names, rendering

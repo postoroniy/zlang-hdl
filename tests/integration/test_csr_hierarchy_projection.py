@@ -10,11 +10,13 @@ import subprocess
 
 import pytest
 
-from zlang.backend.systemverilog import emit_experimental
-from zlang.compiler import compile_source
+from zlang import sim
+from zlang.backend.systemverilog import emit_artifact, emit_experimental
+from zlang.compiler import compile_file, compile_source
 from zlang.ir import expressions as expr
 from zlang.opt import lower, restore
 from zlang.semantic import SemanticError
+from zlang.simulation_compare import compare_program
 
 
 VERILATOR = shutil.which("verilator")
@@ -481,3 +483,183 @@ int main() {
         capture_output=True,
         text=True,
     )
+
+
+@pytest.mark.parametrize(
+    ("address", "read", "write_data", "expected"),
+    (
+        ("0", 1, "truncate<8>(bank.rdata)", 0x5A),
+        ("0", 1, "truncate<8>(busword)", 0x5A),
+        ("0", 1, "bitcast<u8>(busword[15:8])", None),
+        ("0", 1, "shortword[7:0]", 0x5A),
+        ("0", 1, "shortword[15:8]", None),
+        ("0", 1, "offsetword[7:0]", 0x5A),
+        ("8", 1, "truncate<8>(bank.rdata)", 0x00),
+        ("4", 0, "truncate<8>(bank.rdata)", 0x00),
+        ("4", 1, "bank.registers.state.STORED.value", 0x5A),
+    ),
+    ids=("stored-low-lanes", "alias-low", "alias-live", "nested-slice-low",
+         "nested-slice-live", "nested-slice-offset", "unselected-live-register",
+         "disabled-read", "named-state"),
+)
+def test_child_csr_readback_keeps_unobserved_inputs_and_state_out_of_feedback(
+    tmp_path: Path, address: str, read: int, write_data: str, expected: int | None,
+) -> None:
+    path = tmp_path / "stored_csr_feedback.zhl"
+    offset = 8 if "offsetword" in write_data else 0
+    local = ""
+    if "busword" in write_data:
+        local = "busword=bank.rdata"
+    elif "shortword" in write_data:
+        local = "shortword=bank.rdata[15:0]"
+    elif offset:
+        local = "offsetword=bank.rdata[23:8]"
+    path.write_text(f"""
+module Bank {{
+    clock clk reset rst in live:u8
+    csr registers @0 {{
+        STORED @0 {{ value u8 @{7+offset}:{offset} rw = 0x5a upper u8 @{15+offset}:{8+offset} ro <- live }}
+        LIVE @4 {{ value u8 @7:0 ro <- live }}
+    }}
+}}
+module Top {{
+    clock clk reset rst in wr:bit out q:u8
+    memory m:mem<u8,2> {{read_port r write_port w read_latency 0 collision write_first}}
+    bank:Bank {{live=~m.r.read_data addr={address} read={read} write=0 wdata=0}}
+    {local}
+    m.r.address=0 m.w.address=0 m.w.enable=wr m.w.data={write_data}
+    q=m.r.read_data
+}}
+""")
+    if expected is None:
+        for compile_design in (compile_file, sim.compile):
+            with pytest.raises(SemanticError, match="bank.rdata -> bank.live -> m.r.read_data -> bank.rdata"):
+                compile_design(path)
+        return
+    rtl = tmp_path / "dut.sv"
+    rtl.write_text(emit_artifact(compile_file(path).ir).text)
+    subprocess.run(
+        ("yosys", "-Q", "-T", "-p",
+         f"read_verilog -sv {rtl}; hierarchy -top Top; proc; flatten; opt; scc -expect 0"),
+        capture_output=True, text=True, check=True, timeout=30,
+    )
+    events = [
+        {"reset": {"rst": rst}, "set": {"wr": wr}, "edges": ["clk"]}
+        for rst, wr in ((True, 0), (False, 1), (False, 1), (False, 0))
+    ]
+    compared = compare_program(
+        sim.compile(path), events, simulator="iverilog",
+        artifact_directory=tmp_path / "comparison", timeout=30, build_timeout=30,
+    )
+    assert compared.native_trace == compared.rtl_trace == tuple(
+        {"q": q} for q in (0, expected, expected, expected)
+    )
+    if address == "0" and read == 1 and write_data == "truncate<8>(bank.rdata)":
+        _check_static_child_views(tmp_path)
+
+
+def _check_static_child_views(tmp_path: Path) -> None:
+    source_shapes = (
+        ("split", "in x:u13 out saved:u13 out live:u13 reg held:u13=211 saved=held live=~x",
+         "child:Child {x=m.r.read_data}", "child.saved", "child.live"),
+        ("upper", "in x:u13 out word:u26 reg held:u13=211 word=bitcast<u26>(concat(held,~x))",
+         "child:Child {x=m.r.read_data} alias=child.word", "alias[25:13]", "alias[12:0]"),
+        ("lower", "in x:u13 out word:u26 reg held:u13=211 word=bitcast<u26>(concat(~x,held))",
+         "child:Child {x=m.r.read_data} alias=child.word", "alias[12:0]", "alias[25:13]"),
+        ("struct", "in x:u13 out pair:Pair reg held:u13=211 pair=Pair{saved=held live=~x}",
+         "child:Child {x=m.r.read_data}", "child.pair.saved", "child.pair.live"),
+        ("child-input", "in x:u26 out saved:u13 out live:u13 saved=x[12:0] live=x[25:13]",
+         "reg held:u13=211 child:Child {x=bitcast<u26>(concat(~m.r.read_data,held))}",
+         "child.saved", "child.live"),
+        ("csr", "in packed:u26 csr regs @0 { R @0 { data u26 @25:0 ro <- packed } }",
+         "reg held:u13=211 child:Child {packed=bitcast<u26>(concat(~m.r.read_data,held)) "
+         "addr=0 read=1 write=0 wdata=0}",
+         "child.rdata[12:0]", "child.rdata[25:13]"),
+        ("local", "",
+         "reg held:u13=211 alias=bitcast<u26>(concat(~m.r.read_data,held))",
+         "alias[12:0]", "alias[25:13]"),
+    )
+    def check(
+        name: str, child: str, bindings: str, use: str, latency: int,
+        expected: tuple[int, ...] | None, inputs: dict[str, int] | None = None,
+    ) -> None:
+        inputs = inputs or {}
+        selector = "in select_lane:u1" if inputs else ""
+        case = tmp_path / name
+        case.mkdir()
+        path = case / "dut.zhl"
+        declaration = f"module Child {{ clock clk reset rst {child} }}" if child else ""
+        source = f"""
+struct Pair {{ saved:u13 live:u13 }}
+{declaration}
+module Top {{
+    clock clk reset rst in wr:bit out q:u13
+    {selector}
+    memory m:mem<u13,4> {{read_port r write_port w read_latency {latency} collision write_first}}
+    {bindings}
+    m.r.address=2 m.w.address=2 m.w.enable=wr
+    m.w.data={use}
+    q=m.r.read_data
+}}
+"""
+        path.write_text(source)
+        if expected is None:
+            for entry in (compile_file, sim.compile):
+                with pytest.raises(SemanticError, match=r"combinational (storage|memory) dependency cycle") as caught:
+                    entry(path)
+                origin = caught.value.primary
+                assert origin is not None and origin.source_unit == path.name
+                assert "m.w.data=" in source.splitlines()[origin.span.start_line - 1]
+            return
+        rtl = case / "dut.sv"
+        rtl.write_text(emit_artifact(compile_file(path).ir).text)
+        subprocess.run(
+            ("yosys", "-Q", "-T", "-p",
+             "read_verilog -sv dut.sv; hierarchy -top Top; proc; flatten; opt; scc -expect 0"),
+            cwd=case, capture_output=True, text=True, check=True, timeout=30,
+        )
+        events = [
+            {"reset": {"rst": rst}, "set": {"wr": wr, **inputs}, "edges": ["clk"]}
+            for rst, wr in ((True, 0), (False, 1), (False, 1), (False, 0))
+        ]
+        compared = compare_program(
+            sim.compile(path), events, simulator="iverilog",
+            artifact_directory=case / "comparison", timeout=30, build_timeout=30,
+        )
+        assert compared.native_trace == compared.rtl_trace == tuple(
+            {"q": q} for q in expected
+        )
+
+    stored_trace = (0, 211, 211, 211)
+    live_trace = (0, 8191, 0, 0)
+    for name, child, bindings, stored, live in source_shapes:
+        check(f"{name}-stored", child, bindings, stored, 0, stored_trace)
+        check(f"{name}-live", child, bindings, live, 0, None)
+
+    for stored_lane in (0, 1):
+        lanes = ["~x", "~x"]
+        lanes[stored_lane] = "held"
+        vector = f"out word:vec<2,u13> word=[{','.join(lanes)}]"
+        packed = f"out word:u26 word=bitcast<u26>(concat({','.join(reversed(lanes))}))"
+        tuple_output = f"out word:(u13,u13) word=({','.join(lanes)})"
+        field_names = ("saved", "live")
+        struct_output = f"out word:Pair word=Pair{{saved={lanes[0]} live={lanes[1]}}}"
+        bindings = "child:Child {x=m.r.read_data} alias=child.word"
+        for latency in (0, 1):
+            for lane in (0, 1):
+                expected = stored_trace if lane == stored_lane else (live_trace if latency else None)
+                for form, declaration, use in (
+                    ("vector", vector, f"alias[{lane}]"),
+                    ("packed", packed, f"alias[{13 * lane + 12}:{13 * lane}]"),
+                    ("tuple", tuple_output, f"alias[{lane}]"),
+                    ("struct", struct_output, f"alias.{field_names[lane]}"),
+                ):
+                    check(
+                        f"{form}-{stored_lane}-{latency}-{lane}",
+                        f"in x:u13 reg held:u13=211 {declaration}", bindings, use, latency, expected,
+                    )
+            check(
+                f"dynamic-{stored_lane}-{latency}",
+                f"in x:u13 reg held:u13=211 {vector}", bindings, "alias[select_lane]",
+                latency, live_trace if latency else None, {"select_lane": 1 - stored_lane},
+            )

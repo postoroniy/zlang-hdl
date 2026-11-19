@@ -94,6 +94,40 @@ def _aggregate_port_matches(
     )
 
 
+def validate_protocol_storage_composition(top: ir_module.Module) -> None:
+    """Reject unsupported local combinations before choosing a Direct-SV plan."""
+
+    kinds = module_features.ModuleFeatureKind
+    seen: set[int] = set()
+    pending = [top]
+    while pending:
+        module = pending.pop()
+        if id(module) in seen:
+            continue
+        seen.add(id(module))
+        pending.extend(reversed(module.children))
+        storage = (*module.memories, *module.fifos, *module.roms)
+        if not storage or not (
+            module.arbiters or any(port.protocol is InterfaceProtocol.VC_CREDIT for port in module.ports)
+        ):
+            continue
+        inventory = module_features.module_feature_inventory(module)
+        for kind, protocol in (
+            (kinds.ARBITER, "packet arbitration"),
+            (kinds.VC_CREDIT, "VC credit"),
+        ):
+            if inventory.of_kind(kind):
+                resource = storage[0]
+                raise SystemVerilogEmissionError(
+                    f"Direct-SV does not support {protocol} with storage "
+                    f"'{resource.name}' in module '{module.name}'",
+                    semantic_path=(module.name, resource.name),
+                    code="ZL-BACKEND-SYSTEMVERILOG-PROTOCOL-STORAGE",
+                    primary=resource.source_origin,
+                    fixes=("place storage behind a separate wire or ready/valid boundary",),
+                )
+
+
 def account_emission_plan(
     module: ir_module.Module,
     plan: str,

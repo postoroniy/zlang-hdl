@@ -45,6 +45,34 @@ def test_long_comparison_stimulus_and_exact_sparse_update_semantics(tmp_path,sim
     assert manifest['files'][STIMULUS_FILE] == hashlib.sha256(stimulus).hexdigest()
 
 
+@pytest.mark.parametrize(
+    ("port", "clock", "instance_name"),
+    (("din", "", "dut"), ("dut", "", "dut_"), ("dut", "dut_", "dut__")),
+    ids=("control", "dut", "dut-and-dut-underscore"),
+)
+def test_comparison_allocates_dut_instance_apart_from_physical_ports(
+    tmp_path, port, clock, instance_name,
+):
+    source = tmp_path / "top.zhl"
+    # An explicit clock keeps its spelling in the public ABI. Two ordinary
+    # wire ports named dut and dut_ would collide during ABI projection.
+    domain = f"clock {clock} reset rst" if clock else ""
+    source.write_text(f"module Top {{ {domain} in {port}:u8 out y:u8 y={port} }}")
+    artifacts = tmp_path / "comparison"
+
+    result = compare_program(
+        sim.compile(source), [{"set": {port: 42}}],
+        simulator="iverilog", artifact_directory=artifacts,
+    )
+
+    assert result.native_trace == result.rtl_trace == ({"y": 42},)
+    testbench = (artifacts / "compare_tb.sv").read_text()
+    assert f"Top {instance_name} (" in testbench
+    assert f".{port}({port})" in testbench
+    if clock:
+        assert f".{clock}({clock})" in testbench
+
+
 def test_stimulus_renderer_rejects_malformed_physical_events():
     module = compile_source(SOURCE).ir
     for event in (
@@ -56,6 +84,41 @@ def test_stimulus_renderer_rejects_malformed_physical_events():
     ):
         with pytest.raises(ValueError):
             render_testbench(module,'Top',(event,))
+
+
+@pytest.mark.parametrize("simulator", ("iverilog", "verilator"))
+def test_comparison_allocates_testbench_module_apart_from_dut(tmp_path, simulator):
+    source = tmp_path / "top.zhl"
+    source.write_text("module zlang_compare_tb {in dut:u8 out y:u8 y=dut}")
+    events = [{"set": {"dut": value}} for value in (1, 3, 2)]
+    expected = tuple({"y": value} for value in (1, 3, 2))
+    artifacts = tmp_path / "comparison"
+    compared = compare_program(
+        sim.compile(source), events, simulator=simulator, artifact_directory=artifacts,
+    )
+    assert compared.native_trace == compared.rtl_trace == expected
+    testbench = (artifacts / "compare_tb.sv").read_text()
+    assert "module zlang_compare_tb_;" in testbench
+    assert "zlang_compare_tb dut_ (" in testbench
+    with sim.compile(source, logic_state=True).create() as machine:
+        assert tuple(
+            {"y": row["y"].require_binary()} for row in machine.run_events(events)
+        ) == expected
+
+
+def test_stimulus_renderer_reserves_emitted_dependency_names():
+    module = compile_source(SOURCE).ir
+    original = render_testbench(module, "Top", ())
+    assert original.module_name == "zlang_compare_tb"
+    with_dependencies = render_testbench(
+        module, "Top", (),
+        rtl_text="module zlang_compare_tb (); endmodule\n"
+        '(* keep_hierarchy = "yes" *) module zlang_compare_tb_ (); endmodule\n'
+        "module Top (); endmodule\n",
+    )
+    assert with_dependencies.module_name == "zlang_compare_tb__"
+    assert "module zlang_compare_tb__;" in with_dependencies.text
+    assert with_dependencies.stimulus == original.stimulus
 
 
 @pytest.mark.parametrize('simulator',('iverilog','verilator'))

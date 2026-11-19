@@ -213,7 +213,7 @@ def reject_dependency_cycles(
     render_node: Callable[[_Node], str],
     description: Callable[[tuple[_Node, ...]], str] | str,
     stable_sort: bool = True,
-    origin: Callable[[_Node, _Node], SourceOrigin | None] | None = None,
+    origin: Callable[[tuple[_Node, ...]], SourceOrigin | None] | None = None,
 ) -> None:
     """Reject a deterministic dependency cycle without changing graph meaning."""
 
@@ -232,7 +232,7 @@ def reject_dependency_cycles(
             cycle = " -> ".join(render_node(item) for item in cycle_nodes)
             raise SemanticError(
                 f"combinational {label} dependency cycle: {cycle}",
-                primary=origin(active[-1], node) if origin is not None else None,
+                primary=origin(cycle_nodes) if origin is not None else None,
             )
         if node in visited or node not in graph:
             return

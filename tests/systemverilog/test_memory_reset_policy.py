@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-from zlang.backend.systemverilog import emit_experimental
+from pathlib import Path
+import re
+
+import pytest
+
+from zlang import sim
+from zlang.backend.systemverilog import emit_artifact_with_source_map, emit_experimental
 from zlang.compiler import compile_source
+from zlang.simulation_compare import compare_program
 
 
 def _global_memory(
@@ -169,3 +176,90 @@ module ScheduledMemoryProfile {
     assert "  always @(posedge clk) begin" in text
     assert "if (zlang_table_write_fire)" in text
     assert "if (zlang_table_read_fire) begin" in text
+
+
+@pytest.mark.parametrize("ported", (False, True), ids=("global-top", "ported-child"))
+def test_ram_read_stages_do_not_alias_public_ports(tmp_path: Path, ported: bool) -> None:
+    collision = "m_r_read_stage_0" if ported else "m_read_stage_0"
+    latency = 3 if ported else 2
+    ports = f"clock clk reset rst in a:u1 in wr:bit in {collision}:u8 out q:u8"
+    if ported:
+        implementation = f"""
+            memory m:mem<u8,2> {{
+                read_port r write_port w read_latency {latency} collision read_first
+                reset {{ contents preserve read_data preserve }}
+            }}
+            m.r.address=a m.w.address=a m.w.enable=wr m.w.data={collision}
+            q=m.r.read_data
+        """
+        source = f"""
+            module Child {{ {ports} {implementation} }}
+            module Top {{
+                {ports}
+                lane:Child {{ a=a wr=wr {collision}={collision} }}
+                q=lane.q
+            }}
+        """
+    else:
+        source = f"""
+            module Top {{
+                {ports}
+                memory m:mem<u8,2> {{ read_latency {latency} collision read_first }}
+                m.read_address=a m.write_address=a m.write_enable=wr
+                m.write_data={collision} q=m.read_data
+            }}
+        """
+    design = tmp_path / "memory_collision.zhl"
+    design.write_text(source)
+    program = sim.compile(design, top="Top")
+    artifact, source_map = emit_artifact_with_source_map(program.module)
+    repeat, repeat_map = emit_artifact_with_source_map(sim.compile(design, top="Top").module)
+    assert repeat.text == artifact.text
+    assert repeat_map.to_json() == source_map.to_json()
+    assert any(leaf.external_name == collision for leaf in program.module.top_physical_abi.inputs)
+    assert f"input wire logic [7:0] {collision}" in artifact.text
+
+    # Reset, edge, address, write enable and data. The scoreboard reads the
+    # pre-write word and advances only on an edge.
+    cycles = (
+        (True, True, 0, 1, 0xAA),
+        (False, True, 0, 1, 0x34),
+        (False, True, 1, 1, 0x7A),
+        (False, False, 1, 1, 0x99),
+        (False, True, 0, 1, 0x56),
+        (False, True, 1, 0, 0),
+        (False, True, 0, 0, 0),
+        (False, True, 1, 0, 0),
+        (True, True, 0, 1, 0x99),
+        (False, True, 0, 0, 0),
+        (False, True, 1, 0, 0),
+        (False, True, 0, 0, 0),
+    )
+    cells, stages = [0, 0], [0] * latency
+    events, expected = [], []
+    for reset, edge, address, write, data in cycles:
+        if edge and not reset:
+            stages = [cells[address], *stages[:-1]]
+            if write:
+                cells[address] = data
+        elif edge and not ported:
+            cells, stages = [0, 0], [0] * latency
+        events.append({
+            "reset": {"rst": reset},
+            "set": {"a": address, "wr": write, collision: data},
+            "edges": ["clk"] if edge else [],
+        })
+        expected.append({"q": stages[-1]})
+
+    comparison = compare_program(
+        program, events, simulator="iverilog", artifact_directory=tmp_path / "comparison",
+        timeout=30, build_timeout=30,
+    )
+    assert comparison.native_trace == tuple(expected)
+    assert comparison.rtl_trace == tuple(expected)
+
+    stages_text = re.findall(r"^  logic \[7:0\] (m_(?:r_)?read_stage_\w+);$", artifact.text, re.M)
+    assert len(stages_text) == latency - 1
+    assert collision not in stages_text
+    normal = _emit(source.replace(collision, "user_data"))
+    assert f"  logic [7:0] {collision};" in normal

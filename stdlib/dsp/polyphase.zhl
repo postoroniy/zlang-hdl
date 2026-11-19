@@ -57,6 +57,8 @@ where R >= 1 && K >= 1 && N == R*K {
 // Coefficient p+R*k multiplies the kth accepted sample in that phase.
 fn fir_interpolation_batch<SW,SF,CW,CF,R,K,N=R*K>(
     samples:vec<K,fixed<SW,SF>>, coefficients:vec<N,fixed<CW,CF>>) {
+    // Reject missing or surplus taps before building the phase vectors.
+    check_taps = bitcast<bits<N>>(zeros<R*K>)
     generate(p in 0..R) dot(samples,
         generate(k in 0..K) coefficients[p+R*k])
 }

@@ -393,7 +393,7 @@ def test_reader_trace_holds_address_and_data_through_stalls(length: int) -> None
 
 
 def test_reader_rejects_bad_lengths_and_alignment_without_bus_activity() -> None:
-    for base, length in ((BASE, 0), (BASE, 257), (BASE + 2, 1)):
+    for base, length in ((BASE, 0), (BASE, 257), (BASE + 2, 1), (0xFFC, 2), ((1 << 64) - 4, 2)):
         cycles = (
             _reader_cycle(base=base, length=length),
             _reader_cycle(start=1, base=base, length=length),
@@ -408,6 +408,7 @@ def test_reader_rejects_bad_lengths_and_alignment_without_bus_activity() -> None
         )
         assert not any(item["axi__ar"]["valid"] for item in result)
         assert not any(item["axi__ar"]["transfer"] for item in result)
+    _check_page_end_stalled_address(READER, _reader_cycle, "ar")
 
 
 def test_reader_reports_response_and_framing_errors_then_reset_clears_state() -> None:
@@ -535,7 +536,7 @@ def test_writer_trace_holds_address_and_data_and_generates_last(length: int) -> 
 
 
 def test_writer_rejects_bad_lengths_and_alignment_without_bus_activity() -> None:
-    for base, length in ((BASE, 0), (BASE, 257), (BASE + 2, 1)):
+    for base, length in ((BASE, 0), (BASE, 257), (BASE + 2, 1), (0xFFC, 2), ((1 << 64) - 4, 2)):
         cycles = (
             _writer_cycle(base=base, length=length),
             _writer_cycle(start=1, base=base, length=length),
@@ -550,6 +551,23 @@ def test_writer_rejects_bad_lengths_and_alignment_without_bus_activity() -> None
         )
         assert not any(item["axi__aw"]["valid"] for item in result)
         assert not any(item["axi__w"]["valid"] for item in result)
+    _check_page_end_stalled_address(WRITER, _writer_cycle, "aw")
+
+
+def _check_page_end_stalled_address(top, cycle, channel):
+    for base, length in ((0xFF8, 2), (0xFFC, 1), ((1 << 64) - 4, 1)):
+        cycles = (
+            cycle(base=base, length=length),
+            cycle(start=1, base=base, length=length),
+            cycle(base=BASE, length=1),
+            cycle(base=BASE, length=1, **{channel + "_ready": 1}),
+        )
+        result = simulate_cycles(_module(top), cycles, reset=(True, False, False, False))
+        expected = {"addr": base, "len": length - 1, "size": 2}
+        for frame, transferred in zip(result[2:], (0, 1), strict=True):
+            address = frame["axi__" + channel]
+            assert not frame["error"]
+            assert address == {"payload": expected, "valid": 1, "transfer": transferred}
 
 
 def test_writer_reports_bresp_error_then_reset_clears_state() -> None:

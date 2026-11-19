@@ -6,12 +6,18 @@ hex stimulus file carries update masks/values and coincident-edge masks.
 
 from collections.abc import Mapping,Sequence
 from dataclasses import dataclass
+import re
 
 from zlang.backend.identifiers import rtl_identifier
 from zlang.ir.module import Module,PortDirection
 
 
 STIMULUS_FILE = 'zlang-compare-events.hex'
+DEFAULT_TESTBENCH_MODULE = 'zlang_compare_tb'
+_MODULE_DECLARATION = re.compile(
+    r'(?m)^[ \t]*(?:\(\*[^\r\n]*?\*\)[ \t]*)?'
+    r'module[ \t]+([A-Za-z_][A-Za-z_0-9$]*)(?=[\s#;(])'
+)
 
 
 @dataclass(frozen=True)
@@ -20,6 +26,7 @@ class ComparisonTestbench:
 
     text: str
     stimulus: str
+    module_name: str
 
 
 def _domain_levels(module):
@@ -38,7 +45,14 @@ def _domain_levels(module):
 
 
 def render_testbench(module: Module,rtl_module: str,
-                     events: Sequence[Mapping[str,object]], *, simulation_io=None) -> ComparisonTestbench:
+                     events: Sequence[Mapping[str,object]], *, rtl_text: str = '',
+                     simulation_io=None) -> ComparisonTestbench:
+    # Reserve the physical definitions, including dependencies with renamed
+    # or specialized identities. Direct-SV keeps the header on one line.
+    occupied_modules = {rtl_module, *_MODULE_DECLARATION.findall(rtl_text)}
+    module_name = DEFAULT_TESTBENCH_MODULE
+    while module_name in occupied_modules:
+        module_name += '_'
     leaves = module.top_physical_abi.leaves
     inputs = {leaf.external_name:leaf for leaf in leaves if leaf.direction is PortDirection.INPUT}
     outputs = tuple(leaf for leaf in leaves if leaf.direction is PortDirection.OUTPUT)
@@ -53,6 +67,7 @@ def render_testbench(module: Module,rtl_module: str,
         used.add(result)
         return result
     data,index = name('zlang_compare_stimulus'),name('zlang_compare_index')
+    instance = name('dut')
     offsets,edge_offsets,offset = {},{},0
     for key,leaf in inputs.items():
         offsets[key] = offset
@@ -84,14 +99,14 @@ def render_testbench(module: Module,rtl_module: str,
                 raise ValueError(f"unknown clock '{key}'")
             word |= 1 << edge_offsets[key]
         encoded.append(f'{word:0{(width+3)//4}x}')
-    lines = ['`timescale 1ns/1ps','module zlang_compare_tb;']
+    lines = ['`timescale 1ns/1ps',f'module {module_name};']
     for leaf in leaves:
         packed = '' if leaf.width == 1 else f' [{leaf.width-1}:0]'
         lines.append(f'  logic{packed} {rtl_identifier(leaf.external_name)};')
     if simulation_io is not None:
         lines.extend(simulation_io.declarations())
     lines.extend((f'  logic [{width-1}:0] {data} [0:{max(1,len(events))-1}];',
-                  f'  integer {index};',f'  {rtl_module} dut ('))
+                  f'  integer {index};',f'  {rtl_module} {instance} ('))
     for i,leaf in enumerate(leaves):
         key = rtl_identifier(leaf.external_name)
         lines.append(f'    .{key}({key})'+(',' if i+1 < len(leaves) else ''))
@@ -130,4 +145,6 @@ def render_testbench(module: Module,rtl_module: str,
                       '      else',
                       f'        $display("sample %0d {leaf.external_name} %0h", {index}, {key});'))
     lines.extend(('    end','    $finish;','  end','endmodule',''))
-    return ComparisonTestbench('\n'.join(lines),'\n'.join(encoded or ['0'])+'\n')
+    return ComparisonTestbench(
+        '\n'.join(lines), '\n'.join(encoded or ['0'])+'\n', module_name,
+    )

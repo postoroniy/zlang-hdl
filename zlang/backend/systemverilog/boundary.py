@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from zlang.common import stable_digest
+from zlang.ir.csr import csr_projection_port_names
 from zlang.ir import packing as ir_packing
 from zlang.ir import interfaces as ir_interfaces
 from zlang.ir import module as ir_module
@@ -34,8 +35,13 @@ def top_physical_rtl_names(module: ir_module.Module) -> dict[str, str]:
     unmangled ZLang spelling or maintain a second reserved-word list.
     """
 
+    projections = (
+        csr_projection_port_names(module.csr_blocks)
+        if module.csr_access is not None else frozenset()
+    )
     names = {
-        f"port:{port.name}": sv_rendering._identifier(port.name) for port in module.ports
+        f"port:{port.name}": sv_rendering._identifier(port.name)
+        for port in module.ports if port.name not in projections
     }
     for port in module.ports:
         base = sv_rendering._identifier(port.name)
@@ -117,23 +123,29 @@ class TopBoundaryPlan:
         return source_name in self.direct_vector_bases
 
 
+def _wire_or_ready_valid_port_declarations(port: ir_module.Port) -> tuple[str, ...]:
+    if port.protocol is ir_interfaces.InterfaceProtocol.WIRE:
+        return (_port_declaration(port),)
+    if port.protocol is not ir_interfaces.InterfaceProtocol.READY_VALID:
+        raise SystemVerilogEmissionError(
+            f"composed direct SystemVerilog does not support {port.protocol.value} port '{port.name}'"
+        )
+    name = sv_rendering._identifier(port.name)
+    if port.direction is ir_module.PortDirection.INPUT:
+        return (
+            _logic_port("input", f"{name}_payload", port.type),
+            f"input wire logic {name}_valid", f"output logic {name}_ready",
+        )
+    return (
+        _logic_port("output", f"{name}_payload", port.type),
+        f"output logic {name}_valid", f"input wire logic {name}_ready",
+    )
+
+
 def _physical_port_declarations(module: ir_module.Module) -> list[str]:
     ports: list[str] = _clock_reset_port_declarations(module)
     for port in module.ports:
-        name = sv_rendering._identifier(port.name)
-        if port.protocol is ir_interfaces.InterfaceProtocol.WIRE:
-            ports.append(_logic_port("input" if port.direction is ir_module.PortDirection.INPUT else "output", name, port.type))
-        elif port.protocol is ir_interfaces.InterfaceProtocol.READY_VALID:
-            if port.direction is ir_module.PortDirection.INPUT:
-                ports.extend((_logic_port("input", f"{name}_payload", port.type),
-                              f"input wire logic {name}_valid", f"output logic {name}_ready"))
-            else:
-                ports.extend((_logic_port("output", f"{name}_payload", port.type),
-                              f"output logic {name}_valid", f"input wire logic {name}_ready"))
-        else:
-            raise SystemVerilogEmissionError(
-                f"composed direct SystemVerilog does not support {port.protocol.value} port '{port.name}'"
-            )
+        ports.extend(_wire_or_ready_valid_port_declarations(port))
     for interface in module.request_responses:
         name = sv_rendering._identifier(interface.name)
         requester = interface.role is not None and interface.role.value == "requester"

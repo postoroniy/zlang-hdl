@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from zlang.ir import expressions as expr
-from zlang.ir import interfaces as ir_interfaces
 from zlang.ir import module as ir_module
 from zlang.ir import storage as ir_storage
 from zlang.backend.companions import companion_for_rom
 from zlang.backend import expression_materialization as materialization
-from zlang.backend import identifiers as identifiers
+from zlang.backend import module_features
 from zlang.backend.systemverilog import boundary as sv_boundary
+from zlang.backend.systemverilog import feature_accounting as sv_accounting
 from zlang.backend.systemverilog import materialized as sv_materialized
 from zlang.backend.systemverilog import module_rendering as sv_module_rendering
 from zlang.backend.systemverilog import sequential as sv_sequential
@@ -32,20 +34,38 @@ def _emit_memory(module: ir_module.Module, *, ram_style: str | None = None) -> s
         raise SystemVerilogEmissionError(
             "direct SystemVerilog multi-memory emission requires only globally controlled memories"
         )
-    lines: list[str] = []
+    memories, ported_names = _memory_fragments(module, ram_style=ram_style)
+    lines = [line for group in memories for section in group for line in section]
+    _append_storage_assignments(module, lines, ported_names)
+    return sv_module_rendering._named_module(
+        module.name,
+        sv_boundary._physical_port_declarations(module),
+        lines,
+        typed_module=module,
+    )
+
+
+def _memory_fragments(
+    module: ir_module.Module, *, ram_style: str | None = None,
+) -> tuple[list[tuple[list[str], list[str]]], set[str]]:
+    fragments: list[tuple[list[str], list[str]]] = []
     ported_names: set[str] = set()
     for memory in module.memories:
         if memory.ports:
-            declarations, logic = sv_state._ported_memory_fragments(
+            fragments.append(sv_state._ported_memory_fragments(
                 module, memory, sv_expression._expression, ram_style=ram_style
-            )
-            lines.extend(declarations)
-            lines.extend(logic)
+            ))
             ported_names.add(memory.name)
         else:
-            lines.extend(sv_memory.global_memory_fragments(
+            fragments.append(sv_memory.global_memory_fragments(
                 module, memory, sv_expression._expression, ram_style=ram_style,
             ))
+    return fragments, ported_names
+
+
+def _append_storage_assignments(
+    module: ir_module.Module, lines: list[str], ported_names: set[str],
+) -> None:
     for assignment in module.assignments:
         if assignment.target.name in ported_names:
             continue
@@ -53,12 +73,6 @@ def _emit_memory(module: ir_module.Module, *, ram_style: str | None = None) -> s
             f"  assign {sv_rendering._identifier(sv_rendering._assignment_name(assignment))} = "
             f"{sv_expression._expression(assignment.expression)};"
         )
-    return sv_module_rendering._named_module(
-        module.name,
-        sv_boundary._physical_port_declarations(module),
-        lines,
-        typed_module=module,
-    )
 
 
 def _emit_rom_logic(module: ir_module.Module, render) -> tuple[list[str], list[str]]:
@@ -123,11 +137,20 @@ def _fifo_signal_references(
     }
     if not references:
         return references
-    # A FIFO observation may feed another FIFO's data or admission controls
-    # without appearing in any output assignment.
+    # Storage operands can read a FIFO observation without exposing it at
+    # an output. Include every expression rendered by the global fragments.
     roots = (
         *(value for fifo in module.fifos for value in (fifo.data, fifo.push, fifo.pop)),
         *(assignment.expression for assignment in module.assignments),
+        *(rom.read_address for rom in module.roms),
+        *(value for memory in module.memories for value in (
+            memory.read_address, memory.write_enable, memory.write_address,
+            memory.write_data, memory.write_mask, memory.initial_value,
+        )),
+        *(value for memory in module.memories for port in memory.ports for value in (
+            port.address, port.read_enable, port.write_enable, port.write_data,
+            port.write_mask,
+        )),
     )
     for root in roots:
         if root is None:
@@ -143,46 +166,59 @@ def _fifo_signal_references(
     return references
 
 
-def _emit_fifo(module: ir_module.Module) -> str:
+def _emit_fifo(module: ir_module.Module, *, name: str | None = None) -> str:
+    """Emit global FIFO controls and other closed, independently driven storage."""
     if not module.fifos or not module.clock_domains:
         raise SystemVerilogEmissionError("direct FIFO emission requires FIFO and clock/reset")
-    if len(module.fifos) > 1 and not sv_state_planning.uses_dedicated_legacy_storage(module):
+    if (
+        (len(module.fifos) > 1 or module.memories or module.roms)
+        and not sv_state_planning.uses_dedicated_legacy_storage(module)
+    ):
         raise SystemVerilogEmissionError(
-            "direct SystemVerilog multi-FIFO emission requires only globally controlled FIFOs"
+            "direct SystemVerilog mixed storage requires globally controlled FIFOs and RAMs"
         )
-    sources = tuple(p for p in module.inputs if p.protocol is ir_interfaces.InterfaceProtocol.READY_VALID)
-    sinks = tuple(p for p in module.outputs if p.protocol is ir_interfaces.InterfaceProtocol.READY_VALID)
-    scalar_wire = all(
-        port.protocol is ir_interfaces.InterfaceProtocol.WIRE for port in module.ports
+    sv_accounting.account_emission_plan(
+        module,
+        "fifo",
+        *sv_accounting.STORAGE_GROUPS,
+        module_features.ModuleFeatureGroup.PROTOCOL_PORTS,
+        *sv_accounting.physical_boundary_groups(module),
     )
-    if not scalar_wire and (len(sources) != 1 or len(sinks) != 1):
-        raise SystemVerilogEmissionError(
-            "direct FIFO emission requires scalar wire ports or one "
-            "ready/valid input and output"
-        )
+    if name is not None:
+        module = replace(module, name=name)
+    ports = sv_boundary._physical_port_declarations(module)
     references = _fifo_signal_references(module)
     lines: list[str] = []
+    declarations: list[str] = []
+    mixed = bool(module.memories or module.roms)
     updates: list[str] = []
     for fifo in module.fifos:
-        controls, sequential = _fifo_fragments(module, fifo, references.get(fifo.name, set()))
+        fifo_declarations, controls, sequential = _fifo_fragments(
+            module, fifo, references.get(fifo.name, set())
+        )
+        # Mixed storage operands may read another resource in either
+        # direction. Otherwise keep the established per-FIFO section order.
+        (declarations if mixed else lines).extend(fifo_declarations)
         lines.extend(controls)
         updates.extend(sequential)
-    lines.extend(
-        f"  assign {sv_rendering._identifier(sv_rendering._assignment_name(assignment))} = "
-        f"{sv_expression._expression(assignment.expression)};"
-        for assignment in module.assignments
-    )
+    memories, ported_names = _memory_fragments(module)
+    for memory_declarations, _ in memories:
+        declarations.extend(memory_declarations)
+    rom_declarations, rom_logic = _emit_rom_logic(module, sv_expression._expression)
+    declarations.extend(rom_declarations)
+    for _, memory_logic in memories:
+        lines.extend(memory_logic)
+    lines.extend(rom_logic)
+    _append_storage_assignments(module, lines, ported_names)
     lines.extend(updates)
-    return sv_module_rendering._module(
-        module, sv_boundary._physical_port_declarations(module), lines
-    )
+    return sv_module_rendering._module(module, ports, declarations + lines)
 
 
 def _fifo_fragments(
     module: ir_module.Module,
     fifo: ir_storage.Fifo,
     referenced_fifo_signals: set[ir_storage.FifoSignal],
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str]]:
     if fifo.domain is None:
         raise SystemVerilogEmissionError(
             f"FIFO '{fifo.name}' has no resolved clock domain"
@@ -190,7 +226,7 @@ def _fifo_fragments(
     fifo_clock = fifo.domain
     width, count_width = sv_rendering._width(fifo.element_type), fifo.count_width
     ptr_width = max(1, (fifo.depth - 1).bit_length())
-    name = fifo.name
+    name = sv_rendering._identifier(fifo.name)
     if fifo.data is None or fifo.push is None or fifo.pop is None:
         raise SystemVerilogEmissionError(
             "legacy direct FIFO emission requires explicit data/push/pop controls"
@@ -258,14 +294,12 @@ def _fifo_fragments(
             f"  assign {name}_underflow = !({sv_sequential.reset_asserted(module, sv_rendering._identifier, fifo_clock)}) && "
             f"{name}_pop_request && {name}_empty;"
         )
-    controls = [
+    declarations = [
         f"  logic {sv_rendering._range(width)}{name}_storage [0:{fifo.depth - 1}];",
         f"  logic [{count_width - 1}:0] {name}_count;",
         f"  logic [{ptr_width - 1}:0] {name}_rd, {name}_wr;",
         *observation_declarations,
         *request_declarations,
-        *observation_assignments,
-        *request_assignments,
     ]
     updates = [
         f"  always_ff @({sv_sequential.clock_event(module, sv_rendering._identifier, fifo_clock)}) begin",
@@ -283,7 +317,7 @@ def _fifo_fragments(
         "    end",
         "  end",
     ]
-    return controls, updates
+    return declarations, observation_assignments + request_assignments, updates
 
 
 def _emit_unified_state_module(module: ir_module.Module) -> str:

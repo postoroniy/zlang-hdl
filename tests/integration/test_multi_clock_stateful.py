@@ -149,6 +149,34 @@ module IllegalCrossing {
 """
     with pytest.raises(SemanticError, match="clock-domain mismatch in rule 'UpdateB'"):
         compile_source(source)
+    template = """
+module NestedGuard {
+    clock ca reset ra @ca
+    clock cb reset rb @cb
+    in en:bit @cb
+    reg held:bit @DOMAIN=0
+    alias=held
+    out reg q:bit @cb=0
+    rule update @cb when en {
+        BODY
+    }
+}
+"""
+    for predicate, action in (
+        ("held", "when held { q <- 1 }"),
+        ("alias", "when alias {} else { q <- 1 }"),
+        ("alias", "when alias { when en { q <- 1 } }"),
+    ):
+        foreign = template.replace("DOMAIN", "ca").replace("BODY", action)
+        with pytest.raises(SemanticError, match="nested guard reads 'ca'") as caught:
+            compile_source(foreign)
+        error = caught.value
+        assert error.code == "ZL-DOMAIN-CROSSING"
+        assert error.primary is not None
+        span = error.primary.span
+        line = foreign.splitlines()[span.start_line - 1]
+        assert line[span.start_column - 1:span.end_column - 1] == predicate
+        compile_source(template.replace("DOMAIN", "cb").replace("BODY", action))
 
 
 @pytest.mark.parametrize(

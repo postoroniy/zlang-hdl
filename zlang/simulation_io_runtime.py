@@ -121,15 +121,18 @@ class SimulationIOSession:
                 f"external write conflicts with simulation-owned input '{name}'"
             )
 
-    def edge(self, clocks, execute):
-        if self.closed or self.failure is not None:
+    def check_event(self, *, has_edge):
+        if has_edge and (self.closed or self.failure is not None):
             raise SimulationRuntimeError("simulation I/O session is closed or failed")
-        if self.finished:
-            return self.instance._step_outputs()
-        if self.index >= MAX_IO_EVENTS:
+        if not self.finished and self.index >= MAX_IO_EVENTS:
             raise SimulationRuntimeError(
                 "simulation I/O exceeds the expanded-event limit"
             )
+
+    def edge(self, clocks, execute):
+        self.check_event(has_edge=True)
+        if self.finished:
+            return self.instance._step_outputs()
         if self.product.block.clock not in clocks:
             result = execute()
             self.index += 1
@@ -227,10 +230,7 @@ class SimulationIOSession:
             raise
 
     def empty_event(self):
-        if self.index >= MAX_IO_EVENTS:
-            raise SimulationRuntimeError(
-                "simulation I/O exceeds the expanded-event limit"
-            )
+        self.check_event(has_edge=False)
         self.index += 1
 
     def close(self):

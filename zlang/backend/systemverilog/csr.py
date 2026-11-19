@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from zlang.ir import csr as ir_csr
-from zlang.ir import interfaces as ir_interfaces
 from zlang.ir import module as ir_module
 from zlang.ir import types as ir_types
 from zlang.backend.systemverilog import boundary as sv_boundary
@@ -78,10 +77,6 @@ def _emit_csr(module: ir_module.Module, *, expose_internal_abi: bool = False) ->
     access = module.csr_access
     if access is None:
         raise SystemVerilogEmissionError("typed CSR access interface is missing")
-    if any(port.protocol is not ir_interfaces.InterfaceProtocol.WIRE for port in module.ports):
-        raise SystemVerilogEmissionError(
-            "CSR composition currently supports ordinary scalar wire ports only"
-        )
     internal_names = ir_csr.csr_internal_port_names(access, module.csr_blocks)
     user_ports = tuple(
         port for port in module.ports if port.name not in internal_names
@@ -148,7 +143,8 @@ def _emit_csr(module: ir_module.Module, *, expose_internal_abi: bool = False) ->
                 f"input logic {sv_rendering._identifier(domain.reset)}",
             )
         ),
-        *(sv_boundary._port_declaration(port) for port in user_ports),
+        *(declaration for port in user_ports
+          for declaration in sv_boundary._wire_or_ready_valid_port_declarations(port)),
         *(sv_boundary._logic_port("input", name, type_)
           for name, type_ in access.input_types),
         *(sv_boundary._logic_port("output", name, type_)

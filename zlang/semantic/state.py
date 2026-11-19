@@ -452,6 +452,21 @@ class RuleAnalyzer:
                         typed_condition = effect_context.expressions.check(
                             condition, value_symbols, ir_types.BitType(), effect_context
                         )
+                        if typed_condition.type == ir_types.BitType():
+                            expanded = expression_support._expand_immutable_locals(
+                                typed_condition, value_symbols, work_budget=module_context.services,
+                            )
+                            foreign = expression_domains.expression_domains(
+                                expanded, {**symbols, **resource_symbols}, register_symbols,
+                            ) - {None, rule_domain}
+                            if foreign:
+                                raise SemanticError(
+                                    f"clock-domain mismatch in rule '{declaration.name}': rule "
+                                    f"domain is '{rule_domain}', nested guard reads '{min(foreign)}'",
+                                    code="ZL-DOMAIN-CROSSING",
+                                    primary=expression_origins.semantic_origin(condition, module_context),
+                                    fixes=("insert an explicit supported clock-domain crossing",),
+                                )
                         typed_condition_cache[id(condition)] = typed_condition
                         # ``replace(context, ...)`` copies the numerical allocator.
                         # Propagate allocations made while checking this unique

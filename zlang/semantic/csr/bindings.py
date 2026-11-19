@@ -9,7 +9,8 @@ from zlang.ir import csr as ir_csr
 from zlang.ir import expressions as ir_expr
 from zlang.ir import module as ir_module
 from zlang.ir.interfaces import InterfaceProtocol
-from zlang.ir.types import HardwareType, StructType
+from zlang.ir.static_projection import StaticView, project_static_bits
+from zlang.ir.types import HardwareType, StructType, UIntType
 from zlang.source import SourceOrigin
 
 from ..errors import SemanticError
@@ -148,3 +149,109 @@ class CsrBindingResolver:
             priority,
             None if kind is ir_csr.CsrBindingKind.COMMAND else source,
         )
+
+
+def csr_output_controls(
+    child: ir_module.Module,
+    access_constants: dict[str, int],
+    read_bits: tuple[int, ...] = (),
+) -> dict[str, tuple[ir_expr.Expression, ...]]:
+    """Project the current-cycle controls of synthesized CSR output leaves.
+
+    Stored fields and post-accept events expose only prior state. An exact
+    address or read qualifier at the child binding can restrict bus readback
+    to the selected register. A static slice of rdata further restricts the
+    fields whose values can contribute.
+    """
+    access = child.csr_access
+    if access is None:
+        return {}
+    inputs = {
+        name: ir_expr.InputRef(name, type_)
+        for name, type_ in access.input_types
+    }
+    address = inputs[access.address_port]
+    read = inputs[access.read_port]
+    write = inputs[access.write_port]
+    write_data = inputs[access.write_data_port]
+    selected_address = access_constants.get(access.address_port)
+    read_enabled = access_constants.get(access.read_port) != 0
+    write_enabled = access_constants.get(access.write_port) != 0
+    msb, lsb = read_bits or (access.data_width - 1, 0)
+    controls: dict[str, tuple[ir_expr.Expression, ...]] = {}
+    read_sources: list[ir_expr.Expression] = []
+    can_read_value = False
+    can_select_register = False
+
+    for block in child.csr_blocks:
+        fields = {
+            field.identity: (register, field)
+            for register in block.registers
+            for field in register.fields
+        }
+
+        def selected(register: ir_csr.CsrRegister) -> bool:
+            return selected_address in (None, block.base_address + register.offset)
+
+        for observation in block.access_observations:
+            register, field = fields[observation.csr_field_id]
+            source = (
+                ir_csr.csr_hardware_source(
+                    field.binding, field.type, origin=field.source_origin,
+                )
+                if field.access is ir_csr.CsrAccess.READ_ONLY
+                and field.binding is not None
+                and field.binding.kind is ir_csr.CsrBindingKind.STATUS
+                else None
+            )
+            if source is not None:
+                controls[ir_csr.csr_observation_value_port_name(observation)] = (source,)
+            if selected(register):
+                if read_enabled:
+                    controls[ir_csr.csr_read_hit_port_name(observation)] = (read, address)
+                    if field.lsb <= msb and lsb <= field.msb and (
+                        field.access in (ir_csr.CsrAccess.READ_WRITE, ir_csr.CsrAccess.WRITE_ONE_TO_CLEAR)
+                        or (field.access is ir_csr.CsrAccess.READ_ONLY and (source is not None or field.reset))
+                    ):
+                        can_read_value = True
+                        if source is not None:
+                            low = max(lsb, field.lsb) - field.lsb
+                            high = min(msb, field.msb) - field.lsb
+                            read_sources.append(
+                                source if (low, high) == (0, source.type.width - 1) else
+                                project_static_bits(
+                                    StaticView(source, high, low), {}, UIntType(high - low + 1),
+                                )
+                            )
+                if write_enabled:
+                    controls[ir_csr.csr_observation_write_hit_port_name(observation)] = (write, address)
+            controls[ir_csr.csr_observation_write_value_port_name(observation)] = (write_data,)
+
+        for register in block.registers:
+            if not selected(register):
+                continue
+            can_select_register = True
+            for event in register.events:
+                if event.phase is not ir_csr.CsrEventPhase.ACTIVE_TRANSFER:
+                    continue
+                if event.kind is ir_csr.CsrEventKind.READ:
+                    if not read_enabled:
+                        continue
+                    event_controls = (read, address)
+                else:
+                    if not write_enabled:
+                        continue
+                    event_controls = (write, address, write_data)
+                controls[event.signal] = event_controls
+                controls[ir_csr.csr_event_port_name(event)] = event_controls
+
+    if can_read_value:
+        controls[access.read_data_port] = (read, address, *read_sources)
+    if can_select_register and (read_enabled or write_enabled):
+        qualifiers = (
+            (read, write)
+            if 1 not in (access_constants.get(access.read_port), access_constants.get(access.write_port))
+            else ()
+        )
+        controls[access.ready_port] = (address, *qualifiers)
+    return controls

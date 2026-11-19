@@ -116,14 +116,10 @@ class StorageReferencePrimitiveLowerer(PrimitiveLowerer):
                 builder.constant(int(fifo["depth"]), builder.width(count)),
                 1,
             )
-            reset = (
-                builder.emit(
-                    "load_input", 1, attributes={"name": f"$reset:{fifo['reset']}"}
-                )
-                if fifo["reset"] is not None
-                else builder.constant(0, 1)
+            reset = builder.effective_reset(fifo["domain"])
+            not_reset = builder.unary(
+                "not", reset if reset is not None else builder.constant(0, 1), 1
             )
-            not_reset = builder.unary("not", reset, 1)
             if fifo["scheduled"] and signal in {
                 "push",
                 "pop",

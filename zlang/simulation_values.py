@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from zlang.ir import packing
-from zlang.ir.runtime_values import TaggedUnionValue
+from zlang.ir.runtime_values import TaggedUnionValue, runtime_value_fits
 from zlang.ir.types import (
     EnumType,
     HardwareType,
@@ -98,6 +98,11 @@ def pack_value(type_: HardwareType, value: object) -> int:
         if not isinstance(value, TaggedUnionValue):
             raise SimulationRuntimeError(
                 f"value for tagged union '{type_.name}' must be TaggedUnionValue"
+            )
+        if not runtime_value_fits(value, type_):
+            raise SimulationRuntimeError(
+                f"tagged union value of type '{value.type.name}' "
+                f"does not fit nominal type '{type_.name}'"
             )
         return packing.pack_tagged_union_runtime(value)
     try:
