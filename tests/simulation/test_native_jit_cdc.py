@@ -150,6 +150,7 @@ def test_cdc_lowering_matches_existing_oracle_and_native_runtime(
     top: str,
     inputs: list[dict[str, object]],
     edges: list[set[str]],
+    tmp_path: Path,
 ) -> None:
     path = ROOT / "examples" / filename
     resets = [{SOURCE, DESTINATION}, *([set()] * (len(inputs) - 1))]
@@ -161,6 +162,108 @@ def test_cdc_lowering_matches_existing_oracle_and_native_runtime(
     )
     native = _persistent_pre_edge_trace(path, top, "native", inputs, edges, resets)
     assert native == expected
+
+    if top in ("CdcLevel", "CdcPulse"):
+        _check_scalar_reset_trace(path, top, tmp_path)
+    elif top == "CdcHandshake":
+        _check_handshake_queue(path, tmp_path / "handshake")
+
+
+def _check_handshake_queue(path: Path, directory: Path, simulator: str = "iverilog") -> None:
+    from zlang.simulation_compare import compare_program
+
+    # Directed schedule: writer runs while the reader is paused, both clocks
+    # run on retirement, and a second outstanding token is discarded by reset.
+    # The last four columns specify accepted/retired transfers and the
+    # externally observable ready/valid after that edge group.
+    both = (SOURCE, DESTINATION)
+    rows = (
+        (both, True, 0, 0, 0, False, False, 0, 0),
+        (both, False, 1, 42, 0, True, False, 0, 0),
+        ((SOURCE,), False, 0, 99, 0, False, False, 0, 0),
+        ((DESTINATION,), False, 0, 99, 0, False, False, 0, 0),
+        ((DESTINATION,), False, 0, 99, 0, False, False, 0, 1),
+        (both, False, 1, 99, 0, False, False, 0, 1),
+        (both, False, 1, 99, 1, False, True, 0, 0),
+        ((SOURCE,), False, 1, 99, 0, False, False, 0, 0),
+        ((SOURCE,), False, 1, 99, 0, False, False, 1, 0),
+        (both, False, 1, 99, 0, True, False, 0, 0),
+        ((DESTINATION,), False, 0, 0, 0, False, False, 0, 0),
+        ((DESTINATION,), False, 0, 0, 0, False, False, 0, 1),
+        (both, True, 0, 0, 0, False, False, 0, 0),
+        (both, False, 0, 0, 1, False, False, 1, 0),
+    )
+    events = []
+    expected = []
+    slot = None
+    for edges, reset, valid, payload, ready, put, take, src_ready, dst_valid in rows:
+        events.append({
+            "edges": list(edges), "reset": {"source_reset": reset, "destination_reset": reset},
+            "set": _rv(payload, valid, ready),
+        })
+        if reset:
+            slot = None
+        if take:
+            assert slot is not None
+            slot = None
+        if put:
+            assert slot is None
+            slot = payload
+        expected.append((src_ready, dst_valid, slot if dst_valid else None))
+
+    comparison = compare_program(zlang.sim.compile(path, top="CdcHandshake"), events,
+                                 simulator=simulator, artifact_directory=directory)
+    for trace in (comparison.native_trace, comparison.rtl_trace):
+        observations = [(f["source_ready"], f["destination_valid"],
+                         f["destination_payload"] if f["destination_valid"] else None) for f in trace]
+        assert observations == expected, "one-slot handshake queue trace"
+
+
+def _check_scalar_reset_trace(path: Path, top: str, tmp_path: Path) -> None:
+    from zlang.simulation_compare import compare_program
+
+    level = top == "CdcLevel"
+    source = "level" if level else "pulse"
+    output = "synced" if level else "crossed_pulse"
+    on = {"source_reset": True, "destination_reset": True}
+    off = dict.fromkeys(on, False)
+    # Event 4 masks a live bit without clocking either domain. Releasing at
+    # event 5 exposes the same bit. Later edges under reset actually clear it.
+    events = [
+        {"reset": on, "set": {source: 0}, "edges": [SOURCE, DESTINATION]},
+        {"reset": off, "set": {source: 1}, "edges": [SOURCE]},
+        {"set": {source: int(level)}, "edges": [DESTINATION]},
+        {"edges": [DESTINATION]},
+        {"reset": on},
+        {"reset": off},
+        {"reset": on, "edges": [SOURCE]},
+        {"edges": [DESTINATION]},
+        {"reset": off},
+        {"set": {source: 1}, "edges": [SOURCE, DESTINATION]},
+        {"set": {source: int(level)}, "edges": [DESTINATION]},
+        {"edges": [DESTINATION]},
+        {"edges": [DESTINATION]},
+    ]
+    expected = (0, 0, 0, 1, 0, 1, 0, 0, 0, 0, int(level), 1, int(level))
+    binary = zlang.sim.compile(path, top=top)
+    with binary.create() as instance:
+        assert tuple(frame[output] for frame in instance.run_events(events)) == expected
+    compared = compare_program(binary, events, simulator="iverilog", artifact_directory=tmp_path / "reset")
+    assert tuple(frame[output] for frame in compared.rtl_trace) == expected
+
+    with zlang.sim.load(path, top=top, logic_state=True) as instance:
+        for event, bit in zip(events, expected, strict=True):
+            instance.run_events([event])
+            assert instance.get_logic(output).to_bits() == str(bit)
+        instance.set_logic(source, "X")
+        instance.edge(SOURCE)
+        instance.edge(DESTINATION)
+        instance.edge(DESTINATION)
+        assert instance.get_logic(output).to_bits() == "x"
+        instance.run_events([{"reset": on}])
+        assert instance.get_logic(output).to_bits() == "0"
+        instance.run_events([{"reset": off}])
+        assert instance.get_logic(output).to_bits() == "x"
 
 
 def _async_memory_source(collision: str) -> str:

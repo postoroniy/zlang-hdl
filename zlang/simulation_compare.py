@@ -22,7 +22,7 @@ from typing import Iterator, Literal
 
 from zlang.backend.companions import publish_companion_bundle
 from zlang.backend.systemverilog import emit_artifact
-from zlang.ir.interfaces import InterfaceProtocol
+from zlang.ir.interfaces import InterfaceProtocol, request_response_field_name
 from zlang.ir.module import Module, PortDirection
 from zlang.ir.top_abi import TopPhysicalABI
 from zlang.sim import Program, SimulationRuntimeError, Simulator, _pack_value
@@ -182,24 +182,16 @@ def _physical_output_sample(instance: Simulator) -> dict[str, int]:
     abi = module.top_physical_abi
     paths = _public_port_paths(module, abi)
     ports = {port.name: port for port in module.ports}
-    request_responses = {item.name: item for item in module.request_responses}
-    public_values: dict[str, object] = {}
-    for name in paths:
-        public_values[name] = instance.get(name)
-    for name in request_responses:
-        public_values[name] = instance.get(name)
-
     result: dict[str, int] = {}
+    packed_roots: dict[str, int] = {}
     for leaf in abi.outputs:
         if leaf.packed_root_type is None:
             raise SimulationComparisonError(
                 f"physical output '{leaf.external_name}' has no packed type"
             )
         if leaf.category == "request_response":
-            root_name = leaf.member_path[0]
-            value = _nested_value(
-                public_values[root_name], leaf.member_path[1:3], name=root_name
-            )
+            owner, channel, signal = leaf.member_path[:3]
+            internal = request_response_field_name(owner, channel, signal)
         else:
             matches = (
                 (name, path)
@@ -207,7 +199,7 @@ def _physical_output_sample(instance: Simulator) -> dict[str, int]:
                 if leaf.member_path[: len(path)] == path
             )
             try:
-                root_name, prefix = max(matches, key=lambda item: len(item[1]))
+                root_name, _ = max(matches, key=lambda item: len(item[1]))
             except ValueError as error:
                 raise SimulationComparisonError(
                     f"physical output '{leaf.external_name}' has no public owner"
@@ -220,11 +212,9 @@ def _physical_output_sample(instance: Simulator) -> dict[str, int]:
                 internal = root_name
             else:
                 internal = instance._protocols.field_name(port, leaf.signal_kind)
-            packed = instance.get_packed(internal)
-            result[leaf.external_name] = _physical_leaf_value(leaf, packed)
-            continue
-        packed = _pack_value(leaf.packed_root_type, value)
-        result[leaf.external_name] = _physical_leaf_value(leaf, packed)
+        if internal not in packed_roots:
+            packed_roots[internal] = instance.get_packed(internal)
+        result[leaf.external_name] = _physical_leaf_value(leaf, packed_roots[internal])
     return result
 
 

@@ -13,7 +13,7 @@ from dataclasses import fields, is_dataclass, replace
 from zlang.fixed_point import quantize_rational
 from zlang.ir import expressions as expr
 from zlang.ir import packing
-from zlang.ir.constants import constant_comparison, constant_bitwise
+from zlang.ir.constants import constant_comparison, constant_bitwise, constant_shift
 from zlang.ir.functional_regions import CompileTimeExpr, evaluate_compile_time
 from zlang.ir.types import (
     FixedType,
@@ -467,6 +467,8 @@ def _evaluate_binary(
     operand_type: HardwareType,
 ) -> int | None:
     left_value = _typed_value(left, operand_type)
+    if operator in {expr.BinaryOperator.SHIFT_LEFT, expr.BinaryOperator.SHIFT_RIGHT}:
+        return constant_shift(operator, left_value, right, operand_type.width)
     right_value = _typed_value(right, operand_type)
     if operator is expr.BinaryOperator.SUBTRACT:
         return left_value - right_value
@@ -475,14 +477,6 @@ def _evaluate_binary(
     bitwise = constant_bitwise(operator, left_value, right_value, operand_type)
     if bitwise is not None:
         return bitwise
-    if operator is expr.BinaryOperator.SHIFT_LEFT:
-        return _unsigned_raw(left_value, operand_type) << max(0, right_value)
-    if operator is expr.BinaryOperator.SHIFT_RIGHT:
-        if right_value < 0:
-            return None
-        return left_value >> right_value if _is_signed(operand_type) else (
-            _unsigned_raw(left_value, operand_type) >> right_value
-        )
     return constant_comparison(operator, left_value, right_value)
 
 

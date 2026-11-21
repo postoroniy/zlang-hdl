@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import NamedTuple
 
 from zlang.ast import nodes as ast
 from zlang.ir import cdc as ir_cdc
@@ -30,11 +29,13 @@ from zlang.ir.interfaces import (
     request_response_signal_is_input,
     RequestResponseChannel,
 )
-from zlang.ir.traversal import expression_children
-from zlang.ir.static_projection import StaticView, project_static_bits, static_parts, static_view
-from zlang.ir.types import HardwareType, UIntType
+from zlang.ir.types import HardwareType
 from zlang.source import SourceOrigin
 
+from .hierarchy_dependencies import (
+    _DependencyNode, _InputDependency, _OutputSource, _StateClock,
+    _project_dependency, bound_sources, references,
+)
 from .connection_validation import hierarchy_connection_drivers
 from .csr.bindings import csr_output_controls
 from .errors import SemanticError
@@ -508,27 +509,37 @@ class HierarchyAnalyzer:
                     )
 
 
-class _DependencyNode(NamedTuple):
-    kind: str
-    name: str
-    field: str
-    read_bits: tuple[int, ...] = ()
+def _state_clock_reader(
+    registers: Iterable[ir_module.Register],
+    memories: Iterable[ir_storage.Memory],
+    fifos: Iterable[ir_storage.Fifo],
+    roms: Iterable[ir_storage.Rom],
+    clock: str | None,
+) -> Callable[[object], str | None]:
+    register_domains = {item.name: item.domain for item in registers}
+    storage_domains = {
+        **{(item.name, None): item.domain for item in memories},
+        **{(item.name, port.name): port.domain for item in memories for port in item.ports},
+        **{(item.name, None): item.domain for item in (*fifos, *roms)},
+    }
 
+    def read(value: object) -> str | None:
+        if isinstance(value, ir_expr.RegisterRef):
+            return register_domains.get(value.name)
+        if isinstance(value, ir_expr.MemoryRef):
+            return storage_domains.get((value.memory, value.port))
+        if isinstance(value, ir_expr.FifoRef):
+            return storage_domains.get((value.fifo, None))
+        if isinstance(value, ir_expr.RomRef):
+            return storage_domains.get((value.rom, None))
+        if isinstance(value, ir_expr.Pipeline):
+            return value.domain or clock
+        if isinstance(value, ir_expr.Delay):
+            return clock
+        return None
 
-class _InputDependency(NamedTuple):
-    name: str
-    bits: tuple[int, ...] = ()
+    return read
 
-
-def _project_dependency(
-    expression: ir_expr.Expression,
-    bits: tuple[int, ...],
-    locals_: dict[str, ir_expr.Expression],
-) -> ir_expr.Expression:
-    if not bits:
-        return expression
-    msb, lsb = bits
-    return project_static_bits(StaticView(expression, msb, lsb), locals_, UIntType(msb - lsb + 1))
 
 
 def _storage_dependency_controls(
@@ -593,6 +604,11 @@ class HierarchyDependencyValidator:
         csr_output_paths: dict[
             tuple[str, ...], tuple[str, HardwareType, str | None]
         ] | None = None,
+        clock_checks: Iterable[tuple[ir_expr.Expression, str | None, str]] = (),
+        parent_ports: Iterable[ir_module.Port] = (),
+        registers: Iterable[ir_module.Register] = (),
+        roms: Iterable[ir_storage.Rom] = (),
+        clock: str | None = None,
     ) -> None:
         """Follow typed child bindings and current-cycle storage observations."""
 
@@ -605,145 +621,10 @@ class HierarchyDependencyValidator:
         bindings = (*bindings, *connected_inputs)
         routed_inputs = {(item.instance, item.port) for item in connected_inputs}
 
-        def references(
-            expression: ir_expr.Expression,
-            *,
-            local_expressions: dict[str, ir_expr.Expression],
-            storage_controls: dict[_DependencyNode, tuple[ir_expr.Expression, ...]],
-            known_inputs: set[str] | None = None,
-            signal_sources: dict[str, tuple[ir_expr.Expression, ...]] | None = None,
-            instance_inputs: Callable[
-                [_DependencyNode], Iterable[ir_expr.Expression]
-            ] | None = None,
-            active_locals: frozenset[str] = frozenset(),
-        ) -> tuple[set[_InputDependency], dict[_DependencyNode, SourceOrigin | None]]:
-            input_names: set[_InputDependency] = set()
-            local_signals = signal_sources or {}
-            outputs: dict[_DependencyNode, SourceOrigin | None] = {}
-            def visit(
-                value: object,
-                active: frozenset[str],
-                active_storage: frozenset[_DependencyNode] = frozenset(),
-            ) -> None:
-                selected = static_view(value)
-                if selected is not None:
-                    for item, msb, lsb in static_parts(selected, local_expressions, active):
-                        bits = () if lsb == 0 and msb == item.type.width - 1 else (msb, lsb)
-                        if isinstance(item, ir_expr.InstanceOutputRef):
-                            visit_child_output(item, bits, active, active_storage)
-                        elif isinstance(item, ir_expr.InputRef):
-                            visit_name(item.name, active, active_storage, bits=bits)
-                        elif isinstance(item, (ir_expr.ReadyValidRef, ir_expr.RequestResponseRef)):
-                            visit_protocol(item, active, active_storage, bits=bits)
-                        else:
-                            visit(item, active, active_storage)
-                    return
-                if isinstance(value, ir_expr.InputRef):
-                    visit_name(value.name, active, active_storage)
-                    return
-                if isinstance(value, (ir_expr.ReadyValidRef, ir_expr.RequestResponseRef)):
-                    visit_protocol(value, active, active_storage)
-                    return
-                if isinstance(value, ir_expr.InstanceOutputRef):
-                    visit_child_output(value, (), active, active_storage)
-                    return
-                if isinstance(value, (ir_expr.MemoryRef, ir_expr.FifoRef)):
-                    if isinstance(value, ir_expr.MemoryRef):
-                        if value.signal is not ir_storage.MemorySignal.READ_DATA:
-                            return
-                        node = _DependencyNode("memory", value.memory, value.port or "")
-                    else:
-                        node = _DependencyNode("fifo", value.fifo, value.signal.value)
-                    if node in storage_controls:
-                        if instance_inputs is None:
-                            outputs[node] = value.origin
-                        elif node not in active_storage:
-                            for control in storage_controls[node]:
-                                visit(control, active, active_storage | {node})
-                    return
-                if isinstance(
-                    value,
-                    (
-                        ir_expr.RegisterRef,
-                        ir_expr.RomRef,
-                        ir_expr.Delay,
-                        ir_expr.Pipeline,
-                        ir_expr.Constant,
-                        ir_expr.ParameterRef,
-                        ir_expr.FunctionalCaptureRef,
-                        ir_expr.FunctionalValue,
-                        ir_expr.FunctionalTableLookup,
-                    ),
-                ):
-                    return
-                if isinstance(value, ir_expr.Expression):
-                    for child in expression_children(value):
-                        visit(
-                            child,
-                            active,
-                            active_storage,
-                        )
-
-            def visit_name(
-                name: str,
-                active: frozenset[str],
-                active_storage: frozenset[_DependencyNode],
-                *,
-                bits: tuple[int, ...] = (),
-            ) -> None:
-                replacement = local_expressions.get(name)
-                controls = (
-                    (replacement,) if replacement is not None
-                    else local_signals.get(name, ())
-                )
-                if controls:
-                    if name in active:
-                        raise SemanticError(
-                            f"cyclic local dependency '{name}' in child dependency analysis"
-                        )
-                    for control in controls:
-                        visit(_project_dependency(control, bits, {}), active | {name}, active_storage)
-                elif known_inputs is None or name in known_inputs:
-                    input_names.add(_InputDependency(name, bits))
-
-            def visit_protocol(
-                value: ir_expr.ReadyValidRef | ir_expr.RequestResponseRef,
-                active: frozenset[str],
-                active_storage: frozenset[_DependencyNode],
-                *,
-                bits: tuple[int, ...] = (),
-            ) -> None:
-                signals = (
-                    (ReadyValidSignal.VALID, ReadyValidSignal.READY)
-                    if value.signal is ReadyValidSignal.TRANSFER else (value.signal,)
-                )
-                for signal in signals:
-                    name = (
-                        request_response_field_name(value.interface, value.channel, signal)
-                        if isinstance(value, ir_expr.RequestResponseRef)
-                        else ready_valid_field_name(value.interface, signal)
-                    )
-                    visit_name(name, active, active_storage, bits=bits)
-
-            def visit_child_output(
-                reference: ir_expr.InstanceOutputRef,
-                bits: tuple[int, ...],
-                active: frozenset[str],
-                active_storage: frozenset[_DependencyNode],
-            ) -> None:
-                node = _DependencyNode("child", reference.instance, reference.port, bits)
-                if instance_inputs is None:
-                    outputs[node] = reference.origin
-                else:
-                    for binding in instance_inputs(node):
-                        visit(binding, active, active_storage)
-
-            visit(expression, active_locals)
-            return input_names, outputs
 
         output_summary_cache: dict[
-            tuple[int, tuple[tuple[str, int], ...], str, tuple[int, ...]],
-            dict[str, frozenset[_InputDependency]],
+            tuple[int, tuple[tuple[str, int], ...], str, tuple[int, ...], bool],
+            dict[str, frozenset[_OutputSource]],
         ] = {}
         active_summary_modules: set[int] = set()
 
@@ -752,7 +633,9 @@ class HierarchyDependencyValidator:
             access_constants: dict[str, int],
             observed_output: str = "",
             read_bits: tuple[int, ...] = (),
-        ) -> dict[str, frozenset[_InputDependency]]:
+            *,
+            collect_clocks: bool = False,
+        ) -> dict[str, frozenset[_OutputSource]]:
             """Summarize each observed output in terms of its physical input leaves.
 
             A direct child output is not itself an input dependency.  Resolve it
@@ -763,7 +646,10 @@ class HierarchyDependencyValidator:
             """
 
             module_key = id(current)
-            key = (module_key, tuple(sorted(access_constants.items())), observed_output, read_bits)
+            key = (
+                module_key, tuple(sorted(access_constants.items())), observed_output,
+                read_bits, collect_clocks,
+            )
             cached = output_summary_cache.get(key)
             if cached is not None:
                 return cached
@@ -809,6 +695,11 @@ class HierarchyDependencyValidator:
                 current_storage = _storage_dependency_controls(
                     current.memories, current.fifos,
                 )
+                state_clock = (
+                    _state_clock_reader(current.registers, current.memories,
+                                        current.fifos, current.roms, current.clock)
+                    if collect_clocks else None
+                )
                 current_children = {
                     elaborated.instance.name: child
                     for child, elaborated in zip(
@@ -826,7 +717,7 @@ class HierarchyDependencyValidator:
 
                 def nested_instance_inputs(
                     reference: _DependencyNode,
-                ) -> Iterable[ir_expr.Expression]:
+                ) -> Iterable[ir_expr.Expression | _StateClock]:
                     nested = current_children.get(reference.name)
                     if nested is None:
                         return ()
@@ -836,17 +727,14 @@ class HierarchyDependencyValidator:
                         )
                     nested_summary = output_input_dependencies(
                         nested, nested_constants[reference.name],
-                        reference.field if reference.read_bits else "", reference.read_bits,
+                        reference.field if collect_clocks or reference.read_bits else "",
+                        reference.read_bits, collect_clocks=collect_clocks,
                     )
-                    return tuple(
-                        _project_dependency(binding, nested_input.bits, current_locals)
-                        for nested_input in nested_summary.get(reference.field, ())
-                        if (binding := current_bindings.get((reference.name, nested_input.name))) is not None
-                    )
+                    return bound_sources(reference, nested_summary, current_bindings, current_locals)
 
                 def summarize_expression(
                     expression: ir_expr.Expression,
-                ) -> set[_InputDependency]:
+                ) -> set[_OutputSource]:
                     dependencies, _ = references(
                         expression,
                         local_expressions=current_locals,
@@ -854,6 +742,7 @@ class HierarchyDependencyValidator:
                         known_inputs=current_inputs,
                         signal_sources=signal_sources,
                         instance_inputs=nested_instance_inputs,
+                        state_clock=state_clock,
                     )
                     return dependencies
 
@@ -927,7 +816,7 @@ class HierarchyDependencyValidator:
                     return result
 
                 output_names = {port.name for port in current.outputs}
-                summary: dict[str, frozenset[_InputDependency]] = {
+                summary: dict[str, frozenset[_OutputSource]] = {
                     name: frozenset().union(*(
                         summarize_expression(_project_dependency(control, read_bits, current_locals))
                         for control in controls
@@ -946,9 +835,12 @@ class HierarchyDependencyValidator:
                     if output.registered:
                         # A public register exposes pre-edge state. Its rule
                         # guards and operands affect the next state only.
-                        summary[output.name] = frozenset()
+                        domain = output.domain or current.clock
+                        summary[output.name] = (
+                            frozenset({_StateClock(domain)}) if collect_clocks and domain else frozenset()
+                        )
                         continue
-                    dependencies: set[_InputDependency] = set()
+                    dependencies: set[_OutputSource] = set()
                     dependencies.update(*(
                         summarize_expression(_project_dependency(
                             assignment.expression, read_bits, current_locals,
@@ -975,13 +867,16 @@ class HierarchyDependencyValidator:
                                     summarize_expression(action.activation)
                                 )
                             dependencies.update(
-                                summarize_expression(action.expression)
+                                summarize_expression(_project_dependency(
+                                    action.expression, read_bits, current_locals,
+                                ))
                             )
                     summary[output.name] = frozenset(dependencies)
                 output_summary_cache[key] = summary
                 return summary
             finally:
                 active_summary_modules.remove(module_key)
+
 
         binding_by_input = {
             (item.instance, item.port): item.expression for item in bindings
@@ -1030,10 +925,10 @@ class HierarchyDependencyValidator:
             connect_controls(node, controls)
 
         def connect_child_output(
-            output: _DependencyNode, inputs: frozenset[_InputDependency],
+            output: _DependencyNode, inputs: frozenset[_OutputSource],
         ) -> None:
             edges = graph.setdefault(output, set())
-            for input_name, bits in sorted(inputs):
+            for input_name, bits in sorted(item for item in inputs if isinstance(item, _InputDependency)):
                 bound = binding_by_input.get((output.name, input_name))
                 if bound is None:
                     continue
@@ -1132,3 +1027,67 @@ class HierarchyDependencyValidator:
             description=describe_cycle,
             origin=cycle_origin,
         )
+
+        if not child_irs:
+            return
+
+        def child_sources(output: _DependencyNode) -> Iterable[ir_expr.Expression | _StateClock]:
+            child = child_irs.get(output.name)
+            if child is None:
+                return ()
+            summary = output_input_dependencies(
+                child, constants_by_child.get(output.name, {}),
+                output.field, output.read_bits, collect_clocks=True,
+            )
+            return bound_sources(output, summary, binding_by_input, local_values)
+
+        input_domains = {port.name: port.domain for port in parent_ports}
+        state_clock = _state_clock_reader(registers, memories, fifos, roms, clock)
+        observed_domains: dict[_DependencyNode, frozenset[str]] = {}
+
+        def domains_of(output: _DependencyNode) -> frozenset[str]:
+            cached = observed_domains.get(output)
+            if cached is not None:
+                return cached
+            domains: set[str] = set()
+            for value in child_sources(output):
+                sources, _ = references(
+                    value, local_expressions=local_values,
+                    storage_controls=parent_storage, signal_sources=parent_signals,
+                    instance_inputs=child_sources, state_clock=state_clock,
+                )
+                for source in sources:
+                    if isinstance(source, _StateClock):
+                        domains.add(source.domain)
+                    else:
+                        ready_valid = parse_ready_valid_field_name(source.name)
+                        port = ready_valid[0] if ready_valid else source.name
+                        domain = input_domains.get(port)
+                        if domain is not None:
+                            domains.add(domain)
+            result = frozenset(domains)
+            observed_domains[output] = result
+            return result
+
+        for expression, target_domain, target in clock_checks:
+            if target_domain is None:
+                continue
+            # Preserve the direct-expression diagnostics. Only new paths through
+            # a physical child binding (including locals and selected ranges)
+            # belong to this elaboration-time check.
+            _, outputs = references(
+                expression, local_expressions=local_values,
+                storage_controls=parent_storage, signal_sources=parent_signals,
+            )
+            for output, origin in outputs.items():
+                if output.kind != "child":
+                    continue
+                foreign = domains_of(output) - {target_domain}
+                if foreign:
+                    raise SemanticError(
+                        f"implicit clock-domain crossing in {target} through '{render_node(output)}' "
+                        f"from '{min(foreign)}' to '{target_domain}' is not allowed",
+                        code="ZL-DOMAIN-CROSSING",
+                        primary=origin or expression.origin,
+                        fixes=("insert an explicit supported clock-domain crossing",),
+                    )

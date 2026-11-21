@@ -319,6 +319,7 @@ def publish_compilation_verification_bundle(
                 "canonical_ir": CANONICAL_IR_IDENTITY_SCHEMA,
                 "formal_predicate": formal_predicates.FORMAL_PREDICATE_SCHEMA,
                 "verification_publication": 4,
+                "verification_ir": bundle_codec.VERIFICATION_IR_SCHEMA,
             }),
         },
         "hardware": {

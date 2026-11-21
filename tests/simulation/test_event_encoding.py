@@ -48,7 +48,7 @@ def test_event_runner_retains_only_required_protocol_history(
         for value in (1, 2, 3)
     ]
     with sim.load(source) as instance:
-        actual = instance.run_events(iter(events))
+        actual = instance.run_events(events)
     if protocol:
         assert actual == [
             {"rx": {"ready": value & 1, "transfer": value & 1},

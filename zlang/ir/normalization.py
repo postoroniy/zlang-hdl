@@ -20,7 +20,7 @@ from zlang.ir.callables import (
     CallableReachabilityError,
     reachable_module_callables,
 )
-from zlang.ir.constants import ConstantExpressionError, constant_runtime_value
+from zlang.ir.constants import ConstantExpressionError, constant_runtime_value, constant_shift
 from zlang.ir.exact_simplification import (
     simplify_add,
     simplify_binary,
@@ -91,10 +91,8 @@ def _binary_constant(value: expr.Binary) -> expr.Constant | None:
         result = left | right
     elif operator is expr.BinaryOperator.BIT_XOR:
         result = left ^ right
-    elif operator is expr.BinaryOperator.SHIFT_LEFT:
-        result = left << right
-    elif operator is expr.BinaryOperator.SHIFT_RIGHT:
-        result = left >> right
+    elif operator in {expr.BinaryOperator.SHIFT_LEFT, expr.BinaryOperator.SHIFT_RIGHT}:
+        result = constant_shift(operator, left, right, value.type.width)
     elif operator is expr.BinaryOperator.EQUAL:
         result = int(left == right)
     elif operator is expr.BinaryOperator.NOT_EQUAL:

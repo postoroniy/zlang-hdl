@@ -180,7 +180,7 @@ def test_bundle_is_deterministic_immutable_and_strictly_round_trips(tmp_path: Pa
     restored = load_verification_bundle(tmp_path / "left")
     assert restored.manifest == left
     assert restored.verification_ir["verification_identity"] == left.verification_identity
-    assert restored.verification_ir["schema"] == "zlang-verification-ir-snapshot-v4"
+    assert restored.verification_ir["schema"] == "zlang-verification-ir-snapshot-v5"
 
     legacy = dict(restored.verification_ir)
     legacy["schema"] = "zlang-verification-ir-snapshot-v3"

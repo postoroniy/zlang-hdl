@@ -9,6 +9,8 @@ import re
 from typing import Any
 
 from zlang.ast import nodes as ast
+from zlang.ir import expressions as ir_expr
+from zlang.ir.types import BitType
 from zlang.ir import module as ir_module
 from zlang.ir import interfaces as ir_interfaces
 from zlang.source import SourceSpan
@@ -222,3 +224,37 @@ class HierarchicalEndpointResolver:
         )
         self.protocol_endpoints.append(result)
         return result
+
+
+def endpoint_signal_name(
+    endpoint: ir_module.ProtocolEndpoint,
+    signal: ir_interfaces.ReadyValidSignal | None,
+    channel: ir_interfaces.RequestResponseChannel | None = None,
+) -> str:
+    if signal is None:
+        return endpoint.name
+    if channel is None:
+        return ir_interfaces.ready_valid_field_name(endpoint.name, signal)
+    return ir_interfaces.request_response_field_name(
+        endpoint.name, channel, signal,
+    )
+
+def endpoint_reference(
+    module_name: str,
+    endpoint: ir_module.ProtocolEndpoint,
+    signal: ir_interfaces.ReadyValidSignal | None,
+    channel: ir_interfaces.RequestResponseChannel | None = None,
+) -> ir_expr.Expression:
+    leaf = endpoint_signal_name(endpoint, signal, channel)
+    type_ = (
+        endpoint.payload_type
+        if signal in (None, ir_interfaces.ReadyValidSignal.PAYLOAD)
+        else BitType()
+    )
+    if endpoint.owner != module_name:
+        return ir_expr.InstanceOutputRef(endpoint.owner, leaf, type_, domain=endpoint.domain)
+    if signal is None:
+        return ir_expr.InputRef(endpoint.name, type_)
+    if channel is not None:
+        return ir_expr.RequestResponseRef(endpoint.name, channel, signal, type_)
+    return ir_expr.ReadyValidRef(endpoint.name, signal, type_)

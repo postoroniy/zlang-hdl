@@ -681,6 +681,10 @@ def _validate_primitive_node(
         raise SimulationPlanError(
             f"primitive node %{node['id']} has unexpected metadata"
         )
+    if op in {"shl", "lshr", "ashr"} and (
+        nodes[operands[0]]["width"] != node["width"] or nodes[operands[1]]["width"] > 64
+    ):
+        raise SimulationPlanError(f"shift node %{node['id']} has incompatible widths")
     if op in {"eq", "ult", "ule", "slt", "sle"} and node["width"] != 1:
         raise SimulationPlanError(
             f"primitive comparison node %{node['id']} must be one bit"

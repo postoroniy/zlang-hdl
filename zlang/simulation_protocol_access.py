@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from zlang.ir.interfaces import (
@@ -26,7 +26,8 @@ from zlang.simulation_protocol_shared import (
     request_response_field_name,
     vc_credit_field_name,
 )
-from zlang.simulation_values import SimulationRuntimeError
+from zlang.simulation_primitives import int_to_limbs
+from zlang.simulation_values import SimulationRuntimeError, pack_value
 
 if TYPE_CHECKING:
     from zlang.sim import Simulator
@@ -69,13 +70,56 @@ class SimulationProtocolAccess:
         )
 
     def set_port(self, port: Port, value: object) -> None:
-        for field, internal, type_, field_value in self.port_updates(port, value):
+        self._apply_updates(self.prepare_port(port, value, self._validate_input))
+
+    @classmethod
+    def prepare_port(
+        cls,
+        port: Port,
+        value: object,
+        validate_input: Callable[[str, int], None],
+        *,
+        label: str | None = None,
+    ) -> tuple[tuple[str, list[int], object], ...]:
+        return cls._prepare_fields(
+            ((f"{port.name}.{field}", internal, type_, field_value)
+             for field, internal, type_, field_value in cls.port_updates(port, value, label=label)),
+            validate_input,
+        )
+
+    @staticmethod
+    def _prepare_fields(
+        fields: Iterable[tuple[str, str, HardwareType, object]],
+        validate_input: Callable[[str, int], None],
+    ) -> tuple[tuple[str, list[int], object], ...]:
+        prepared = []
+        for label, internal, type_, field_value in fields:
             try:
-                self._simulator._set_scalar(internal, type_, field_value)
+                validate_input(internal, type_.width)
+                limbs = int_to_limbs(pack_value(type_, field_value), type_.width)
             except SimulationRuntimeError as error:
-                raise SimulationRuntimeError(
-                    f"{port.name}.{field}: {error}"
-                ) from error
+                raise SimulationRuntimeError(f"{label}: {error}") from error
+            prepared.append((internal, limbs, field_value))
+        return tuple(prepared)
+
+    def _validate_input(self, name: str, width: int) -> None:
+        simulator = self._simulator
+        if simulator._io is not None:
+            simulator._io.check_external(name)
+        for port in simulator.program.plan.payload["ports"]:
+            if port["name"] == name and port["direction"] == "input":
+                if port["width"] == width:
+                    return
+                raise SimulationRuntimeError(f"input '{name}' has a different physical width")
+        raise SimulationRuntimeError(f"port '{name}' is not an input")
+
+    def _apply_updates(self, updates: tuple[tuple[str, list[int], object], ...]) -> None:
+        # Rust receives only admitted input names and exact-width binary limbs.
+        try:
+            for name, limbs, _ in updates:
+                self._simulator._native.set_limbs(name, limbs)
+        except (ValueError, RuntimeError) as error:
+            raise SimulationRuntimeError(str(error)) from error
 
     @classmethod
     def port_updates(
@@ -301,11 +345,20 @@ class SimulationProtocolAccess:
         interface: RequestResponseInterface,
         value: object,
     ) -> None:
-        for internal, type_, field_value in self.request_response_updates(
-            interface,
-            value,
-        ):
-            self._simulator._set_scalar(internal, type_, field_value)
+        self._apply_updates(self.prepare_request_response(interface, value, self._validate_input))
+
+    @classmethod
+    def prepare_request_response(
+        cls,
+        interface: RequestResponseInterface,
+        value: object,
+        validate_input: Callable[[str, int], None],
+    ) -> tuple[tuple[str, list[int], object], ...]:
+        return cls._prepare_fields(
+            ((internal, internal, type_, field_value)
+             for internal, type_, field_value in cls.request_response_updates(interface, value)),
+            validate_input,
+        )
 
     @classmethod
     def request_response_updates(

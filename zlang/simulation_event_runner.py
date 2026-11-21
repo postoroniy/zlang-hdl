@@ -40,7 +40,8 @@ class SimulationEventRunner:
         self._simulator = simulator
         plan = simulator.program.plan.payload
         self._inputs = {
-            port["name"] for port in plan["ports"] if port["direction"] == "input"
+            port["name"]: port["width"]
+            for port in plan["ports"] if port["direction"] == "input"
         }
         self._clocks = {domain["clock"] for domain in plan["domains"]}
         self._resets = {
@@ -55,6 +56,17 @@ class SimulationEventRunner:
         simulator._require_open()
         if simulator.program.logic_state or simulator._io is not None:
             return self._run_logic_events(events)
+        if type(events) not in (list, tuple):
+            return [
+                self._run_binary_events((event,))[0]
+                for event in events
+            ]
+        return self._run_binary_events(events)
+
+    def _run_binary_events(
+        self, events: Sequence[Mapping[str, object]],
+    ) -> list[dict[str, object]]:
+        simulator = self._simulator
         protocol_ports = tuple(
             port
             for port in simulator.program.module.ports
@@ -99,8 +111,11 @@ class SimulationEventRunner:
     ) -> list[dict[str, object]]:
         simulator = self._simulator
         results: list[dict[str, object]] = []
-        for event in events:
-            if simulator._io is not None and simulator._io.finished:
+        iterator = iter(events)
+        while simulator._io is None or not simulator._io.finished:
+            try:
+                event = next(iterator)
+            except StopIteration:
                 break
             (updates, resets, selected), logic_updates = self._encode_event(
                 event, {}, allow_logic=True,
@@ -227,9 +242,11 @@ class SimulationEventRunner:
         parsed_logic = self._encode_logic_updates(logic_updates) if logic_updates else []
         return (packed_updates, packed_resets, selected), parsed_logic
 
-    def _require_input(self, name: str) -> None:
+    def _require_input(self, name: str, width: int | None = None) -> None:
         if name not in self._inputs:
             raise SimulationRuntimeError(f"port '{name}' is not an input")
+        if width is not None and self._inputs[name] != width:
+            raise SimulationRuntimeError(f"input '{name}' has a different physical width")
         if self._simulator._io is not None:
             self._simulator._io.check_external(name)
 
@@ -300,12 +317,12 @@ class SimulationEventRunner:
         external_values: dict[str, object],
     ) -> list[tuple[str, object]]:
         encoded: list[tuple[str, object]] = []
-        for internal, type_, field_value in (
-            self._simulator._protocols.request_response_updates(interface, value)
+        for internal, limbs, field_value in (
+            self._simulator._protocols.prepare_request_response(
+                interface, value, self._require_input,
+            )
         ):
-            self._require_input(internal)
-            packed = pack_value(type_, field_value)
-            encoded.append((internal, _int_to_limbs(packed, type_.width)))
+            encoded.append((internal, limbs))
             external_values[internal] = field_value
         return encoded
 
@@ -316,16 +333,12 @@ class SimulationEventRunner:
         external_values: dict[str, object],
     ) -> list[tuple[str, object]]:
         encoded: list[tuple[str, object]] = []
-        for _, internal, type_, field_value in (
-            self._simulator._protocols.port_updates(
-                port,
-                value,
-                label=port.protocol.value,
+        for internal, limbs, field_value in (
+            self._simulator._protocols.prepare_port(
+                port, value, self._require_input, label=port.protocol.value,
             )
         ):
-            self._require_input(internal)
-            packed = pack_value(type_, field_value)
-            encoded.append((internal, _int_to_limbs(packed, type_.width)))
+            encoded.append((internal, limbs))
             external_values[internal] = field_value
         return encoded
 

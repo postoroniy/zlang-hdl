@@ -12,8 +12,12 @@ from zlang.formal import (
     emit_harness,
     run_verilog_formal,
 )
-from zlang.ir.formal import FormalStatus
-from zlang.verification_bundle import load_verification_bundle
+from zlang.ir.formal import FormalStatus, ProofMode
+from zlang.verification_bundle import (
+    VerificationRunConfig,
+    load_verification_bundle,
+    run_verification_bundle_staged,
+)
 from zlang.verification_publication import (
     publish_compilation_verification_bundle,
 )
@@ -138,8 +142,11 @@ def test_real_solver_passes_concat_and_finds_swapped_field_mutation(tmp_path) ->
     not all(shutil.which(tool) for tool in FORMAL_TOOLS),
     reason="Yosys, SymbiYosys, yosys-smtbmc, and Z3 are required",
 )
-def test_real_solver_checks_range_proven_runtime_index(tmp_path) -> None:
-    compilation, connected = _connected(RUNTIME_INDEXED)
+@pytest.mark.parametrize(("width", "selector"), [(2, "index"), (1, "index"), (2, "(index | 2)")])
+def test_real_solver_checks_range_proven_runtime_index(tmp_path, width, selector) -> None:
+    source = RUNTIME_INDEXED.replace("index : u2", f"index : u{width}")
+    source = source.replace("values[index]", f"values[{selector}]")
+    compilation, connected = _connected(source)
     property_ = next(
         item for item in connected.properties
         if item.generated_from == "verification-assert:$module:selected_bit"
@@ -155,11 +162,11 @@ def test_real_solver_checks_range_proven_runtime_index(tmp_path) -> None:
     )
     assert passed.status is FormalStatus.BOUNDED_PASS
 
-    mutated_source = RUNTIME_INDEXED.replace(
-        "y = values[index]",
+    mutated_source = source.replace(
+        f"y = values[{selector}]",
         "y = raw[0]",
     )
-    assert mutated_source != RUNTIME_INDEXED
+    assert mutated_source != source
     _, mutated = _connected(mutated_source)
     mutated_property = next(
         item for item in mutated.properties
@@ -178,3 +185,57 @@ def test_real_solver_checks_range_proven_runtime_index(tmp_path) -> None:
     assert failed.counterexample is not None
     assert failed.counterexample.raw_trace
     assert failed.source_origin == mutated_property.source_origin
+
+
+@pytest.mark.parametrize("operator,data_type", [("<<", "u2"), (">>", "u2"), (">>", "s2")])
+def test_shift_property_preserves_the_full_unsigned_distance(tmp_path, operator, data_type) -> None:
+    for name, count, expected in (
+        ("full", "n", FormalStatus.PROVEN),
+        ("narrowed", "truncate<2>(n)", FormalStatus.FAILED),
+    ):
+        _, connected = _connected(f"""
+            module Shift {{
+                clock clk reset rst in x:{data_type} in n:u65 out y:{data_type}
+                y = x {operator} {count}
+                assert agrees {{ y == (x {operator} n) }}
+            }}
+        """)
+        goal = next(
+            p for p in connected.properties if p.generated_from == "verification-assert:$module:agrees"
+        )
+        result = run_verilog_formal(
+            emit_harness(connected, depth=8, mode=ProofMode.PROVE),
+            top="Shift__safety_verification_formal", property_id=goal.id,
+            mode=ProofMode.PROVE, depth=8, timeout_seconds=30, systemverilog=True,
+            source_origin=goal.source_origin, work_directory=tmp_path / name,
+        )
+        assert result.status is expected
+        if expected is FormalStatus.FAILED:
+            assert result.counterexample is not None and result.counterexample.raw_trace
+            assert result.source_origin == goal.source_origin
+
+
+def test_shift_in_requirement_keeps_the_failing_input_reachable(tmp_path) -> None:
+    # At x=1, n=4 the requirement holds and the goal fails. An implicit
+    # two-bit count would exclude that input from the solver's domain.
+    compilation = compile_source("""
+        module Window {
+            clock clk reset rst in x:u2 in n:u3 out y:bit
+            y = (x == 0) | (n != 4)
+            contract window @ clk {
+                require masked { (x << n) == 0 }
+                ensure valid { y }
+            }
+        }
+    """, source_unit="window.zhl")
+    bundle = tmp_path / "bundle"
+    publish_compilation_verification_bundle(compilation, bundle)
+    report = run_verification_bundle_staged(
+        bundle, config=VerificationRunConfig(mode=ProofMode.PROVE, depth=8, timeout_seconds=30),
+        work_directory=tmp_path / "solver",
+    )
+    [goal] = [result for result in report.results if result.kind == "safety"]
+    [feasibility] = [result for result in report.results if result.kind == "cover"]
+    assert feasibility.status == "witnessed"
+    assert goal.status == "failed" and goal.counterexample is not None
+    assert goal.assumption_ids and goal.source_origin.construct == "ensure valid"

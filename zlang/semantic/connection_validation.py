@@ -12,6 +12,7 @@ from zlang.ir.traversal import expression_children
 from zlang.ir.types import BitType
 from zlang.source import SourceOrigin
 
+from .connection_endpoints import endpoint_reference, endpoint_signal_name
 from .errors import SemanticError
 from .module_validation import reject_dependency_cycles
 
@@ -375,42 +376,12 @@ def hierarchy_connection_drivers(
                 ir_expr.ReadyValidRef(connection.destination.name, ready, BitType()),
             )
 
-    def scalar_name(
-        endpoint: ir_module.ProtocolEndpoint,
-        signal: ir_interfaces.ReadyValidSignal | None,
-    ) -> str:
-        if signal is None:
-            return endpoint.name
-        if endpoint.channel is None:
-            return ir_interfaces.ready_valid_field_name(endpoint.name, signal)
-        return ir_interfaces.request_response_field_name(
-            endpoint.name, endpoint.channel, signal,
-        )
-
-    def source_ref(
-        endpoint: ir_module.ProtocolEndpoint,
-        signal: ir_interfaces.ReadyValidSignal | None,
-    ) -> ir_expr.Expression:
-        leaf = scalar_name(endpoint, signal)
-        type_ = (
-            endpoint.payload_type
-            if signal in (None, ir_interfaces.ReadyValidSignal.PAYLOAD)
-            else BitType()
-        )
-        if endpoint.owner != module_name:
-            return ir_expr.InstanceOutputRef(endpoint.owner, leaf, type_, domain=endpoint.domain)
-        if signal is None:
-            return ir_expr.InputRef(endpoint.name, type_)
-        if endpoint.channel is not None:
-            return ir_expr.RequestResponseRef(endpoint.name, endpoint.channel, signal, type_)
-        return ir_expr.ReadyValidRef(endpoint.name, signal, type_)
-
     def drive(
         destination: ir_module.ProtocolEndpoint,
         signal: ir_interfaces.ReadyValidSignal | None,
         dependencies: tuple[ir_expr.Expression, ...],
     ) -> None:
-        leaf = scalar_name(destination, signal)
+        leaf = endpoint_signal_name(destination, signal, destination.channel)
         if destination.owner == module_name:
             signals[leaf] = dependencies
         else:
@@ -429,7 +400,7 @@ def hierarchy_connection_drivers(
         signal: ir_interfaces.ReadyValidSignal | None,
         admission: tuple[ir_expr.Expression, ...] = (),
     ) -> None:
-        drive(destination, signal, (source_ref(source, signal), *admission))
+        drive(destination, signal, (endpoint_reference(module_name, source, signal, source.channel), *admission))
 
     for edge in hierarchical_connections:
         if (
@@ -458,12 +429,12 @@ def hierarchy_connection_drivers(
         # The tracked count is state. An unbuffered request can also open
         # the response admission on the very edge it transfers. With a
         # buffered request the live part of that transfer is sink ready.
-        request_transfer = (source_ref(request.destination, ready),)
+        request_transfer = (endpoint_reference(module_name, request.destination, ready, request.destination.channel),)
         if not request.request_buffer_depth:
             route(request.source, request.destination, payload)
             route(request.source, request.destination, valid)
             route(request.destination, request.source, ready)
-            request_transfer += (source_ref(request.source, valid),)
+            request_transfer += (endpoint_reference(module_name, request.source, valid, request.source.channel),)
         if response.response_buffer_depth:
             # Conservative upstream ready and payload come from the FIFO.
             drive(response.destination, valid, request_transfer)

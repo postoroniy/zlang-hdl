@@ -12,7 +12,7 @@ from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 import threading
 
-from zlang.ir.module import Module
+from zlang.ir.module import Connection, Module
 from zlang.ir import csr as ir_csr
 from zlang.ir import expressions as ir_expr
 from zlang.ir.cdc import CrossingKind
@@ -27,6 +27,7 @@ from zlang.simulation_errors import (
 )
 from zlang.simulation_plan_build import build_simulation_plan
 from zlang.simulation_plan_policy import JitUnsupportedFeatureError
+from zlang.simulation_cdc import pulse_toggle_observation_names
 from zlang.simulation_csr import csr_field_state_register_name
 from zlang.simulation_primitives import int_from_limbs
 from zlang.verification_monitor import VerificationMonitor, VerificationSampleResult
@@ -152,6 +153,17 @@ def simulate_multiclock_steps(
     resets: Iterable[set[str]] | None = None,
 ) -> list[dict[str, object]]:
     """Run explicit coincident-domain edge events through the native runtime."""
+    return _multiclock_steps(module, input_steps, domain_edges, resets, crossing=None)
+
+
+def _multiclock_steps(
+    module: Module,
+    input_steps: Iterable[dict[str, object]],
+    domain_edges: Iterable[set[str]],
+    resets: Iterable[set[str]] | None,
+    *,
+    crossing: Connection | None,
+) -> list[dict[str, object]]:
 
     steps = tuple(input_steps)
     edges = tuple(domain_edges)
@@ -160,6 +172,12 @@ def simulate_multiclock_steps(
         raise SimulationError(
             "multi-clock input, edge, and reset schedules must have equal lengths"
         )
+    endpoints = {crossing.source.domain, crossing.destination.domain} if crossing else set()
+    pulse_phases = (
+        pulse_toggle_observation_names(module, crossing)
+        if crossing and crossing.crossing and crossing.crossing.kind is CrossingKind.PULSE_TOGGLE
+        else None
+    )
     reset_by_clock = {
         domain.clock: domain.reset
         for domain in module.clock_domains
@@ -179,6 +197,9 @@ def simulate_multiclock_steps(
                     raise SimulationError(
                         f"unknown reset domain '{sorted(unknown)[0]}'"
                     )
+                resetting = endpoints & selected_resets
+                if resetting and resetting != endpoints:
+                    raise ProtocolViolation("CDC endpoint resets must be asserted together")
                 for name, value in inputs.items():
                     instance.set(name, value)
                 for domain_clock, reset_name in reset_by_clock.items():
@@ -187,7 +208,22 @@ def simulate_multiclock_steps(
                         reset_name, asserted=asserted[reset_name]
                     )
                 results.append(instance.eval())
+                # Test the spacing obligation against pre-edge state. A pulse is
+                # admitted only when the native source actually toggles, including
+                # during synchronized reset release and coincident clock edges.
+                pending_phase = None
+                if pulse_phases and not resetting and crossing.source.domain in selected_edges:
+                    sent, received = pulse_phases
+                    old_phase = instance._native.read_state("register", sent, None)
+                    if old_phase != instance._native.read_state("register", received, None):
+                        pending_phase = old_phase
                 instance.edge_many(tuple(sorted(selected_edges)))
+                if pending_phase is not None and pending_phase != instance._native.read_state(
+                    "register", sent, None
+                ):
+                    raise ProtocolViolation(
+                        "pulse_toggle source pulse arrived before the previous pulse crossed"
+                    )
             return results
     except SimulationRuntimeError as error:
         raise _translate_error(module, error) from error
@@ -199,9 +235,6 @@ def simulate_cdc_steps(
     domain_edges: Iterable[set[str]],
     resets: Iterable[set[str]] | None = None,
 ) -> list[dict[str, object]]:
-    steps = tuple(input_steps)
-    edges = tuple(domain_edges)
-    reset_steps = tuple(resets) if resets is not None else (set(),) * len(steps)
     crossings = tuple(
         connection
         for connection in module.connections
@@ -211,47 +244,7 @@ def simulate_cdc_steps(
         raise SimulationError(
             "simulate_cdc_steps requires one explicit multi-clock crossing"
         )
-    connection = crossings[0]
-    crossing = connection.crossing
-    assert crossing is not None
-    source = connection.source
-    destination = connection.destination
-    assert source.domain is not None and destination.domain is not None
-    endpoints = {source.domain, destination.domain}
-
-    # These are compiler-declared CDC protocol preconditions, not a second
-    # simulator.  The native machine still owns all value/state execution.
-    source_toggle = stage_one = stage_two = previous_toggle = 0
-    pending_pulses = 0
-    for inputs, active_edges, active_resets in zip(
-        steps, edges, reset_steps, strict=True
-    ):
-        relevant = set(active_resets) & endpoints
-        if relevant and relevant != endpoints:
-            raise ProtocolViolation("CDC endpoint resets must be asserted together")
-        if relevant == endpoints:
-            source_toggle = stage_one = stage_two = previous_toggle = 0
-            pending_pulses = 0
-            continue
-        if crossing.kind is not CrossingKind.PULSE_TOGGLE:
-            continue
-        old_source_toggle = source_toggle
-        old_stage_one = stage_one
-        old_stage_two = stage_two
-        if source.domain in active_edges and bool(inputs[source.name]):
-            if pending_pulses:
-                raise ProtocolViolation(
-                    "pulse_toggle source pulse arrived before the previous pulse crossed"
-                )
-            source_toggle ^= 1
-            pending_pulses += 1
-        if destination.domain in active_edges:
-            stage_one = old_source_toggle
-            stage_two = old_stage_one
-            previous_toggle = old_stage_two
-            if stage_two != previous_toggle and pending_pulses:
-                pending_pulses -= 1
-    return simulate_multiclock_steps(module, steps, edges, reset_steps)
+    return _multiclock_steps(module, input_steps, domain_edges, resets, crossing=crossings[0])
 
 
 simulate_elastic_pipeline_cycles = simulate_cycles

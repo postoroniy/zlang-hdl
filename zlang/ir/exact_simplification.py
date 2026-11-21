@@ -24,6 +24,31 @@ from zlang.ir.types import (
 RangeProvider = Callable[[expr.Expression], tuple[int, int] | None]
 
 
+def unsigned_binary_bounds(
+    operator: expr.BinaryOperator,
+    width: int,
+    left: tuple[int, int],
+    right: tuple[int, int],
+) -> tuple[int, int] | None:
+    """Prove arithmetic bounds from operand intervals before stage-specific fallback."""
+    if operator is expr.BinaryOperator.SUBTRACT:
+        if left[0] >= right[1]:
+            return left[0] - right[1], left[1] - right[0]
+    elif operator is expr.BinaryOperator.MULTIPLY:
+        return left[0] * right[0], left[1] * right[1]
+    elif right[0] == right[1]:
+        count = right[0]
+        if operator is expr.BinaryOperator.SHIFT_RIGHT:
+            return left[0] >> count, left[1] >> count
+        if operator is expr.BinaryOperator.SHIFT_LEFT:
+            if count >= width:
+                return 0, 0
+            maximum = left[1] << count
+            if maximum < 1 << width:
+                return left[0] << count, maximum
+    return None
+
+
 def static_unsigned_range(value: expr.Expression) -> tuple[int, int] | None:
     """Return one conservative unsigned scalar interval, if locally provable."""
 
@@ -48,19 +73,10 @@ def static_unsigned_range(value: expr.Expression) -> tuple[int, int] | None:
         right = static_unsigned_range(value.right)
         if left is None or right is None:
             return None
-        if value.operator is expr.BinaryOperator.MULTIPLY:
-            return left[0] * right[0], left[1] * right[1]
-        if value.operator is expr.BinaryOperator.SUBTRACT:
-            if left[0] >= right[1]:
-                return left[0] - right[1], left[1] - right[0]
+        bounds = unsigned_binary_bounds(value.operator, value.type.width, left, right)
+        if bounds is None and value.operator is expr.BinaryOperator.SUBTRACT:
             return 0, (1 << value.type.width) - 1
-        if right[0] == right[1]:
-            if value.operator is expr.BinaryOperator.SHIFT_RIGHT:
-                return left[0] >> right[0], left[1] >> right[0]
-            if value.operator is expr.BinaryOperator.SHIFT_LEFT:
-                maximum = left[1] << right[0]
-                if maximum < (1 << value.type.width):
-                    return left[0] << right[0], maximum
+        return bounds
     return None
 
 
@@ -105,9 +121,13 @@ def simplify_add(
     return None
 
 
-def _all_ones(value: expr.Constant) -> bool:
-    expected = -1 if isinstance(value.type, SIntType) else (1 << value.type.width) - 1
-    return value.value == expected
+def _all_ones(value: expr.Expression, result_type: HardwareType) -> bool:
+    """Test the mask after the bitwise operation's implicit extension."""
+    if not isinstance(value, expr.Constant):
+        return False
+    if isinstance(result_type, SIntType):
+        return value.value == -1
+    return value.type.width == result_type.width and value.value == (1 << result_type.width) - 1
 
 
 def simplify_binary(
@@ -150,9 +170,9 @@ def simplify_binary(
             if right_constant == 0 and left.type == result_type:
                 return left
         if operator is expr.BinaryOperator.BIT_AND:
-            if isinstance(left, expr.Constant) and _all_ones(left) and right.type == result_type:
+            if right.type == result_type and _all_ones(left, result_type):
                 return right
-            if isinstance(right, expr.Constant) and _all_ones(right) and left.type == result_type:
+            if left.type == result_type and _all_ones(right, result_type):
                 return left
     if operator in {
         expr.BinaryOperator.SHIFT_LEFT,

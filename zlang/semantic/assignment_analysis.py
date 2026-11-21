@@ -13,6 +13,7 @@ from zlang.ir import expressions as ir_expr
 from zlang.ir import module as ir_module
 from zlang.ir import interfaces as ir_interfaces
 from zlang.ir import types as ir_types
+from zlang.ir.traversal import walk_expression
 
 from . import assignment_targets
 from . import expression_domains
@@ -327,12 +328,26 @@ class AssignmentAnalyzer:
                             module_context,
                         ),
                     )
+                expanded_binding = expression_support._expand_immutable_locals(
+                    bound, value_symbols, work_budget=module_context.services
+                )
+                if any(
+                    isinstance(value, ir_expr.CreditRef)
+                    for value in walk_expression(expanded_binding)
+                ):
+                    raise SemanticError(
+                        "credit interface fields cannot drive a hierarchical child input",
+                        code="ZL-HIERARCHY-CREDIT-BINDING",
+                        primary=bound.origin or semantic_observations.declaration_origin(
+                            assignment.name_origin or assignment.origin,
+                            f"assignment {assignment.target}",
+                            module_context,
+                        ),
+                    )
                 bound_domains = {
                     item
                     for item in expression_domains.expression_domains(
-                        expression_support._expand_immutable_locals(
-                            bound, value_symbols, work_budget=module_context.services
-                        ),
+                        expanded_binding,
                         {**symbols, **resource_symbols},
                         register_symbols,
                     )

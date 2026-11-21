@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from zlang.ir import expressions as ir_expr
 from zlang.ir import functional_regions
+from zlang.ir.exact_simplification import unsigned_binary_bounds
 from zlang.ir import types as ir_types
 
 
@@ -134,37 +135,12 @@ def static_value_range(
         right = static_value_range(expression.right, refinements)
         if left is None or right is None or not isinstance(expression.type, (ir_types.UIntType, ir_types.BitsType)):
             return None
-        if expression.operator is ir_expr.BinaryOperator.SUBTRACT:
-            if left.minimum >= right.maximum:
-                return ir_expr.ValueRange(
-                    left.minimum - right.maximum,
-                    left.maximum - right.minimum,
-                    "arithmetic",
-                )
-            return unsigned_type_range(expression.type)
-        if expression.operator is ir_expr.BinaryOperator.MULTIPLY:
-            return ir_expr.ValueRange(
-                left.minimum * right.minimum,
-                left.maximum * right.maximum,
-                "arithmetic",
-            )
-        if expression.operator is ir_expr.BinaryOperator.SHIFT_RIGHT:
-            if right.minimum == right.maximum:
-                return ir_expr.ValueRange(
-                    left.minimum >> right.minimum,
-                    left.maximum >> right.minimum,
-                    "arithmetic",
-                )
-        if expression.operator is ir_expr.BinaryOperator.SHIFT_LEFT:
-            if right.minimum == right.maximum:
-                shifted_maximum = left.maximum << right.minimum
-                type_maximum = (1 << expression.type.width) - 1
-                if shifted_maximum <= type_maximum:
-                    return ir_expr.ValueRange(
-                        left.minimum << right.minimum,
-                        shifted_maximum,
-                        "arithmetic",
-                    )
+        bounds = unsigned_binary_bounds(
+            expression.operator, expression.type.width,
+            (left.minimum, left.maximum), (right.minimum, right.maximum),
+        )
+        if bounds is not None:
+            return ir_expr.ValueRange(*bounds, "arithmetic")
         return unsigned_type_range(expression.type)
     if isinstance(expression, ir_expr.Mux):
         true_range = static_value_range(expression.when_true, refinements)

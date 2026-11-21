@@ -104,7 +104,13 @@ def test_fpga_hash_exception_matches_only_the_verified_source_digest() -> None:
         "simulation_protocol_access.py"
     ]
     assert recorded == FPGA_DIGEST
-    assert hashlib.sha256((ROOT / "zlang/simulation_protocol_access.py").read_bytes()).hexdigest() == FPGA_DIGEST
+    # The receipt was introduced by public d66b72b0a4dc0337a4cd35535b3489d1503329ee.
+    # Source blob ca97ccef3eabf41cbe510d28eb7046b8b6ea6978 is vendored byte-for-byte
+    # so the test also verifies the source digest in a git archive.
+    historical_source = (
+        ROOT / "tests/fixtures/gitleaks/simulation_protocol_access.d66b72b0.py.txt"
+    )
+    assert hashlib.sha256(historical_source.read_bytes()).hexdigest() == FPGA_DIGEST
     for ending in ("", ","):
         line = f'        "simulation_protocol_access.py": "{FPGA_DIGEST}"{ending}'
         assert re.search(exception["regexes"][0], line)

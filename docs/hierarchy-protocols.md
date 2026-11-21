@@ -431,7 +431,7 @@ Implicit CDC is an error. Existing explicit forms are:
 | `sync_level` | Slowly changing `bit` level |
 | `pulse_toggle` | Rate-limited `bit` pulse |
 | `handshake` | One scalar ready/valid payload |
-| `async_fifo(N)` | Ready/valid stream through a power-of-two dual-clock FIFO |
+| `async_fifo(N)` | Ready/valid stream through a dual-clock FIFO of power-of-two depth, minimum 4 |
 
 ```zlang
 connect source -> destination { crossing async_fifo(4) }
@@ -442,10 +442,49 @@ provenance and may feed destination-domain combinational logic, rules, FSMs, or
 state normally. The compiler never rewrites, balances, or resource-packs logic
 through the boundary, and never chooses a crossing automatically.
 
+A module with a single local `sync_level` crossing can bind the synchronized
+output to a child input in the same module. The binding carries the
+destination clock domain.
+
 ```zlang
 connect enable_a -> enable_b { crossing sync_level }
 rule Observe @clk_b when enable_b { seen <- 1 }
 ```
+
+For two independent slow levels, instantiate one synchronizer per level. Each
+child owns one crossing and inherits the two clock domains by name.
+
+```zlang
+module SyncBit {
+    clock ca reset ra @ca
+    clock cb reset rb @cb
+    in src:bit @ca out dst:bit @cb
+    connect src -> dst { crossing sync_level }
+}
+module TwoLevels {
+    clock ca reset ra @ca
+    clock cb reset rb @cb
+    in i:bit @ca in j:bit @ca
+    lhs:SyncBit {src=i} rhs:SyncBit {src=j}
+    out x:bit @cb=lhs.dst out y:bit @cb=rhs.dst
+}
+```
+
+For an atomic word use a one-slot `handshake` or an `async_fifo`. A handshake
+holds each accepted payload until the reader takes it and the acknowledgement
+returns. Reset both endpoints together. Each synchronous-reset domain needs
+an active edge during reset, including a domain whose clock was paused.
+Resetting only the writer can make the reader see another valid beat with
+the cleared payload (zero), even after the original beat was accepted.
+
+With `pulse_toggle`, allow the preceding toggle to reach the destination
+synchronizer before presenting the next pulse on a source edge. A synchronous
+reset asserted and released between edges preserves pending state. An input
+pulse during the source domain's synchronized reset release is ignored.
+
+A local `request_response` interface requires one owning clock and reset.
+In a multi-clock parent, instantiate the endpoint in a single-clock child
+and use an explicit crossing for data that changes domains.
 
 An aggregate with exactly one forward ready/valid member may use the same
 `async_fifo` crossing; its complete payload is atomic. Both domains must

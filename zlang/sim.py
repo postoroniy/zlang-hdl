@@ -378,15 +378,6 @@ class Simulator:
     def cover_witnesses(self) -> tuple[VerificationCoverWitness, ...]:
         return tuple(self._cover_witnesses.values())
 
-    def _set_scalar(self, name: str, type_: HardwareType, value: object) -> None:
-        if self._io is not None:
-            self._io.check_external(name)
-        packed = _pack_value(type_, value)
-        try:
-            self._native.set_limbs(name, _int_to_limbs(packed, type_.width))
-        except (ValueError, RuntimeError) as error:
-            raise SimulationRuntimeError(str(error)) from error
-
     def _get_scalar(self, name: str, type_: HardwareType) -> object:
         if self.program.logic_state:
             raw = self.get_logic(name)

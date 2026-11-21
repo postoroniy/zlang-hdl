@@ -166,12 +166,7 @@ def _runtime_struct_field_projection(expression: expr.FieldAccess) -> str:
     assert isinstance(vector, ir_types.VecType)
     assert isinstance(vector.element_type, ir_types.StructType)
     rendered_vector = _expression(indexed.expression)
-    rendered_index = _expression(indexed.index)
-    if isinstance(indexed.index, expr.Mux):
-        # A size cast used for packed offset scaling is context-determined.
-        # Seal a conditional's exact type before widening it to the offset
-        # type, otherwise SV propagates 32 bits into its narrow branches.
-        rendered_index = f"{sv_rendering._width(indexed.index.type)}'({rendered_index})"
+    rendered_index = sv_rendering._render_vector_index(indexed.index, _expression)
     if sv_rendering._uses_native_vector_indexing(indexed.expression):
         return sv_rendering._struct_field_expression(
             f"{rendered_vector}[{rendered_index}]",
@@ -182,6 +177,7 @@ def _runtime_struct_field_projection(expression: expr.FieldAccess) -> str:
         rendered_vector,
         rendered_index,
         sv_rendering._width(vector.element_type),
+        source_width=vector.width,
         field_lsb=ir_packing.struct_field_lsb(vector.element_type, expression.field),
         width=sv_rendering._width(expression.type),
     )
@@ -195,9 +191,7 @@ def _vector_index_expression(
         raise SystemVerilogEmissionError("vector index requires a vector")
     rendered_vector = _expression(expression.expression)
     if isinstance(expression, expr.RuntimeIndex):
-        rendered_index = _expression(expression.index)
-        if isinstance(expression.index, expr.Mux):
-            rendered_index = f"{sv_rendering._width(expression.index.type)}'({rendered_index})"
+        rendered_index = sv_rendering._render_vector_index(expression.index, _expression)
     else:
         rendered_index = (
             str(expression.index)
@@ -209,18 +203,17 @@ def _vector_index_expression(
     projection = _constant_vector_projection(expression)
     if projection is not None:
         root, lsb, width = projection
-        # A packed vec<1,bit> is declared as scalar logic, not logic[0:0].
-        # Its sole constant projection is the value itself; scalar postfix
-        # selects are rejected by supported SystemVerilog frontends.
-        if sv_rendering._width(root.type) == 1 and lsb == 0 and width == 1:
-            return _expression(root)
-        return sv_rendering._slice(_expression(root), lsb + width - 1, lsb)
+        return sv_rendering._slice(
+            _expression(root), lsb + width - 1, lsb, source_width=root.type.width
+        )
     element_width = sv_rendering._width(vector.element_type)
     if isinstance(expression, expr.VectorIndex) and isinstance(expression.index, int):
         lsb = ir_packing.vector_element_lsb(vector, expression.index)
-        return sv_rendering._slice(rendered_vector, lsb + element_width - 1, lsb)
+        return sv_rendering._slice(
+            rendered_vector, lsb + element_width - 1, lsb, source_width=vector.width
+        )
     return sv_rendering._packed_indexed_slice(
-        rendered_vector, rendered_index, element_width
+        rendered_vector, rendered_index, element_width, source_width=vector.width
     )
 
 
@@ -523,6 +516,7 @@ def _render_expression(expression: expr.Expression) -> str:
             _expression(expression.expression),
             union_type.width - 1,
             union_type.payload_width,
+            source_width=union_type.width,
         )
     if isinstance(expression, expr.UnionField):
         union_type = expression.expression.type
@@ -532,7 +526,9 @@ def _render_expression(expression: expr.Expression) -> str:
             expression.variant,
             expression.field,
         )
-        return sv_rendering._slice(_expression(expression.expression), msb, lsb)
+        return sv_rendering._slice(
+            _expression(expression.expression), msb, lsb, source_width=union_type.width
+        )
     if isinstance(expression, expr.Add):
         width = sv_rendering._width(expression.type)
         return (
@@ -632,7 +628,9 @@ def _render_expression(expression: expr.Expression) -> str:
             )
         lsb = ir_packing.tuple_element_lsb(tuple_type, expression.index)
         msb = lsb + sv_rendering._width(tuple_type.elements[expression.index]) - 1
-        projected = sv_rendering._slice(_expression(expression.expression), msb, lsb)
+        projected = sv_rendering._slice(
+            _expression(expression.expression), msb, lsb, source_width=tuple_type.width
+        )
         if isinstance(expression.type, (ir_types.SIntType, ir_types.FixedType)):
             return f"$signed({projected})"
         return projected
@@ -645,7 +643,7 @@ def _render_expression(expression: expr.Expression) -> str:
         total_width = sv_rendering._width(vector)
         element_width = sv_rendering._width(vector.element_type)
         rendered_vector = _expression(expression.expression)
-        rendered_index = _expression(expression.index)
+        rendered_index = sv_rendering._render_vector_index(expression.index, _expression)
         rendered_value = _expression(expression.value)
         base = sv_rendering._scaled_packed_index(rendered_index, element_width)
         element_mask = f"{total_width}'h{((1 << element_width) - 1):x}"

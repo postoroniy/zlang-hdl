@@ -435,9 +435,12 @@ def _semantic_scalar_predicate(
         left = _resize(
             _semantic_predicate(expression.left), operand_width, operand_signedness
         )
-        right = _resize(
-            _semantic_predicate(expression.right), operand_width, operand_signedness
-        )
+        right = _semantic_predicate(expression.right)
+        # The shift distance has its own unsigned type, independent of the data.
+        if expression.operator not in (
+            ir_expr.BinaryOperator.SHIFT_LEFT, ir_expr.BinaryOperator.SHIFT_RIGHT,
+        ):
+            right = _resize(right, operand_width, operand_signedness)
         result_signedness = _formal_signedness(expression.type)
         return _binary(
             mapping[expression.operator], left, right,
@@ -698,8 +701,14 @@ def _semantic_aggregate_predicate(
                 _formal_signedness(expression.type),
             )
 
-        result = element(aggregate.length - 1)
-        for index in reversed(range(aggregate.length - 1)):
+        # A narrow selector cannot name the upper lanes. Keep its exact width
+        # and leave the semantic range proof as the only admission condition.
+        first = expression.index_range.minimum
+        last = min(expression.index_range.maximum, (1 << selector.width) - 1)
+        if first > last:
+            raise FormalError("runtime index range has no representable selector value")
+        result = element(last)
+        for index in reversed(range(first, last)):
             result = PredicateMux(
                 _equal(
                     selector,

@@ -148,6 +148,23 @@ def test_zero_add_preserves_carry_width_instead_of_returning_narrow_operand() ->
     assert str(value.type) == "u9"
 
 
+def test_constant_and_mask_is_extended_to_the_operation_width() -> None:
+    module = compile_source("""
+        module Mask {
+            in x:bits<65>
+            out raw,numeric,full,signed_mask:bits<65>
+            raw=ones<64> & x
+            numeric=bitcast<bits<65>>(bitcast<u65>(x) & bitcast<u2>(ones<2>))
+            full=x & ones<65>
+            signed_mask=bitcast<bits<65>>(bitcast<s65>(x) & bitcast<s2>(ones<2>))
+        }
+    """).ir
+    for x in (0, 3, 0xf0, (1 << 64) | 5, (1 << 65) - 1):
+        assert simulate(module, x=x) == {
+            "raw": x & ((1 << 64) - 1), "numeric": x & 3, "full": x, "signed_mask": x,
+        }
+
+
 def test_truncate_barrier_is_not_removed_by_local_simplification() -> None:
     module = normalize_selected_values(compile_source(
         "module Top{in x:u8 out y:u8 y=truncate<8>(x+1)}"

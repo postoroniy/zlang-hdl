@@ -1196,6 +1196,50 @@ def test_native_multi_limb_signed_shift_and_compare(tmp_path: Path) -> None:
             assert instance.eval() == {"shifted": expected, "negative": 1}
 
 
+def test_wide_shift_count_retains_high_bits_and_unknowns(tmp_path: Path) -> None:
+    path = _source(tmp_path, "wide_count", """
+        module Top {
+            in n:u129
+            in a:u4
+            in b:s4
+            out ll:u4=a << n
+            out rr:u4=a >> n
+            out ar:s4=b >> n
+        }
+    """)
+    for logic in (False, True):
+        with zlang.sim.compile(path, top="Top", logic_state=logic).create() as dut:
+            dut.set("a", 9)
+            dut.set("b", -8)
+            for n in (0, 1, 3, 4, (1 << 63) - 1, 1 << 63, (1 << 64) + 1, 1 << 128):
+                dut.set("n", n)
+                dut.eval()
+                count = min(n, 4)
+                assert [dut.get_packed(port) for port in ("ll", "rr", "ar")] == [
+                    (9 << count) & 15, 9 >> count, (-8 >> count) & 15
+                ]
+            if not logic:
+                payload = json.loads(dut.program.plan.to_json())
+                wide_input = next(node["id"] for node in payload["nodes"]
+                                  if node["op"] == "load_input" and node["width"] == 129)
+                shift = next(node for node in payload["nodes"] if node["op"] == "shl")
+                shift["operands"][1] = wide_input
+                with pytest.raises(SimulationPlanError, match="shift node .*incompatible widths"):
+                    SimulationPlan.from_bytes(_resign(payload))
+            if logic:
+                for unknown in ("u", "x"):
+                    dut.set_logic("n", unknown + "0" * 128)
+                    dut.eval()
+                    assert dut.get_logic("ll").to_bits() == f"{unknown}00{unknown}"
+                    assert dut.get_logic("rr").to_bits() == f"{unknown}00{unknown}"
+                    assert dut.get_logic("ar").to_bits() == "1" + unknown * 3
+                    dut.set_logic("n", unknown + "1" + unknown * 127)
+                    dut.eval()
+                    assert [dut.get_logic(port).to_bits() for port in ("ll", "rr", "ar")] == [
+                        "0000", "0000", "1111"
+                    ]
+
+
 def test_native_512_bit_vector_runtime_index(tmp_path: Path) -> None:
     source = _source(
         tmp_path,

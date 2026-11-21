@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 from zlang.ast import nodes as ast
@@ -23,13 +23,12 @@ from . import callables as semantic_callables
 from . import expression_ranges
 from . import expression_domains
 from . import expression_origins
-from . import expression_operators
 from . import expression_support
 from . import observations as semantic_observations
 from . import actions as semantic_actions
-from . import context as semantic_context
 from . import module_pipeline
-from .storage_symbols import FifoSymbol, MemorySymbol
+from .rule_storage_actions import lower_storage_action
+from .rule_activations import ConditionalRuleActivations
 
 
 ResourceAction = tuple[
@@ -57,7 +56,7 @@ def _guards_are_provably_disjoint(
 ) -> bool:
     """Prove only opposite exact register-equality constraints."""
 
-    def constraints(expression: ir_expr.Expression) -> dict[str, set[tuple[str, object]]]:
+    def constraints(expression: ir_expr.Expression) -> dict[str, set[int]]:
         if not isinstance(expression, ir_expr.Binary):
             return {}
         if expression.operator is ir_expr.BinaryOperator.BIT_AND:
@@ -68,10 +67,12 @@ def _guards_are_provably_disjoint(
         if expression.operator is not ir_expr.BinaryOperator.EQUAL:
             return {}
         left, right = expression.left, expression.right
+        # Equality already checked the family (and fixed-point scale or enum
+        # identity). Widening a comparison preserves its constant's value.
         if isinstance(left, ir_expr.RegisterRef) and isinstance(right, ir_expr.Constant):
-            return {left.name: {(str(right.type), right.value)}}
+            return {left.name: {right.value}}
         if isinstance(right, ir_expr.RegisterRef) and isinstance(left, ir_expr.Constant):
-            return {right.name: {(str(left.type), left.value)}}
+            return {right.name: {left.value}}
         return {}
 
     left = constraints(first)
@@ -258,7 +259,6 @@ class RuleAnalyzer:
         module_context = state_storage.expression_context
         effective_source_unit = preparation.source_unit
         effective_source_digest = preparation.source_digest
-        _FifoSymbol = FifoSymbol
         rules: list[ir_module.Rule] = []
         rule_resource_actions: dict[
             str,
@@ -364,15 +364,12 @@ class RuleAnalyzer:
                 str,
                 list[tuple[tuple[tuple[tuple[int, ...], bool], ...], SourceOrigin | None]],
             ] = {}
-            activation_cache: dict[
-                tuple[tuple[int, bool], ...],
-                tuple[ir_expr.Expression, semantic_context.ExpressionContext],
-            ] = {}
-            # One source conditional is shared by its true and false branch paths.
-            # Type it once so a stateful guard expression (for example ``delay``)
-            # denotes one physical expression instance rather than being allocated
-            # independently for each effect below the branch.
-            typed_condition_cache: dict[int, ir_expr.Expression] = {}
+            activations = ConditionalRuleActivations(
+                rule_name=declaration.name, rule_domain=rule_domain,
+                rule_context=rule_context, module_context=module_context,
+                value_symbols=value_symbols, symbols=symbols, resource_symbols=resource_symbols,
+                register_symbols=register_symbols, guard_analysis=guard_analysis,
+            )
 
             def effect_origin(
                 action: ast.NextAssignment | ast.OutputDrive | ast.ResourceAction,
@@ -434,135 +431,7 @@ class RuleAnalyzer:
                     )
                 action_targets.setdefault(key, []).append((leaf.branch_path, origin))
 
-            def typed_activation_and_context(
-                conditions: tuple[tuple[ast.Expression, bool], ...],
-            ) -> tuple[ir_expr.Expression | None, semantic_context.ExpressionContext]:
-                if not conditions:
-                    return None, rule_context
-                cache_key = tuple((id(condition), truth) for condition, truth in conditions)
-                cached = activation_cache.get(cache_key)
-                if cached is not None:
-                    return cached
-                typed_terms: list[ir_expr.Expression] = []
-                effect_context = rule_context
-                combined_analysis = guard_analysis
-                for condition, truth in conditions:
-                    typed_condition = typed_condition_cache.get(id(condition))
-                    if typed_condition is None:
-                        typed_condition = effect_context.expressions.check(
-                            condition, value_symbols, ir_types.BitType(), effect_context
-                        )
-                        if typed_condition.type == ir_types.BitType():
-                            expanded = expression_support._expand_immutable_locals(
-                                typed_condition, value_symbols, work_budget=module_context.services,
-                            )
-                            foreign = expression_domains.expression_domains(
-                                expanded, {**symbols, **resource_symbols}, register_symbols,
-                            ) - {None, rule_domain}
-                            if foreign:
-                                raise SemanticError(
-                                    f"clock-domain mismatch in rule '{declaration.name}': rule "
-                                    f"domain is '{rule_domain}', nested guard reads '{min(foreign)}'",
-                                    code="ZL-DOMAIN-CROSSING",
-                                    primary=expression_origins.semantic_origin(condition, module_context),
-                                    fixes=("insert an explicit supported clock-domain crossing",),
-                                )
-                        typed_condition_cache[id(condition)] = typed_condition
-                        # ``replace(context, ...)`` copies the numerical allocator.
-                        # Propagate allocations made while checking this unique
-                        # condition so later source expressions cannot reuse them.
-                        rule_context.advance_delay_allocator(
-                            effect_context.scope.next_delay_instance
-                        )
-                        module_context.advance_delay_allocator(
-                            effect_context.scope.next_delay_instance
-                        )
-                    if typed_condition.type != ir_types.BitType():
-                        raise SemanticError(
-                            f"nested when guard in rule '{declaration.name}' must be "
-                            f"bit, got {typed_condition.type}",
-                            code="ZL-SEMANTIC-CONDITIONAL-GUARD",
-                            primary=expression_origins.semantic_origin(condition, module_context),
-                        )
-                    term = (
-                        typed_condition
-                        if truth else replace(
-                            expression_operators.build_binary(
-                                ir_expr.BinaryOperator.EQUAL,
-                                typed_condition,
-                                ir_expr.Constant(0, ir_types.BitType()),
-                            ),
-                            origin=typed_condition.origin,
-                        )
-                    )
-                    typed_terms.append(term)
-                    term_analysis = semantic_callables._expand_analysis_calls(
-                        expression_support._expand_immutable_locals(
-                            term, value_symbols, work_budget=module_context.services
-                        ),
-                        module_context,
-                        purpose=f"rule '{declaration.name}' conditional refinement",
-                        refinement_only=True,
-                    )
-                    combined_analysis = expression_operators.build_binary(
-                        ir_expr.BinaryOperator.BIT_AND,
-                        combined_analysis,
-                        term_analysis,
-                    )
-                    effect_context = effect_context.with_scope(
-                        range_refinements=expression_ranges.guard_range_refinements(
-                            combined_analysis
-                        ),
-                    )
-                activation = typed_terms[0]
-                for term in typed_terms[1:]:
-                    activation = replace(
-                        expression_operators.build_binary(
-                            ir_expr.BinaryOperator.BIT_AND, activation, term
-                        ),
-                        origin=term.origin or activation.origin,
-                    )
-                result = (activation, effect_context)
-                activation_cache[cache_key] = result
-                return result
-
-            def validate_conditional_guards(
-                source_actions: tuple[
-                    ast.NextAssignment
-                    | ast.OutputDrive
-                    | ast.ResourceAction
-                    | ast.ConditionalAction,
-                    ...,
-                ],
-                conditions: tuple[tuple[ast.Expression, bool], ...] = (),
-            ) -> None:
-                """Type every source guard, including branches with no effects.
-
-                Effect flattening intentionally omits empty branches.  Guard
-                validation therefore has to walk the source action tree itself;
-                otherwise an unknown or non-bit guard can disappear merely because
-                its branch currently performs no state action.
-                """
-
-                for source_action in source_actions:
-                    if not isinstance(source_action, ast.ConditionalAction):
-                        continue
-                    true_conditions = (*conditions, (source_action.guard, True))
-                    typed_activation_and_context(true_conditions)
-                    validate_conditional_guards(
-                        source_action.when_true,
-                        true_conditions,
-                    )
-                    if source_action.when_false is None:
-                        continue
-                    false_conditions = (*conditions, (source_action.guard, False))
-                    typed_activation_and_context(false_conditions)
-                    validate_conditional_guards(
-                        source_action.when_false,
-                        false_conditions,
-                    )
-
-            validate_conditional_guards(declaration.actions)
+            activations.validate_conditional_guards(declaration.actions)
             leaves = semantic_actions.conditional_action_leaves(
                 declaration.actions
             )
@@ -573,161 +442,21 @@ class RuleAnalyzer:
                 )
             for leaf in leaves:
                 action = leaf.action
-                activation, action_context = typed_activation_and_context(leaf.conditions)
+                activation, action_context = activations.typed_activation_and_context(leaf.conditions)
                 if isinstance(action, ast.ResourceAction):
-                    resource = resource_symbols.get(action.resource)
-                    if resource is None:
-                        raise SemanticError(
-                            f"rule '{declaration.name}' references unknown state resource '{action.resource}'",
-                            primary=effect_origin(action),
-                        )
-                    if resource.domain != rule_domain:
-                        raise SemanticError(
-                            f"clock-domain mismatch in rule '{declaration.name}': "
-                            f"rule domain is '{rule_domain}', resource "
-                            f"'{resource.name}' belongs to '{resource.domain}'",
-                            code="ZL-DOMAIN-CROSSING",
-                            primary=effect_origin(action),
-                        )
-                    resource_kind = "FIFO" if isinstance(resource, _FifoSymbol) else "memory"
-                    origin = (
-                        SourceOrigin(
-                            action.origin,
-                            f"{resource_kind} {resource.name}.{action.operation}",
-                            effective_source_unit,
-                            effective_source_digest,
-                        )
-                        if action.origin is not None else None
+                    kind, name, operands, origin = lower_storage_action(
+                        action, effect_origin(action), declaration.name, rule_domain,
+                        action_context, value_symbols, storage_declarations,
+                        storage.scheduled_fifo_names,
                     )
-                    if isinstance(resource, _FifoSymbol):
-                        if resource.name not in storage.scheduled_fifo_names:
-                            raise SemanticError(
-                                f"FIFO '{resource.name}' is not owned by scheduled rule actions",
-                                primary=effect_origin(action),
-                            )
-                        if action.operation == "push":
-                            if len(action.operands) != 1:
-                                raise SemanticError(
-                                    "FIFO push requires exactly one payload", primary=effect_origin(action)
-                                )
-                            operand = action_context.expressions.check_typed_boundary(
-                                action.operands[0], value_symbols, resource.element_type,
-                                action_context,
-                            )
-                            if operand.type != resource.element_type:
-                                raise SemanticError(
-                                    f"FIFO '{resource.name}' push has type {operand.type}, expected {resource.element_type}",
-                                    primary=effect_origin(action),
-                                )
-                            kind = ir_state.StateActionKind.FIFO_PUSH
-                            operands = (operand,)
-                        elif action.operation == "pop":
-                            if action.operands:
-                                raise SemanticError("FIFO pop does not accept operands", primary=effect_origin(action))
-                            kind = ir_state.StateActionKind.FIFO_POP
-                            operands = ()
-                        else:
-                            raise SemanticError(
-                                f"FIFO '{resource.name}' has no rule action '{action.operation}'",
-                                primary=effect_origin(action),
-                            )
-                    elif isinstance(resource, MemorySymbol):
-                        if (
-                            resource.name
-                            not in storage_declarations.scheduled_memory_names
-                        ):
-                            raise SemanticError(
-                                f"memory '{resource.name}' is not owned by scheduled rule actions",
-                                primary=effect_origin(action),
-                            )
-                        address_type = ir_types.UIntType(resource.address_width)
-                        if action.operation == "read":
-                            if len(action.operands) != 1:
-                                raise SemanticError(
-                                    "memory read requires exactly one address operand",
-                                    primary=effect_origin(action),
-                                )
-                            address = action_context.expressions.check(
-                                action.operands[0], value_symbols, address_type,
-                                action_context,
-                            )
-                            if address.type != address_type:
-                                raise SemanticError(
-                                    f"memory '{resource.name}' read address has type {address.type}, expected {address_type}",
-                                    primary=effect_origin(action),
-                                )
-                            kind = ir_state.StateActionKind.MEMORY_READ_REQUEST
-                            operands = (address,)
-                        elif action.operation == "write":
-                            if len(action.operands) not in {2, 3}:
-                                raise SemanticError(
-                                    "memory write requires exactly address and data operands, "
-                                    "with an optional byte mask",
-                                    primary=effect_origin(action),
-                                )
-                            address = action_context.expressions.check(
-                                action.operands[0], value_symbols, address_type,
-                                action_context,
-                            )
-                            data = action_context.expressions.check_typed_boundary(
-                                action.operands[1], value_symbols, resource.element_type,
-                                action_context,
-                            )
-                            if address.type != address_type:
-                                raise SemanticError(
-                                    f"memory '{resource.name}' write address has type {address.type}, expected {address_type}",
-                                    primary=effect_origin(action),
-                                )
-                            if data.type != resource.element_type:
-                                raise SemanticError(
-                                    f"memory '{resource.name}' write data has type {data.type}, expected {resource.element_type}",
-                                    primary=effect_origin(action),
-                                )
-                            memory_masked = (
-                                resource.name
-                                in storage_declarations.scheduled_masked_memory_names
-                            )
-                            if memory_masked:
-                                mask_type = ir_types.BitsType(
-                                    ir_storage.memory_byte_mask_width(
-                                        resource.element_type.width
-                                    )
-                                )
-                                if len(action.operands) == 3:
-                                    mask = action_context.expressions.check(
-                                        action.operands[2], value_symbols, mask_type,
-                                        action_context,
-                                    )
-                                    if mask.type != mask_type:
-                                        raise SemanticError(
-                                            f"memory '{resource.name}' write mask has type "
-                                            f"{mask.type}, expected {mask_type}",
-                                            primary=effect_origin(action),
-                                        )
-                                else:
-                                    mask = ir_expr.Constant((1 << mask_type.width) - 1, mask_type)
-                            kind = ir_state.StateActionKind.MEMORY_WRITE
-                            operands = (
-                                (address, data, mask) if memory_masked else (address, data)
-                            )
-                        else:
-                            raise SemanticError(
-                                f"memory '{resource.name}' has no rule action '{action.operation}'",
-                                primary=effect_origin(action),
-                            )
-                    else:
-                        raise SemanticError(
-                            f"state resource '{resource.name}' does not support rule actions",
-                            primary=effect_origin(action),
-                        )
-                    key = f"{resource.name}:{kind.value}"
+                    key = f"{name}:{kind.value}"
                     claim_effect_target(
                         key,
                         leaf,
-                        f"performs state action '{resource.name}.{action.operation}' twice",
+                        f"performs state action '{name}.{action.operation}' twice",
                     )
                     resource_actions.append(
-                        (kind, resource.name, operands, origin, activation)
+                        (kind, name, operands, origin, activation)
                     )
                     continue
                 if (

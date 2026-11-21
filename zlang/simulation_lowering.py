@@ -284,6 +284,11 @@ class _Builder:
                 left = self.resize(left, width, signed=signed)
             if operator in {"-", "*", "&", "|", "^"}:
                 right = self.resize(right, width, signed=signed)
+            if operator in {"<<", ">>"} and self.width(right) > 64:
+                # The VM accepts a one-limb count. Every bit at position 63
+                # or above denotes an overshift for every admitted data width.
+                high = self.extract(right, self.constant(63, 6), self.width(right) - 63)
+                right = self.concat((self.truthy(high), self.resize(right, 63)), 64)
             if operator in {"==", "!=", "<", "<=", ">", ">="}:
                 comparison_width = int(operand_type["width"])
                 left = self.resize(left, comparison_width, signed=signed)

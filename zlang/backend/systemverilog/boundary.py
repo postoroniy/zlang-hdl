@@ -142,9 +142,19 @@ def _wire_or_ready_valid_port_declarations(port: ir_module.Port) -> tuple[str, .
     )
 
 
-def _physical_port_declarations(module: ir_module.Module) -> list[str]:
-    ports: list[str] = _clock_reset_port_declarations(module)
-    for port in module.ports:
+def _physical_port_declarations(
+    module: ir_module.Module, *, cdc_endpoints: tuple[str, str] | None = None,
+) -> list[str]:
+    # Preserve the positional ABI of existing standalone CDC shells.
+    ports = _clock_reset_port_declarations(module, clocks_first=cdc_endpoints is not None)
+    ordered = module.ports
+    if cdc_endpoints is not None:
+        by_name = {port.name: port for port in ordered}
+        ordered = (
+            *(by_name[name] for name in cdc_endpoints),
+            *(port for port in ordered if port.name not in cdc_endpoints),
+        )
+    for port in ordered:
         ports.extend(_wire_or_ready_valid_port_declarations(port))
     for interface in module.request_responses:
         name = sv_rendering._identifier(interface.name)
@@ -162,7 +172,9 @@ def _physical_port_declarations(module: ir_module.Module) -> list[str]:
     return ports
 
 
-def _clock_reset_port_declarations(module: ir_module.Module) -> list[str]:
+def _clock_reset_port_declarations(
+    module: ir_module.Module, *, clocks_first: bool = False,
+) -> list[str]:
     """Render every explicit physical domain exactly once.
 
     ``module.clock``/``module.reset`` are the legacy single-domain aliases.
@@ -171,10 +183,14 @@ def _clock_reset_port_declarations(module: ir_module.Module) -> list[str]:
     the aliases or an unused clock/reset would silently disappear.
     """
 
-    return [
-        f"input wire logic {sv_rendering._identifier(leaf.external_name)}"
-        for leaf in emission_context.top_physical_abi(module).leaves
+    leaves = [
+        leaf for leaf in emission_context.top_physical_abi(module).leaves
         if leaf.signal_kind in {"clock", "reset"}
+    ]
+    if clocks_first:
+        leaves.sort(key=lambda leaf: leaf.signal_kind == "reset")
+    return [
+        f"input wire logic {sv_rendering._identifier(leaf.external_name)}" for leaf in leaves
     ]
 
 
@@ -483,7 +499,7 @@ def _build_top_boundary_plan(
                     for leaf in ordered:
                         for item, source in _public_leaf_elements(leaf):
                             input_bridges.append(
-                                f"  assign {sv_rendering._slice(signal, item.msb, item.lsb)} "
+                                f"  assign {sv_rendering._slice(signal, item.msb, item.lsb, source_width=root_width)} "
                                 f"= {source};"
                             )
                 continue
@@ -497,7 +513,7 @@ def _build_top_boundary_plan(
                     value = (
                         signal
                         if msb == root_width - 1 and lsb == 0
-                        else sv_rendering._slice(signal, msb, lsb)
+                        else sv_rendering._slice(signal, msb, lsb, source_width=root_width)
                     )
                     output_bridges.append(
                         f"  assign {name} = {value};"
@@ -506,7 +522,7 @@ def _build_top_boundary_plan(
                 for item, target in elements:
                     output_bridges.append(
                         f"  assign {target} = "
-                        f"{sv_rendering._slice(signal, item.msb, item.lsb)};"
+                        f"{sv_rendering._slice(signal, item.msb, item.lsb, source_width=root_width)};"
                     )
     return replace(
         partial,

@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+from zlang import verification_bundle_codec as codec
 from zlang.common import stable_digest
 from zlang.formal_execution_tools import FormalToolBinding, binding_identity
 from zlang.cli import main as compiler_main
@@ -17,6 +20,7 @@ from zlang.ir.formal import (
     ProofMode,
 )
 from zlang.verification_bundle import (
+    VerificationBundleError,
     VerificationRunConfig,
     load_verification_bundle,
     publish_verification_bundle,
@@ -519,3 +523,43 @@ module VerificationCacheCli {
     )) == 0
     assert captured["cache_directory"] == cache
     assert capsys.readouterr().out == "cached verification\n"
+
+
+def test_pre_shift_fix_bundle_is_refused_before_a_cached_proof(tmp_path, monkeypatch) -> None:
+    _toolchain(monkeypatch)
+    calls = []
+
+    def prove(_source, **kwargs):
+        calls.append(kwargs["property_id"])
+        return FormalResult(
+            kwargs["property_id"], FormalStatus.PROVEN, ProofMode.PROVE,
+            kwargs["engine"], kwargs["solver"], kwargs["depth"],
+            source_origin=kwargs["source_origin"], tool_versions=kwargs["toolchain"].versions,
+        )
+
+    monkeypatch.setattr("zlang.verification_bundle_execution.run_verilog_formal", prove)
+    config = VerificationRunConfig(mode=ProofMode.PROVE, depth=8, timeout_seconds=30)
+    cache = tmp_path / "cache"
+    old = tmp_path / "old"
+    with monkeypatch.context() as legacy:
+        legacy.setattr(codec, "VERIFICATION_IR_SCHEMA", "zlang-verification-ir-snapshot-v4")
+        legacy.setattr(codec, "VERIFICATION_IR_SCHEMA_VERSION", 4)
+        _publish(old)
+        loaded = load_verification_bundle(old)
+        for _ in range(2):
+            assert run_verification_bundle(old, config=config, cache_directory=cache).results[0].status == "proven"
+    assert len(calls) == 1
+    old_cache = {p: p.read_bytes() for p in _safety_verification_result_entries(cache)}
+    assert len(old_cache) == 1
+    for bundle in (old, loaded):
+        with pytest.raises(VerificationBundleError, match="regenerate the verification bundle from source"):
+            run_verification_bundle(bundle, config=config, cache_directory=cache)
+    assert len(calls) == 1
+
+    fresh = tmp_path / "current"
+    _publish(fresh)
+    for _ in range(2):
+        assert run_verification_bundle(fresh, config=config, cache_directory=cache).results[0].status == "proven"
+    assert len(calls) == 2
+    assert len(_safety_verification_result_entries(cache)) == 2
+    assert all(path.read_bytes() == content for path, content in old_cache.items())

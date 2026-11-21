@@ -53,8 +53,11 @@ Registers and internal scalar child ports may use union values.
 <a id="reference-tagged-unions-deliberate-boundaries"></a>
 ## Deliberate boundaries
 
-An external top-level union input is rejected because arbitrary raw bits could
-encode an unused tag. There is no raw decode, `bitcast<Union>`, `unpack<Union>`,
+Top-level union inputs use the same packed ABI as internal union wires. In
+native simulation, typed `set()` requires a value constructed for that nominal
+union. The packed API transports raw bits without constructing a nominal value.
+Supply a declared variant tag when driving a union through raw bits or RTL.
+There is no source-level raw decode, `bitcast<Union>`, `unpack<Union>`,
 generic/recursive union, nested aggregate payload, union operator overload,
 wildcard/nested pattern, guard, partial match, or protocol inference in this
 slice. This does not change the value's arithmetic meaning.

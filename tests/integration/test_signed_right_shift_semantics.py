@@ -40,6 +40,10 @@ from zlang.ir.formal_predicates import (
     ObservationRef,
 )
 from zlang.native_simulation import simulate
+from zlang.ir.exact_simplification import static_unsigned_range
+from zlang.ir.normalization import normalize_selected_values
+from zlang.semantic.expression_ranges import static_value_range
+from zlang.verification_monitor import VerificationMonitor
 
 
 VERILATOR = shutil.which("verilator")
@@ -122,6 +126,32 @@ int main(int argc, char **argv) {
   return 0;
 }
 '''
+
+
+def test_overshift_during_analysis_specialization_and_verification() -> None:
+    count = 1 << 64
+    module = compile_source(f"""
+        fn scale(x:u4, n:u65) -> u4 {{ x << n }}
+        module Top {{
+            clock clk reset rst in a:u4 in n:u65
+            one:u4=1
+            out literal:u4=one << {count}
+            out specialized:u4=scale(1,{count})
+            out shifted:u4=a << {count}
+            assert agrees {{(a << n) == shifted}}
+        }}
+    """).ir
+    assignments = {item.target.name: item.expression for item in module.assignments}
+    assert assignments["literal"].value == 0
+    selected = normalize_selected_values(module)
+    assert next(item.expression for item in selected.assignments
+                if item.target.name == "specialized").value == 0
+    bounds = static_value_range(assignments["shifted"])
+    assert bounds is not None and (bounds.minimum, bounds.maximum) == (0, 0)
+    assert static_unsigned_range(assignments["shifted"]) == (0, 0)
+    monitor = VerificationMonitor(module.verification_scopes)
+    sample = monitor.sample({"a": 1, "n": count, "shifted": 0}, cycle=0)
+    assert sample.active_scope_ids
 
 
 def test_semantic_simulator_uses_typed_right_shift() -> None:

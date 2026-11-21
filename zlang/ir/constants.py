@@ -42,6 +42,15 @@ def constant_comparison(operation, left: int, right: int) -> int | None:
     return None
 
 
+def constant_shift(operation: expr.BinaryOperator, left: int, count: int, width: int) -> int:
+    """Shift canonical data by an unsigned count. The caller normalizes the result."""
+    if operation is expr.BinaryOperator.SHIFT_LEFT:
+        return 0 if count >= width else left << count
+    if operation is expr.BinaryOperator.SHIFT_RIGHT:
+        return left >> min(count, width)
+    raise ValueError(f"expected a shift, got {operation}")
+
+
 def constant_bitwise(operation, left: int, right: int, type_) -> int | None:
     """One exact packed-width bitwise constant owner, shared with the backend."""
     if operation is expr.BinaryOperator.BIT_AND:

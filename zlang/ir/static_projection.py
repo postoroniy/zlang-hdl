@@ -9,7 +9,7 @@ from typing import NamedTuple
 
 from zlang.ir import expressions as expr
 from zlang.ir.packing import struct_field_lsb, tuple_element_lsb, vector_element_lsb
-from zlang.ir.types import BitsType, HardwareType, StructType, UIntType, VecType
+from zlang.ir.types import BitsType, FixedType, HardwareType, SIntType, StructType, UIntType, VecType
 
 
 class StaticView(NamedTuple):
@@ -52,7 +52,29 @@ def static_parts(
                 StaticView(selected.expression, msb + selected.lsb, lsb + selected.lsb), active,
             ))
             continue
-        if isinstance(value, (expr.Bitcast, expr.Extend)) and msb < value.expression.type.width:
+        if isinstance(value, expr.Extend):
+            source = value.expression
+            top = source.type.width - 1
+            if lsb <= top:
+                pending.append((StaticView(source, min(msb, top), lsb), active))
+            if msb > top:
+                # Emit the high part first. Unsigned padding is constant; all
+                # signed padding depends on the single original sign bit.
+                width = msb - max(top, lsb - 1)
+                if isinstance(source.type, (SIntType, FixedType)):
+                    if width == 1:
+                        pending.append((StaticView(source, top, top), active))
+                        continue
+                    sign = expr.Slice(source, top, top, UIntType(1), origin=value.origin)
+                    padding = expr.Extend(
+                        expr.Bitcast(sign, SIntType(1), origin=value.origin),
+                        SIntType(width), origin=value.origin,
+                    )
+                else:
+                    padding = expr.Constant(0, BitsType(width), origin=value.origin)
+                yield StaticView(padding, width - 1, 0)
+            continue
+        if isinstance(value, (expr.Bitcast, expr.Reshape)) and msb < value.expression.type.width:
             pending.append((StaticView(value.expression, msb, lsb), active))
             continue
         if isinstance(value, expr.InputRef) and value.name in locals_ and value.name not in active:
@@ -64,7 +86,7 @@ def static_parts(
         elif isinstance(value, expr.TupleConstruct):
             operands = tuple(reversed(value.elements))
         elif (
-            isinstance(value, expr.Generate)
+            isinstance(value, (expr.Generate, expr.Map))
             and isinstance(value.type, VecType)
             and len(value.elements) == value.type.length
         ):

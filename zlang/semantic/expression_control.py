@@ -254,6 +254,13 @@ def _check_functional_and_operator_expression(
     if isinstance(expression, ast.DelayExpr):
         if not context.scope.allow_delay:
             raise SemanticError("delay requires a module clock and reset")
+        if len(context.environment.clock_domains) > 1:
+            raise SemanticError(
+                "delay<N> requires a single clock domain in its module",
+                code="ZL-DELAY-DOMAIN",
+                primary=expression_origins.semantic_origin(expression, context),
+                fixes=("place the delay in a child with one clock/reset domain",),
+            )
         operand = context.expressions.check(expression.expression, inputs, expected, context)
         if not isinstance(
             operand.type,

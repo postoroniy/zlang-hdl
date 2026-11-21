@@ -4,7 +4,7 @@
     "manifest_sha256": "23d0a7a44a95590c834d16b1fdd20d89752d6e8418592f9ddc92bc65245b47c1",
     "manuals": {
       "language-reference": {
-        "builder_sha256": "f3a99ac4d8e1808bac6c2bb8d86335f5f378cfa1d5009f2142aba20ac113f96b",
+        "builder_sha256": "c925db695e028500f3891779c5f91eabddc6f164ec3dde7b8d1b29d59f4dbf79",
         "cover_height": 524,
         "cover_sha256": "22c31a7a75b6db59293b6bf334d1499c891fb03ec5e45b5afac471116ab0d5d2",
         "cover_width": 1983,
@@ -14,10 +14,10 @@
           "python_blocks": 1,
           "referenced_tops": 1,
           "shell_blocks": 9,
-          "standalone_compiled": 22,
+          "standalone_compiled": 24,
           "syntax_fragments": 106,
           "toml_blocks": 1,
-          "zlang_fences": 128
+          "zlang_fences": 129
         },
         "format": "PDF-1.5",
         "pages": 79,
@@ -26,7 +26,7 @@
         "pdf": "docs/ZLang-HDL-Language-Reference.pdf",
         "title": "Language Reference",
         "version": "0.1.0a24",
-        "pdf_sha256": "73d7080c446ce12889341f78d3d9b60a8b6dd661861ba258a8101b087c45969c",
+        "pdf_sha256": "4e95518cbbef8253a2326e0a911189c55a152543e176fd8f539154f5c0496e7f",
         "syntax_grammar_sha256": "b2e78ca976689ba18b411f033d68019ab7e4e3e9f9b5b2ce753fb6623d2cc107",
         "sources": {
           "docs/language-reference.md": "72de0673b49dc2737ee70169d23ecefbe6cd91de196dbd3d5fad1dcdfeb570c1",
@@ -37,9 +37,9 @@
           "docs/simulation-io.md": "a84e7a94bbd5cf3d8f8fce2e1558e7efee19700f7e3e88c30dc544ef0fe7027c",
           "docs/sequential-state-storage.md": "8fc5eeb4c6ef358e278e93f247b6afd67ea69a67e2a63bf83349a40edd928823",
           "docs/physical-clock-reset-contract.md": "35563c6a7482e48b0f9e39db292e8de2a4a23987906fb05c7b68b2e891cb5efe",
-          "docs/hierarchy-protocols.md": "b27bcc6f5f18f379bcb7775e9365128dd0390f3b15f259ca7c970efd35057a17",
+          "docs/hierarchy-protocols.md": "081be1ad92233ba6956769f43b1ca8a01fd19899a59a1f8c1a935f29c9f6c72a",
           "docs/named-module-interfaces.md": "186e9f7254c3fabdfdfdca13986f306a6e025abdee32431758cc7c8688152882",
-          "docs/tagged-unions.md": "b2800cafe4bc6ab45527cd6237ea091a50d733de8010692f7bacaf53ac984f63",
+          "docs/tagged-unions.md": "cb8997455dcf72222678d5657a603fce87d85072f609b1c26a67e753c77daeaa",
           "docs/parameterized-aggregate-protocol.md": "9f287d9e2076136a0a6b3b5ce7d50e953a9456f86805e581e14fc1bd34ce5ee0",
           "docs/implementation-intent.md": "7b5c26d4be5f5881a055990f8c311620078530448a30e678e7b0bb85f062aeb3",
           "docs/optimization-formal.md": "5ee07703beea19a9a4cef50de0132b69e5f410d911f0f46f6a238e5952b221a1",

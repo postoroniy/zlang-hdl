@@ -709,8 +709,8 @@
         "zlang/simulation_compare.py",
         "zlang/simulation_io_abi.py"
       ],
-      "summary": "Standalone CSR comparison and physical manifests use public access ports while reusable children retain internal observations.",
       "status": "included",
+      "summary": "Standalone CSR comparison and physical manifests use public access ports while reusable children retain internal observations.",
       "tests": [
         "tests/systemverilog/test_public_top_leaf_abi.py::test_axi_stream_with_csr_preserves_sidebands_and_register_access",
         "tests/systemverilog/test_public_top_leaf_abi.py::test_standalone_csr_comparison_uses_public_access_ports"
@@ -725,8 +725,8 @@
         "zlang/simulation_primitive_model.py",
         "zlang/simulation_storage_lowering.py"
       ],
-      "summary": "FIFO readiness and fault observations follow effective reset in their own domain, including synchronized release.",
       "status": "included",
+      "summary": "FIFO readiness and fault observations follow effective reset in their own domain, including synchronized release.",
       "tests": [
         "tests/simulation/test_native_jit_storage.py::test_fifo_ready_tracks_own_domain_reset_release"
       ]
@@ -737,8 +737,8 @@
         "tests/integration/test_comparison_stimulus.py",
         "zlang/simulation_comparison_testbench.py"
       ],
-      "summary": "The generated comparison testbench gives its DUT instance a name distinct from the physical signal names.",
       "status": "included",
+      "summary": "The generated comparison testbench gives its DUT instance a name distinct from the physical signal names.",
       "tests": [
         "tests/integration/test_comparison_stimulus.py::test_comparison_allocates_dut_instance_apart_from_physical_ports"
       ]
@@ -783,6 +783,83 @@
       "summary": "Require the declared nominal union type for typed native inputs and events while retaining explicit packed writes.",
       "tests": [
         "tests/simulation/test_native_union_padding.py::test_short_union_native_projection_and_raw_abi_agree"
+      ]
+    },
+    {
+      "id": "SIM-015",
+      "source_paths": [
+        "tests/integration/test_a24_runtime_boundaries.py",
+        "zlang/sim.py",
+        "zlang/simulation_event_runner.py",
+        "zlang/simulation_protocol_access.py"
+      ],
+      "status": "included",
+      "summary": "Validate and pack all external protocol fields before direct set writes any native input.",
+      "tests": [
+        "tests/integration/test_a24_runtime_boundaries.py::test_protocol_input_rejects_same_width_wrong_nominal_union",
+        "tests/integration/test_a24_runtime_boundaries.py::test_protocol_update_is_atomic_on_a_bad_field"
+      ]
+    },
+    {
+      "id": "SIM-016",
+      "source_paths": [
+        "tests/integration/test_a24_runtime_boundaries.py",
+        "zlang/simulation_event_runner.py"
+      ],
+      "status": "included",
+      "summary": "Execute each event from a lazy iterable before requesting another event, preserving the applied prefix on source failure.",
+      "tests": [
+        "tests/integration/test_a24_runtime_boundaries.py::test_streamed_events_commit_before_pulling_the_next_item"
+      ]
+    },
+    {
+      "id": "SIM-017",
+      "source_paths": [
+        "docs/tagged-unions.md",
+        "tests/integration/test_a24_runtime_boundaries.py",
+        "zlang/simulation_compare.py"
+      ],
+      "status": "included",
+      "summary": "Compare packed request/response union payloads through compiler-published physical ABI leaves.",
+      "tests": [
+        "tests/integration/test_a24_runtime_boundaries.py::test_union_payload_compares_as_abi_bits",
+        "tests/integration/test_a24_runtime_boundaries.py::test_valid_union_payload_corruption_is_detected"
+      ]
+    },
+    {
+      "id": "SIM-018",
+      "source_paths": [
+        "zlang/backend/systemverilog/cdc.py",
+        "zlang/scalar_cdc.py",
+        "zlang/simulation_cdc.py"
+      ],
+      "status": "included",
+      "summary": "Use one clocked plan for scalar CDC and mask native outputs during effective destination reset, including between clock edges.",
+      "tests": [
+        "tests/simulation/test_native_jit_cdc.py::test_cdc_lowering_matches_existing_oracle_and_native_runtime"
+      ]
+    },
+    {
+      "id": "SIM-019",
+      "source_paths": [
+        "zlang/native_simulation.py"
+      ],
+      "status": "included",
+      "summary": "Check pulse spacing against transmitted and received native state across synchronous reset and conditioned release.",
+      "tests": [
+        "tests/integration/test_cdc.py::CdcBehaviorTests::test_pulse_spacing_uses_clocked_state_during_reset"
+      ]
+    },
+    {
+      "id": "SIM-020",
+      "source_paths": [
+        "zlang/simulation_lowering.py",
+        "zlang/simulation_plan_codec.py"
+      ],
+      "status": "included",
+      "summary": "Execute shifts with multi-limb unsigned counts in binary and four-state simulation.",
+      "tests": [
+        "tests/simulation/test_native_jit.py::test_wide_shift_count_retains_high_bits_and_unknowns"
       ]
     },
     {
@@ -1609,8 +1686,8 @@
         "stdlib/math/fp_round.zhl",
         "tests/integration/test_stdlib_coherence.py"
       ],
-      "summary": "Floating-point round-and-pack retains the unsigned leading-bit count through subtraction and checks the widths of the count and signed bit index.",
       "status": "included",
+      "summary": "Floating-point round-and-pack retains the unsigned leading-bit count through subtraction and checks the widths of the count and signed bit index.",
       "tests": [
         "tests/integration/test_stdlib_coherence.py::test_fp_bit_length_rejects_a_count_that_would_overflow_u8",
         "tests/integration/test_stdlib_coherence.py::test_fp_round_pack_keeps_wide_highest_bit_nonnegative",
@@ -1626,8 +1703,8 @@
         "zlang/backend/systemverilog/memory.py",
         "zlang/backend/systemverilog/state.py"
       ],
-      "summary": "Global and named-port RAM read pipeline stages avoid collisions with public signals and retain their established names when free.",
       "status": "included",
+      "summary": "Global and named-port RAM read pipeline stages avoid collisions with public signals and retain their established names when free.",
       "tests": [
         "tests/systemverilog/test_memory_reset_policy.py::test_ram_read_stages_do_not_alias_public_ports"
       ]
@@ -1638,8 +1715,8 @@
         "stdlib/math/fp_round.zhl",
         "tests/integration/test_stdlib_coherence.py"
       ],
-      "summary": "Floating-point packing classifies the exact exponent before narrowing and preserves rounding-carry and underflow flags.",
       "status": "included",
+      "summary": "Floating-point packing classifies the exact exponent before narrowing and preserves rounding-carry and underflow flags.",
       "tests": [
         "tests/integration/test_stdlib_coherence.py::test_fp_round_pack_checks_exponent_before_narrowing",
         "tests/integration/test_stdlib_coherence.py::test_fp_round_pack_classifies_carry_after_rounding"
@@ -1882,6 +1959,172 @@
       "summary": "Diagnose foreign-clock predicates in nested rule branches before state lowering.",
       "tests": [
         "tests/integration/test_multi_clock_stateful.py::test_cross_domain_read_cannot_be_hidden_behind_an_inferred_local"
+      ]
+    },
+    {
+      "id": "ZL-113",
+      "source_paths": [
+        "tests/integration/test_a24_runtime_boundaries.py",
+        "zlang/backend/systemverilog/boundary.py",
+        "zlang/backend/systemverilog/cdc.py",
+        "zlang/backend/systemverilog/composed.py",
+        "zlang/backend/systemverilog/emitter.py",
+        "zlang/semantic/assignment_analysis.py",
+        "zlang/semantic/expression_control.py",
+        "zlang/semantic/hierarchy.py",
+        "zlang/semantic/module_hierarchy_analysis.py",
+        "zlang/simulation_hierarchy.py"
+      ],
+      "status": "included",
+      "summary": "Validate clock provenance through child bindings and preserve the full Direct-SV CDC port ABI, ordinary value drivers, and collision-free synchronizer names.",
+      "tests": [
+        "tests/integration/test_a24_runtime_boundaries.py::test_cdc_keeps_unused_named_port_and_protocol_abi",
+        "tests/integration/test_a24_runtime_boundaries.py::test_cdc_leaf_keeps_unused_named_child_input",
+        "tests/integration/test_a24_runtime_boundaries.py::test_cdc_private_signal_names_yield_to_source_ports",
+        "tests/integration/test_a24_runtime_boundaries.py::test_clocked_child_output_keeps_its_domain_through_a_pass",
+        "tests/integration/test_a24_runtime_boundaries.py::test_credit_send_in_child_binding_fails_at_the_source",
+        "tests/integration/test_a24_runtime_boundaries.py::test_explicit_synchronizer_domain_keeps_the_hierarchical_read_legal",
+        "tests/integration/test_a24_runtime_boundaries.py::test_hierarchical_clock_check_keeps_exact_bound_outputs",
+        "tests/integration/test_a24_runtime_boundaries.py::test_hierarchical_foreign_clock_is_rejected_at_its_use",
+        "tests/integration/test_a24_runtime_boundaries.py::test_local_expression_drives_both_outputs_beside_cdc",
+        "tests/integration/test_a24_runtime_boundaries.py::test_multiclock_delay_requires_a_single_domain_at_the_source"
+      ]
+    },
+    {
+      "id": "ZL-114",
+      "source_paths": [
+        "zlang/semantic/module_hardware.py"
+      ],
+      "status": "included",
+      "summary": "Diagnose a local request/response interface with ambiguous clock ownership at its declaration.",
+      "tests": [
+        "tests/integration/test_a24_runtime_boundaries.py::test_local_request_response_needs_one_owning_domain"
+      ]
+    },
+    {
+      "id": "ZL-115",
+      "source_paths": [
+        "zlang/backend/systemverilog/boundary.py",
+        "zlang/backend/systemverilog/csr.py",
+        "zlang/backend/systemverilog/expression.py",
+        "zlang/backend/systemverilog/rendering.py"
+      ],
+      "status": "included",
+      "summary": "Emit legal scalar projections and indexed writes for one-bit packed state in Direct SystemVerilog.",
+      "tests": [
+        "tests/integration/test_single_bit_vector_projection.py::test_single_bit_vector_projection_native_and_sv",
+        "tests/integration/test_single_bit_vector_projection.py::test_single_bit_vector_projection_universal_actual_rtl"
+      ]
+    },
+    {
+      "id": "ZL-116",
+      "source_paths": [
+        "zlang/backend/expression_constant_folding.py",
+        "zlang/ir/constants.py",
+        "zlang/ir/exact_simplification.py",
+        "zlang/ir/normalization.py",
+        "zlang/semantic/expression_operators.py",
+        "zlang/semantic/expression_ranges.py",
+        "zlang/verification_monitor.py"
+      ],
+      "status": "included",
+      "summary": "Preserve the unsigned count independently of data width and signedness during shift folding and range analysis.",
+      "tests": [
+        "tests/backend/test_expression_constant_folding.py::test_constant_folder_folds_bitwise_shift_and_compare",
+        "tests/integration/test_signed_right_shift_semantics.py::test_overshift_during_analysis_specialization_and_verification"
+      ]
+    },
+    {
+      "id": "ZL-117",
+      "source_paths": [
+        "zlang/ir/exact_simplification.py"
+      ],
+      "status": "included",
+      "summary": "Apply constant bitwise AND masks at the operation width, including narrow masks and signed extension.",
+      "tests": [
+        "tests/semantic/test_early_generic_simplification.py::test_constant_and_mask_is_extended_to_the_operation_width"
+      ]
+    },
+    {
+      "id": "ZL-118",
+      "source_paths": [
+        "zlang/backend/systemverilog/expression.py",
+        "zlang/backend/systemverilog/rendering.py"
+      ],
+      "status": "included",
+      "summary": "Evaluate vector indices at their declared expression width before addressing elements in Direct SystemVerilog.",
+      "tests": [
+        "tests/integration/test_runtime_index_expressions.py::test_runtime_vector_indices_keep_expression_width_on_reads_and_writes"
+      ]
+    },
+    {
+      "id": "ZL-119",
+      "source_paths": [
+        "zlang/semantic/state.py"
+      ],
+      "status": "included",
+      "summary": "Require priority for overlapping register-equality guards even when their constants have different widths.",
+      "tests": [
+        "tests/semantic/test_unified_state_storage.py::test_rule_conflicts_compare_register_values_across_guard_widths"
+      ]
+    },
+    {
+      "id": "ZL-120",
+      "source_paths": [
+        "zlang/ir/static_projection.py"
+      ],
+      "status": "included",
+      "summary": "Track zero padding and sign bits separately when checking RAM address feedback through an extension.",
+      "tests": [
+        "tests/semantic/test_hierarchical_async_memory_cycles.py::test_async_ram_address_depends_only_on_the_selected_extension_bits"
+      ]
+    },
+    {
+      "id": "ZL-121",
+      "source_paths": [
+        "zlang/ir/formal_predicate_generation.py",
+        "zlang/verification_bundle_codec.py",
+        "zlang/verification_publication_builder.py"
+      ],
+      "status": "included",
+      "summary": "Keep the full unsigned shift distance in formal properties and reject verification snapshots built with the previous lowering policy.",
+      "tests": [
+        "tests/integration/test_same_cycle_verification_formal.py::test_shift_in_requirement_keeps_the_failing_input_reachable",
+        "tests/integration/test_same_cycle_verification_formal.py::test_shift_property_preserves_the_full_unsigned_distance",
+        "tests/semantic/test_verification_result_cache.py::test_pre_shift_fix_bundle_is_refused_before_a_cached_proof"
+      ]
+    },
+    {
+      "id": "ZL-122",
+      "source_paths": [
+        "zlang/ir/formal_predicate_generation.py"
+      ],
+      "status": "included",
+      "summary": "Lower formal vector reads over the representable, range-proven selector interval.",
+      "tests": [
+        "tests/integration/test_same_cycle_verification_formal.py::test_real_solver_checks_range_proven_runtime_index"
+      ]
+    },
+    {
+      "id": "ZL-123",
+      "source_paths": [
+        "zlang/ir/static_projection.py"
+      ],
+      "status": "included",
+      "summary": "Trace RAM address dependencies through reshape and the selected materialized map element.",
+      "tests": [
+        "tests/semantic/test_hierarchical_async_memory_cycles.py::test_ram_address_follows_selected_reshape_or_map_lane"
+      ]
+    },
+    {
+      "id": "ZL-124",
+      "source_paths": [
+        "zlang/verification_monitor.py"
+      ],
+      "status": "included",
+      "summary": "Sample typed bitcasts and slices in VerificationMonitor and retain the assertion origin on failure.",
+      "tests": [
+        "tests/semantic/test_verification_monitor.py::test_monitor_samples_slices_and_bitcasts_with_source_attribution"
       ]
     }
   ],

@@ -170,6 +170,25 @@ def test_same_fifo_action_conflicts_require_existing_priority(operation: str) ->
     assert cubes
 
 
+def test_rule_conflicts_compare_register_values_across_guard_widths() -> None:
+    header = """module Top {
+        clock clk reset rst in v:bits<2> out reg y:u2=0
+        reg sel:bits<2>=0 sel <- v
+    """
+    first = "rule a when sel == zeros<2> { y <- 1 } "
+    second = "rule b when zeros<4> == sel { y <- 2 } "
+    for rules in (first + second, second + first):
+        with pytest.raises(SemanticError, match="conflicting state actions; add explicit priority"):
+            analyze(parse(header + rules + "}"))
+        prioritized = analyze(parse(header + rules + "priority b > a }"))
+        trace = simulate_cycles(prioritized, [{"v": 0}] * 3, reset=[True, False, False])
+        assert trace[-1] == {"y": 2}
+
+    distinct = analyze(parse(header + first + second.replace("zeros<4>", "ones<2>") + "}"))
+    trace = simulate_cycles(distinct, [{"v": 3}] * 4, reset=[True, False, False, False])
+    assert [row["y"] for row in trace] == [0, 0, 1, 2]
+
+
 def test_depth_independent_scheduler_regions_match_exact_selection() -> None:
     module = analyze(parse("""module DeepScheduler {
       clock clk reset rst in push:bit in pop:bit in value:u8 out count:u6

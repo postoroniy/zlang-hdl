@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from zlang.compiler import compile_source
+
 from zlang.ir.expressions import (
     Binary,
     BinaryOperator,
@@ -298,3 +300,27 @@ def test_multi_domain_module_scopes_are_sampled_by_explicit_clock() -> None:
     assert sampled.active_scope_ids == (left.semantic_id,)
     assert [item.goal_name for item in sampled.cover_witnesses] == ["left"]
     assert [item.goal_name for item in monitor.cover_witnesses] == ["left"]
+
+
+def test_monitor_samples_slices_and_bitcasts_with_source_attribution() -> None:
+    compilation = compile_source("""
+        module Sample {
+            clock clk reset rst in x:s4 in expected:s2 in lanes:vec<2,u2> out low:bit
+            low=x[0]
+            assert agrees { low == x[0] }
+            assert signed_high { bitcast<s2>(x[3:2]) == expected }
+            assert layout { bitcast<bits<4>>(lanes) == bitcast<bits<4>>(x) }
+        }
+    """, source_unit="sample.zhl")
+    monitor = VerificationMonitor(compilation.ir.verification_scopes, compilation.ir.functions)
+    values = {"x": -7, "expected": -2, "lanes": [1, 2], "low": 1}
+    assert monitor.sample(values, cycle=1).active_scope_ids
+    for change, goal in (
+        ({"low": 0}, "agrees"), ({"expected": 1}, "signed_high"), ({"lanes": [2, 1]}, "layout"),
+    ):
+        with pytest.raises(VerificationAssertionError) as error:
+            monitor.sample(values | change, cycle=7)
+        assert (error.value.goal_name, error.value.cycle) == (goal, 7)
+        assert error.value.source_origin.source_unit == "sample.zhl"
+    with pytest.raises(SimulationError, match=r"layout.*sample\.zhl"):
+        monitor.sample(values | {"lanes": [1]}, cycle=8)

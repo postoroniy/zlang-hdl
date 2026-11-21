@@ -44,7 +44,7 @@ def _csr_event_active_value(
     )
     if event.kind is ir_csr.CsrEventKind.WRITE:
         selected = sv_rendering._slice(
-            access.write_data_port, event.msb, event.lsb
+            access.write_data_port, event.msb, event.lsb, source_width=access.data_width
         )
         return f"({hit} ? {selected} : '0)"
     return hit
@@ -195,7 +195,7 @@ def _emit_csr(module: ir_module.Module, *, expose_internal_abi: bool = False) ->
             f"({access.write_port} && {access.address_port} == "
             f"32'h{address:08x})"
         )
-        incoming = sv_rendering._slice(access.write_data_port, field.msb, field.lsb)
+        incoming = sv_rendering._slice(access.write_data_port, field.msb, field.lsb, source_width=access.data_width)
         binding = field.binding
         if (
             field.access is ir_csr.CsrAccess.WRITE_ONE_TO_CLEAR
@@ -319,7 +319,7 @@ def _emit_csr(module: ir_module.Module, *, expose_internal_abi: bool = False) ->
                     f"  assign {ir_csr.csr_observation_write_hit_port_name(observation)} = "
                     f"{access.write_port} && {access.address_port} == 32'h{address:08x};",
                     f"  assign {ir_csr.csr_observation_write_value_port_name(observation)} = "
-                    f"{sv_rendering._slice(access.write_data_port, field.msb, field.lsb)};",
+                    f"{sv_rendering._slice(access.write_data_port, field.msb, field.lsb, source_width=access.data_width)};",
                     f"  assign {ir_csr.csr_observation_value_port_name(observation)} = "
                     f"{observed_value};",
                 ))

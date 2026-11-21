@@ -6,9 +6,11 @@ import subprocess
 
 import pytest
 
+from zlang import sim
 from zlang.backend.manifest import BackendArtifact, MANIFEST_VERSION
 from zlang.backend.systemverilog import emit_artifact as emit_sv_artifact
 from zlang.compiler import compile_source
+from zlang.simulation_compare import compare_program
 from zlang.equivalence import (
     artifact_hash,
     emit_miter_with_metadata,
@@ -90,8 +92,42 @@ def test_direct_sv_runtime_expression_index_simulates(tmp_path: Path) -> None:
     _run_verilator([rtl], tmp_path, "sv")
 
 
-
-
+def test_runtime_vector_indices_keep_expression_width_on_reads_and_writes(tmp_path: Path) -> None:
+    path = tmp_path / "indexed.zhl"
+    path.write_text("""
+        module Top {
+            clock clk reset rst in i:u2 in v:u8
+            out picked,switched,first:u8
+            out reg published:vec<8,u8>=repeat(0)
+            table:vec<8,u8>=[10,20,30,40,50,60,70,80]
+            reg lanes:vec<4,u8>=repeat(0)
+            rule write when 1 {
+                lanes[i << 1] <- v
+                published[i << 1] <- v
+            }
+            picked=table[i << 1]
+            switched=table[switch i { 0 => 0 else => i << 1 }]
+            first=lanes[0]
+        }
+    """)
+    events, expected = [], []
+    stored = [0] * 8
+    for cycle, index in enumerate((0, 2, 3, 0, 1)):
+        value = 7 + cycle
+        lane = (index << 1) & 3
+        if cycle:
+            stored[lane] = value
+        events.append({
+            "set": {"i": index, "v": value}, "reset": {"rst": cycle == 0}, "edges": ["clk"],
+        })
+        expected.append({
+            "picked": 10 * (lane + 1), "switched": 10 * (lane + 1), "first": stored[0],
+            "published": sum(byte << (8 * offset) for offset, byte in enumerate(stored)),
+        })
+    result = compare_program(
+        sim.compile(path), events, simulator="iverilog", artifact_directory=tmp_path / "icarus", timeout=30,
+    )
+    assert result.native_trace == result.rtl_trace == tuple(expected)
 
 
 def _semantic_equivalence_source(implementation: str):

@@ -15,6 +15,39 @@ from zlang.simulation_compare import compare_program
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_async_ram_address_depends_only_on_the_selected_extension_bits(tmp_path: Path) -> None:
+    path = tmp_path / "address.zhl"
+    source = """
+        module Top {
+            clock clk reset rst in hi,write_en:bit in addr,data:u2 out q:u2
+            memory m:mem<u2,4> {read_port r write_port w read_latency 0 collision read_first}
+            m.r.address=bitcast<u2>(extend<4>(VALUE)[3:2])
+            m.w.address=addr m.w.enable=write_en m.w.data=data q=m.r.read_data
+        }
+    """
+    for value, last in (
+        ("m.r.read_data", 1),
+        ("bitcast<s2>(concat(hi,m.r.read_data[0]))", 3),
+    ):
+        path.write_text(source.replace("VALUE", value))
+        cycles = ((0, 0, 0, 0), (0, 1, 0, 1), (0, 1, 3, 3), (1, 0, 0, 0))
+        events = [
+            {"set": {"hi": hi, "write_en": en, "addr": a, "data": d},
+             "reset": {"rst": i == 0}, "edges": ["clk"]}
+            for i, (hi, en, a, d) in enumerate(cycles)
+        ]
+        result = compare_program(sim.compile(path), events, simulator="iverilog", timeout=30)
+        assert result.native_trace == result.rtl_trace == tuple({"q": v} for v in (0, 1, 1, last))
+
+    for feedback in (
+        source.replace("VALUE", "m.r.read_data").replace("[3:2]", "[2:1]"),
+        source.replace("VALUE", "bitcast<s2>(m.r.read_data)"),
+    ):
+        with pytest.raises(SemanticError, match=r"combinational memory dependency cycle: m\.r\.read_data"):
+            compile_source(feedback)
+        compile_source(feedback.replace("read_latency 0", "read_latency 1"))
+
+
 def _memory_child(*, latency: int, collision: str) -> str:
     return f"""
 module AsyncMem {{
@@ -706,3 +739,33 @@ module Top {{
 }}
 """, (0, 211, 211, 0) if observation == "valid" else None,
                 {"rx": {"valid": 1, "payload": 0}})
+
+
+@pytest.mark.parametrize(("view", "address", "feedback"), [
+    ("rows:vec<2,vec<2,u1>>=reshape<vec<2,vec<2,u1>>>(flat)", "rows[1][0]", "rows[0][0]"),
+    ("rev:vec<4,u1>=map(i in 0..4) { flat[3-i] }", "rev[1]", "rev[3]"),
+])
+def test_ram_address_follows_selected_reshape_or_map_lane(tmp_path, view, address, feedback) -> None:
+    def source(index, latency):
+        return f"""
+            module Top {{
+                clock clk reset rst in hi,wa,wd:u1 in we:bit out q:u1
+                memory m:mem<u1,2> {{ read_port r write_port w read_latency {latency} collision read_first }}
+                flat:vec<4,u1>=[m.r.read_data,0,hi,0]
+                {view}
+                m.r.address={index} m.w.address=wa m.w.enable=we m.w.data=wd q=m.r.read_data
+            }}
+        """
+
+    with pytest.raises(SemanticError, match=r"combinational memory dependency cycle: m\.r\.read_data"):
+        compile_source(source(feedback, 0))
+    cycles = ((0, 0, 0, 0), (0, 1, 0, 1), (1, 1, 1, 0), (0, 0, 0, 0), (1, 0, 0, 0))
+    events = [
+        {"set": {"hi": hi, "we": we, "wa": wa, "wd": wd}, "reset": {"rst": k == 0}, "edges": ["clk"]}
+        for k, (hi, we, wa, wd) in enumerate(cycles)
+    ]
+    path = tmp_path / "Top.zhl"
+    for index, latency, expected in ((address, 0, (0, 1, 0, 1, 0)), (feedback, 1, (0, 0, 1, 0, 1))):
+        path.write_text(source(index, latency))
+        result = compare_program(sim.compile(path), events, simulator="iverilog", timeout=30, build_timeout=30)
+        assert result.native_trace == result.rtl_trace == tuple({"q": value} for value in expected)

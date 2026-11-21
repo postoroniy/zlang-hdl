@@ -501,6 +501,16 @@ class HardwareInterfacePreparer:
         request_responses: list[ir_module.RequestResponseInterface] = []
         request_response_symbols: dict[str, ir_module.RequestResponseInterface] = {}
         for declaration in module.request_responses:
+            if len(clock_domains) > 1:
+                raise SemanticError(
+                    f"request/response interface '{declaration.name}' requires one owning "
+                    "clock and reset in its declaring module",
+                    code="ZL-DOMAIN-CROSSING",
+                    primary=observations.declaration_origin(
+                        declaration.origin, "request/response declaration", pure_context
+                    ),
+                    fixes=("declare the interface inside a single-clock child module",),
+                )
             if declaration.name in symbols or declaration.name in request_response_symbols:
                 raise SemanticError(
                     f"duplicate interface or port '{declaration.name}'",

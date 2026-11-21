@@ -12,6 +12,8 @@ from dataclasses import replace
 
 from zlang.async_fifo import FifoLogic, build_async_fifo_physical_plan
 from zlang.common import stable_digest
+from zlang.handshake_cdc import build_handshake_cdc_plan
+from zlang.scalar_cdc import build_scalar_cdc_plan
 from zlang.ir import expressions as expr
 from zlang.ir.cdc import CrossingKind
 from zlang.ir.interfaces import InterfaceProtocol, ReadyValidSignal
@@ -31,26 +33,6 @@ def _xor(left: expr.Expression, right: expr.Expression) -> expr.Expression:
         right,
         left.type,
         left.type,
-    )
-
-
-def _and(left: expr.Expression, right: expr.Expression) -> expr.Expression:
-    return expr.Binary(
-        expr.BinaryOperator.BIT_AND,
-        left,
-        right,
-        left.type,
-        left.type,
-    )
-
-
-def _equal(left: expr.Expression, right: expr.Expression) -> expr.Expression:
-    return expr.Binary(
-        expr.BinaryOperator.EQUAL,
-        left,
-        right,
-        left.type,
-        BitType(),
     )
 
 
@@ -76,6 +58,12 @@ def _prefix(module: Module, connection: Connection) -> str:
         }
     )
     return f"$zlang_cdc_{identity[:16]}"
+
+
+def pulse_toggle_observation_names(module: Module, connection: Connection) -> tuple[str, str]:
+    """Primitive register names for the transmitted and received phase bits."""
+    prefix = _prefix(module, connection)
+    return f"{prefix}:source_toggle", f"{prefix}:sync2"
 
 
 def _reset(module: Module, clock: str) -> expr.InputRef:
@@ -107,139 +95,32 @@ def _validate_connection(connection: Connection) -> None:
         )
 
 
-def _lower_sync_level(
-    _module: Module, connection: Connection, prefix: str
+def _lower_scalar(
+    module: Module, connection: Connection, prefix: str
 ) -> tuple[list[Register], list[NextAssignment], list[Assignment], list[object]]:
-    source, destination = connection.source, connection.destination
-    if (
-        source.protocol is not InterfaceProtocol.WIRE
-        or destination.protocol is not InterfaceProtocol.WIRE
-        or source.type != BitType()
-    ):
-        raise CdcSimulationLoweringError("sync_level requires matching bit wires")
-    stage1 = _register(f"{prefix}:stage1", BitType(), destination.domain or "")
-    stage2 = _register(f"{prefix}:stage2", BitType(), destination.domain or "")
-    return (
-        [stage1, stage2],
-        [
-            NextAssignment(stage1, expr.InputRef(source.name, source.type)),
-            NextAssignment(stage2, expr.RegisterRef(stage1.name, stage1.type)),
-        ],
-        [Assignment(destination, expr.RegisterRef(stage2.name, stage2.type))],
-        [],
-    )
-
-
-def _lower_pulse_toggle(
-    _module: Module, connection: Connection, prefix: str
-) -> tuple[list[Register], list[NextAssignment], list[Assignment], list[object]]:
-    source, destination = connection.source, connection.destination
-    if (
-        source.protocol is not InterfaceProtocol.WIRE
-        or destination.protocol is not InterfaceProtocol.WIRE
-        or source.type != BitType()
-    ):
-        raise CdcSimulationLoweringError("pulse_toggle requires matching bit wires")
-    source_toggle = _register(
-        f"{prefix}:source_toggle", BitType(), source.domain or ""
-    )
-    sync1 = _register(f"{prefix}:sync1", BitType(), destination.domain or "")
-    sync2 = _register(f"{prefix}:sync2", BitType(), destination.domain or "")
-    previous = _register(f"{prefix}:previous", BitType(), destination.domain or "")
-    source_ref = expr.InputRef(source.name, source.type)
-    toggle_ref = expr.RegisterRef(source_toggle.name, source_toggle.type)
-    sync1_ref = expr.RegisterRef(sync1.name, sync1.type)
-    sync2_ref = expr.RegisterRef(sync2.name, sync2.type)
-    previous_ref = expr.RegisterRef(previous.name, previous.type)
-    return (
-        [source_toggle, sync1, sync2, previous],
-        [
-            NextAssignment(
-                source_toggle,
-                expr.Mux(source_ref, _not(toggle_ref), toggle_ref, BitType()),
-            ),
-            NextAssignment(sync1, toggle_ref),
-            NextAssignment(sync2, sync1_ref),
-            NextAssignment(previous, sync2_ref),
-        ],
-        [Assignment(destination, _xor(sync2_ref, previous_ref))],
-        [],
-    )
+    domains = {domain.clock: domain for domain in module.clock_domains}
+    try:
+        plan = build_scalar_cdc_plan(
+            connection, domains[connection.source.domain], domains[connection.destination.domain],
+            state_prefix=f"{prefix}:",
+        )
+    except (KeyError, ValueError) as error:
+        raise CdcSimulationLoweringError(str(error)) from error
+    return [item.target for item in plan.updates], list(plan.updates), [plan.output], []
 
 
 def _lower_handshake(
     module: Module, connection: Connection, prefix: str
 ) -> tuple[list[Register], list[NextAssignment], list[Assignment], list[object]]:
-    source, destination = connection.source, connection.destination
-    if (
-        source.protocol is not InterfaceProtocol.READY_VALID
-        or destination.protocol is not InterfaceProtocol.READY_VALID
-    ):
-        raise CdcSimulationLoweringError(
-            "handshake requires matching ready/valid endpoints"
+    domains = {domain.clock: domain for domain in module.clock_domains}
+    try:
+        plan = build_handshake_cdc_plan(
+            connection, domains[connection.source.domain], domains[connection.destination.domain],
+            state_prefix=f"{prefix}:",
         )
-    source_domain = source.domain or ""
-    destination_domain = destination.domain or ""
-    held = _register(f"{prefix}:held", source.type, source_domain)
-    request = _register(f"{prefix}:request", BitType(), source_domain)
-    ack_sync1 = _register(f"{prefix}:ack_sync1", BitType(), source_domain)
-    ack_sync2 = _register(f"{prefix}:ack_sync2", BitType(), source_domain)
-    request_sync1 = _register(
-        f"{prefix}:request_sync1", BitType(), destination_domain
-    )
-    request_sync2 = _register(
-        f"{prefix}:request_sync2", BitType(), destination_domain
-    )
-    acknowledge = _register(f"{prefix}:acknowledge", BitType(), destination_domain)
-    held_ref = expr.RegisterRef(held.name, held.type)
-    request_ref = expr.RegisterRef(request.name, request.type)
-    ack1_ref = expr.RegisterRef(ack_sync1.name, ack_sync1.type)
-    ack2_ref = expr.RegisterRef(ack_sync2.name, ack_sync2.type)
-    request1_ref = expr.RegisterRef(request_sync1.name, request_sync1.type)
-    request2_ref = expr.RegisterRef(request_sync2.name, request_sync2.type)
-    acknowledge_ref = expr.RegisterRef(acknowledge.name, acknowledge.type)
-    source_transfer = expr.ReadyValidRef(
-        source.name, ReadyValidSignal.TRANSFER, BitType()
-    )
-    destination_transfer = expr.ReadyValidRef(
-        destination.name, ReadyValidSignal.TRANSFER, BitType()
-    )
-    source_ready = _and(
-        _not(_reset(module, source_domain)), _equal(request_ref, ack2_ref)
-    )
-    destination_valid = _and(
-        _not(_reset(module, destination_domain)), _not(_equal(request2_ref, acknowledge_ref))
-    )
-    return (
-        [
-            held,
-            request,
-            ack_sync1,
-            ack_sync2,
-            request_sync1,
-            request_sync2,
-            acknowledge,
-        ],
-        [
-            NextAssignment(ack_sync1, acknowledge_ref),
-            NextAssignment(ack_sync2, ack1_ref),
-            NextAssignment(
-                held,
-                expr.ReadyValidRef(source.name, ReadyValidSignal.PAYLOAD, source.type),
-                source_transfer,
-            ),
-            NextAssignment(request, _not(request_ref), source_transfer),
-            NextAssignment(request_sync1, request_ref),
-            NextAssignment(request_sync2, request1_ref),
-            NextAssignment(acknowledge, request2_ref, destination_transfer),
-        ],
-        [
-            Assignment(source, source_ready, ReadyValidSignal.READY),
-            Assignment(destination, held_ref, ReadyValidSignal.PAYLOAD),
-            Assignment(destination, destination_valid, ReadyValidSignal.VALID),
-        ],
-        [],
-    )
+    except (KeyError, ValueError) as error:
+        raise CdcSimulationLoweringError(str(error)) from error
+    return list(plan.registers), list(plan.updates), list(plan.outputs), []
 
 
 def _fifo_logic_expression(
@@ -430,8 +311,8 @@ def lower_cdc_module(module: Module) -> Module:
         crossing = connection.crossing
         assert crossing is not None
         lowerer = {
-            CrossingKind.SYNC_LEVEL: _lower_sync_level,
-            CrossingKind.PULSE_TOGGLE: _lower_pulse_toggle,
+            CrossingKind.SYNC_LEVEL: _lower_scalar,
+            CrossingKind.PULSE_TOGGLE: _lower_scalar,
             CrossingKind.HANDSHAKE: _lower_handshake,
             CrossingKind.ASYNC_FIFO: _lower_async_fifo,
         }[crossing.kind]

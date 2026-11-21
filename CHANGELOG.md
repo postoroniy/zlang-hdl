@@ -11,8 +11,36 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a24 — 2026-11-19
+## 0.1.0a24 — 2026-11-21
 
+- Preserve the full unsigned shift distance in source verification properties. Regenerate verification bundles with IR snapshots v4 or earlier from source before replay. The new snapshot identity forces a fresh result even when using an existing cache (ZL-121).
+- Allow narrow, range-proven vector selectors in source verification properties (ZL-122).
+- Follow the selected lane of a reshaped or mapped vector when checking RAM address feedback (ZL-123).
+- Sample bit slices and representation casts in `VerificationMonitor`, including the source location and cycle of a failed assertion (ZL-124).
+
+- Apply constant bitwise AND masks at the operation width, including narrow masks and signed extension (ZL-117).
+- Evaluate vector indices at their declared expression width before addressing elements in Direct SystemVerilog (ZL-118).
+- Require priority for overlapping register-equality guards even when their constants have different widths (ZL-119).
+- Track zero padding and sign bits separately when checking RAM address feedback through an extension (ZL-120).
+- Execute shifts with multi-limb unsigned counts in binary and four-state simulation (SIM-020).
+- Emit legal scalar projections and indexed writes for one-bit packed state in Direct SystemVerilog (ZL-115).
+- Preserve the unsigned count independently of data width and signedness during shift folding and range analysis (ZL-116).
+- Validate pulse spacing across clocked reset and synchronized release (SIM-019).
+- Diagnose ambiguous local request/response clock ownership at the declaration (ZL-114).
+- Match native scalar CDC outputs to RTL when destination reset is asserted
+  between edges. A short synchronous reset masks the output while preserving
+  the stored synchronizer state until an active edge (SIM-018).
+- Diagnose implicit clock crossings through actual child bindings and selected
+  output bits, including registered and synchronous memory outputs. Preserve
+  an explicit `sync_level` when it feeds a child in the same module. Direct-SV
+  retains ordinary value drivers and all declared CDC ports, and allocates
+  synchronizer names around source names. Report unsupported multi-clock
+  `delay<N>` and credit-field child bindings at the source (ZL-113).
+- Prepare all native protocol input fields before writing any of them (SIM-015).
+- Execute lazy simulation events in order, preserving the applied prefix if
+  iteration fails (SIM-016).
+- Compare tagged-union request and response outputs using their packed ABI
+  values (SIM-017).
 - Reject AXI burst commands that cross a 4 KiB boundary or exceed the
   address width before issuing AR or AW (BUS-012).
 - Validate native event inputs, resets and edges before applying an event

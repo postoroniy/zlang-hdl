@@ -19,8 +19,10 @@ from zlang import source as source
 
 VERIFICATION_BUNDLE_SCHEMA = "zlang-verification-bundle-v5"
 VERIFICATION_BUNDLE_SCHEMA_VERSION = 5
-VERIFICATION_IR_SCHEMA = "zlang-verification-ir-snapshot-v4"
-VERIFICATION_IR_SCHEMA_VERSION = 4
+# v4 harnesses could already have discarded high bits of a shift distance.
+# The snapshot identity is part of the immutable bundle and its result-cache key.
+VERIFICATION_IR_SCHEMA = "zlang-verification-ir-snapshot-v5"
+VERIFICATION_IR_SCHEMA_VERSION = 5
 VERIFICATION_RUN_REPORT_SCHEMA = "zlang-verification-run-report-v9"
 VERIFICATION_RUN_REPORT_SCHEMA_VERSION = 9
 VERIFICATION_RESULT_CACHE_SCHEMA = "zlang-verification-result-cache-v4"
@@ -992,7 +994,9 @@ def _validate_verification_ir(data: object) -> dict[str, object]:
     )
     _require_exact_keys(data, required=keys, description="verification IR snapshot")
     if data["schema"] != VERIFICATION_IR_SCHEMA:
-        raise VerificationBundleError("unsupported verification IR schema")
+        raise VerificationBundleError(
+            "unsupported verification IR schema; regenerate the verification bundle from source"
+        )
     if data["schema_version"] != VERIFICATION_IR_SCHEMA_VERSION:
         raise VerificationBundleError("unsupported verification IR schema version")
     top = _require_string(data["top"], "verification IR top")

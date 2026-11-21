@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from zlang.ast import nodes as ast
 from zlang.ir import expressions as ir_expr
+from zlang.ir.constants import constant_shift
 from zlang.ir import numeric as ir_numeric
 from zlang.ir import runtime_values
 from zlang.ir import types as ir_types
@@ -442,10 +443,8 @@ def _evaluate_constant_binary(
         value = left | right
     elif operator is ir_expr.BinaryOperator.BIT_XOR:
         value = left ^ right
-    elif operator is ir_expr.BinaryOperator.SHIFT_LEFT:
-        value = left << right
-    elif operator is ir_expr.BinaryOperator.SHIFT_RIGHT:
-        value = left >> right
+    elif operator in {ir_expr.BinaryOperator.SHIFT_LEFT, ir_expr.BinaryOperator.SHIFT_RIGHT}:
+        value = constant_shift(operator, left, right, result_type.width)
     elif operator is ir_expr.BinaryOperator.EQUAL:
         return int(left == right)
     elif operator is ir_expr.BinaryOperator.NOT_EQUAL:

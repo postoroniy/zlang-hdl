@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 import hashlib
 
 from zlang.ir import expressions as expr
+from zlang.ir.cdc import CrossingKind
 from zlang.ir import interfaces as ir_interfaces
 from zlang.ir import module as ir_module
 from zlang.ir.normalization import normalize_selected_values
@@ -496,7 +497,9 @@ def _emit_packed(
         ),
         None,
     )
-    if crossing is not None:
+    if crossing is not None and (
+        crossing.kind is not CrossingKind.SYNC_LEVEL or not module.elaborated_instances
+    ):
         sv_accounting.account_emission_plan(
             module,
             "cdc",
@@ -508,7 +511,7 @@ def _emit_packed(
             *sv_accounting.STATE_GROUPS,
         )
         with emission_context.top_boundary_scope(top_boundary):
-            body = sv_cdc.emit_cdc_module(module, _cdc_rendering(module))
+            body = sv_cdc.emit_cdc_module(module, _cdc_rendering())
         return "`default_nettype none\n" + body + "`default_nettype wire\n"
     if any(connection.adapter is not None for connection in module.connections):
         sv_accounting.account_emission_plan(
@@ -734,40 +737,21 @@ def _composed_rendering(
 
 
 def _emit_composed_cdc_child(module: ir_module.Module) -> str:
-    return sv_cdc.emit_cdc_module(module, _cdc_rendering(module))
+    return sv_cdc.emit_cdc_module(module, _cdc_rendering())
 
 
 def _cdc_rendering(
-    module: ir_module.Module | None = None, *, ram_style: str | None = None,
+    *, ram_style: str | None = None,
 ) -> sv_cdc.CDCRendering:
     def emit_module(
         typed_module: ir_module.Module,
-        ports: list[str],
         lines: list[str],
     ) -> str:
-        if module is None or not (
-            typed_module.registers
-            or typed_module.next_assignments
-            or typed_module.rules
-            or typed_module.assignments
-        ):
-            return sv_module_rendering._module(typed_module, ports, lines)
-
-        crossing = next(
-            item for item in typed_module.connections
-            if item.crossing is not None
+        connection = next(item for item in typed_module.connections if item.crossing is not None)
+        ports = sv_boundary._physical_port_declarations(
+            typed_module, cdc_endpoints=(connection.source.name, connection.destination.name)
         )
-        endpoint_names = {
-            crossing.source.name,
-            crossing.destination.name,
-        }
-        extra_ports = [
-            sv_boundary._port_declaration(port)
-            for port in typed_module.ports
-            if port.name not in endpoint_names
-            and port.protocol is ir_interfaces.InterfaceProtocol.WIRE
-        ]
-        declarations, _assignments, render = (
+        declarations, value_lines, render = (
             sv_materialized._materialized_emission(typed_module)
         )
         state_lines: list[str] = []
@@ -786,14 +770,21 @@ def _cdc_rendering(
             )
         return sv_module_rendering._module(
             typed_module,
-            [*ports, *extra_ports],
-            [*declarations, *lines, *state_lines],
+            ports,
+            [*declarations, *value_lines, *lines, *state_lines],
         )
 
     return sv_cdc.CDCRendering(
         emit_module,
-        lambda typed_module, memory: sv_state._ported_memory_fragments(
-            typed_module, memory, sv_expression._expression, ram_style=ram_style
+        lambda typed_module, memory, wires: sv_state._ported_memory_fragments(
+            typed_module,
+            memory,
+            lambda value: (
+                wires[value.name]
+                if isinstance(value, expr.InputRef) and value.name in wires
+                else sv_expression._expression(value)
+            ),
+            ram_style=ram_style,
         ),
     )
 
@@ -803,7 +794,7 @@ def _emit_target_async_fifo(module: ir_module.Module) -> str:
 
     return (
         "`default_nettype none\n"
-        + sv_cdc.emit_cdc_module(module, _cdc_rendering(module, ram_style="block"))
+        + sv_cdc.emit_cdc_module(module, _cdc_rendering(ram_style="block"))
         + "`default_nettype wire\n"
     )
 

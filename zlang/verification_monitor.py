@@ -6,6 +6,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from zlang.ir import expressions as expr
+from zlang.ir import packing
+from zlang.ir.constants import constant_shift
 from zlang.ir.interfaces import ReadyValidSignal
 from zlang.ir.module import Function
 from zlang.ir.runtime_values import RuntimeValueError, normalize_scalar
@@ -86,10 +88,8 @@ def _evaluate(
             value = left | right
         elif expression.operator is expr.BinaryOperator.BIT_XOR:
             value = left ^ right
-        elif expression.operator is expr.BinaryOperator.SHIFT_LEFT:
-            value = left << right
-        elif expression.operator is expr.BinaryOperator.SHIFT_RIGHT:
-            value = left >> right
+        elif expression.operator in {expr.BinaryOperator.SHIFT_LEFT, expr.BinaryOperator.SHIFT_RIGHT}:
+            value = constant_shift(expression.operator, left, right, expression.type.width)
         else:  # pragma: no cover - closed enum
             raise SimulationError(
                 f"unsupported verification operator {expression.operator.value}"
@@ -98,6 +98,14 @@ def _evaluate(
             return normalize_scalar(value, expression.type)
         except RuntimeValueError as error:
             raise SimulationError(str(error)) from error
+    if isinstance(expression, (expr.Slice, expr.Bitcast)):
+        source = expression.expression
+        raw = packing.pack_runtime(source.type, _evaluate(source, values, functions))
+        if isinstance(expression, expr.Slice):
+            raw = packing.slice_runtime(raw, source.type.width, expression.msb, expression.lsb)
+        elif source.type.width != expression.type.width:
+            raise SimulationError("bitcast requires equal packed widths")
+        return packing.unpack_runtime(expression.type, raw)
     if isinstance(expression, expr.Extend):
         return _evaluate(expression.expression, values, functions)
     if isinstance(expression, expr.Truncate):
@@ -264,7 +272,7 @@ class VerificationMonitor:
                 f"verification {label} cannot be sampled: missing value "
                 f"'{error.args[0]}'{verification_origin_text(origin)}"
             ) from error
-        except SimulationError as error:
+        except (SimulationError, packing.PackingError) as error:
             raise SimulationError(
                 f"verification {label} cannot be sampled: {error}"
                 f"{verification_origin_text(origin)}"

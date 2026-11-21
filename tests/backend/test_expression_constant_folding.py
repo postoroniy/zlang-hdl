@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from zlang.backend.expression_constant_folding import BackendConstantFolder
+from zlang.compiler import compile_source
 from zlang.ir import expressions as expr
 from zlang.ir.types import (
     BitsType,
@@ -63,6 +64,15 @@ def test_constant_folder_folds_bitwise_shift_and_compare() -> None:
     ))
     assert isinstance(shifted, expr.Constant)
     assert shifted.value == 0b1001_1000
+
+    for count, expected in ((3, 8), (16, 0), (17, 0), (1 << 64, 0)):
+        source = f"module Top {{in a:u4 out y:u4 y=((a & 0) | 1) << {count}}}"
+        expression = compile_source(source).ir.assignments[0].expression
+        assert _fold(expression).value == expected
+    for op, expected in ((expr.BinaryOperator.SHIFT_LEFT, 0), (expr.BinaryOperator.SHIFT_RIGHT, -1)):
+        signed = SIntType(4)
+        expression = expr.Binary(op, expr.Constant(-2, signed), _constant(8, 4), signed, signed)
+        assert _fold(expression).value == expected
 
     signed_less = _fold(expr.Binary(
         expr.BinaryOperator.LESS,

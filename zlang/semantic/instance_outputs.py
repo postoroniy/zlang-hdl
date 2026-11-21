@@ -77,18 +77,10 @@ def publish_child_input_observations(
     do not alias the producer's pre-buffer value to the consumer's input.
     """
     from . import observations
+    from .connection_endpoints import endpoint_reference
 
     bit = ir_types.BitType()
     wired_inputs: set[tuple[str, str]] = set()
-
-    def value(endpoint, field):
-        type_ = endpoint.payload_type if field is ir_interfaces.ReadyValidSignal.PAYLOAD else bit
-        if endpoint.owner == module.name:
-            return ir_expr.ReadyValidRef(endpoint.name, field, type_)
-        return ir_expr.InstanceOutputRef(
-            endpoint.owner, ir_interfaces.ready_valid_field_name(endpoint.name, field),
-            type_, domain=endpoint.domain,
-        )
 
     def publish(owner, physical, field, expression):
         if owner == module.name:
@@ -111,9 +103,9 @@ def publish_child_input_observations(
                 or edge.crossing is not None):
             continue
         for field in (ir_interfaces.ReadyValidSignal.PAYLOAD, ir_interfaces.ReadyValidSignal.VALID):
-            publish(edge.destination.owner, edge.destination.name, field, value(edge.source, field))
+            publish(edge.destination.owner, edge.destination.name, field, endpoint_reference(module.name, edge.source, field))
         publish(edge.source.owner, edge.source.name, ir_interfaces.ReadyValidSignal.READY,
-                value(edge.destination, ir_interfaces.ReadyValidSignal.READY))
+                endpoint_reference(module.name, edge.destination, ir_interfaces.ReadyValidSignal.READY))
 
     for edge in connections.aggregate_protocol_connections:
         if not edge.delegation:

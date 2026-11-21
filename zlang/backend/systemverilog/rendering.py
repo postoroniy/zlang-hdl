@@ -16,6 +16,19 @@ from zlang.backend.systemverilog import context as emission_context
 
 from zlang.backend.systemverilog.errors import SystemVerilogEmissionError
 
+
+def _render_vector_index(
+    index: expr.Expression, render: Callable[[expr.Expression], str],
+) -> str:
+    """Evaluate a runtime index at its IR width before SV sizes the address."""
+    rendered = render(index)
+    if isinstance(index, (expr.InputRef, expr.RegisterRef, expr.ParameterRef,
+                          expr.Constant, expr.Truncate, expr.FunctionalValue)):
+        # These render as a declared signal, a sized literal or an exact width cast.
+        return rendered
+    return f"{index.type.width}'({rendered})"
+
+
 def _scaled_packed_index(rendered_index: str, element_width: int) -> str:
     """Render exact bit scaling without a multiplier for power-of-two widths."""
 
@@ -32,12 +45,15 @@ def _packed_indexed_slice(
     index: str,
     element_width: int,
     *,
+    source_width: int,
     field_lsb: int = 0,
     width: int | None = None,
 ) -> str:
     """Render one indexed packed slice without materializing its element."""
 
     selected_width = element_width if width is None else width
+    if source_width == 1:
+        return f"(({index}) == 0 ? ({value}) : 1'bx)"
     base = _scaled_packed_index(index, element_width)
     if field_lsb:
         base = f"(({base}) + 32'd{field_lsb})"
@@ -109,6 +125,7 @@ def _register_update_statement(
             raise SystemVerilogEmissionError(
                 "vector register update requires a vector register"
             )
+        index = _render_vector_index(value.index, render)
         boundary = emission_context.current_top_boundary()
         if boundary is not None and boundary.is_direct_vector(register_name):
             # A public packed-array root is selected in elements, while
@@ -116,11 +133,16 @@ def _register_update_statement(
             # The typed action proves the active index is within this vector.
             index_width = max(1, (vector_type.length - 1).bit_length())
             return (
-                f"{target}[{index_width}'({render(value.index)})] <= "
+                f"{target}[{index_width}'({index})] <= "
                 f"{render(value.value)};"
             )
+        if vector_type.width == 1:
+            statement = f"{target} <= {render(value.value)};"
+            if isinstance(value.index, expr.Constant) and value.index.value == 0:
+                return statement
+            return f"begin if (({index}) == 0) {statement} end"
         element_width = _width(vector_type.element_type)
-        base = _scaled_packed_index(render(value.index), element_width)
+        base = _scaled_packed_index(index, element_width)
         return (
             f"{target}[{base} +: {element_width}] <= "
             f"{render(value.value)};"
@@ -136,7 +158,11 @@ def _width(type_: ir_types.HardwareType) -> int:
     return type_.width
 
 
-def _slice(value: str, msb: int, lsb: int) -> str:
+def _slice(value: str, msb: int, lsb: int, *, source_width: int) -> str:
+    # SV forbids even [0] on a scalar declaration. A wider source still
+    # needs its select when the requested field happens to be bit zero.
+    if source_width == 1 and msb == lsb == 0:
+        return value
     # A select may be applied directly to a named packed value, but constructs
     # such as a sized cast are not legal select bases in all supported
     # SystemVerilog front ends (for example ``7'($unsigned(x))[3]``).  Preserve
@@ -158,7 +184,7 @@ def _struct_field_expression(value: str, type_: ir_types.HardwareType, field: st
             f"struct '{type_.name}' has no field '{field}'"
         )
     lsb = ir_packing.struct_field_lsb(type_, field)
-    return _slice(value, lsb + _width(selected.type) - 1, lsb)
+    return _slice(value, lsb + _width(selected.type) - 1, lsb, source_width=type_.width)
 
 
 def _assignment_name(assignment: object) -> str:

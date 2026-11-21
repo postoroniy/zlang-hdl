@@ -64,6 +64,27 @@ class CdcBehaviorTests(unittest.TestCase):
                 [{SOURCE}, {SOURCE}],
             )
 
+    def test_pulse_spacing_uses_clocked_state_during_reset(self) -> None:
+        text = (ROOT / "examples/cdc_pulse.zhl").read_text()
+        both = {SOURCE, DESTINATION}
+        with self.assertRaisesRegex(ProtocolViolation, "before the previous pulse"):
+            simulate_cdc_steps(
+                compile_source(text).ir,
+                [{"pulse": value} for value in (0, 1, 0, 1)],
+                [both, {SOURCE}, set(), {SOURCE}],
+                [both, set(), both, set()],
+            )
+
+        # The first release edge still holds the async-reset source in reset.
+        conditioned = compile_source(text.replace("    reset ", "    async reset ")).ir
+        trace = simulate_cdc_steps(
+            conditioned,
+            [{"pulse": value} for value in (0, 1, 0, 1, 0, 0, 0, 0)],
+            [both, both, both, {SOURCE}, {DESTINATION}, {DESTINATION}, {DESTINATION}, set()],
+            [both] + [set()] * 7,
+        )
+        self.assertEqual([event["crossed_pulse"] for event in trace], [0, 0, 0, 0, 0, 0, 1, 0])
+
     def test_handshake_holds_payload_under_destination_backpressure(self) -> None:
         results = simulate_cdc_steps(
             compile_example("cdc_handshake.zhl"),

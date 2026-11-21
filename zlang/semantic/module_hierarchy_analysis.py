@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 
+from zlang.ir import expressions as ir_expr
 from zlang.ir import module as ir_module
 from zlang.ir import interfaces as ir_interfaces
 from .errors import SemanticError
@@ -30,6 +32,54 @@ _PROTOCOL_DEPENDENCY_VALIDATOR = ProtocolDependencyValidator()
 _HIERARCHY_DEPENDENCY_VALIDATOR = (
     semantic_hierarchy.HierarchyDependencyValidator()
 )
+
+
+def _hierarchy_clock_checks(
+    assignments: tuple[ir_module.Assignment, ...],
+    bindings: tuple[ir_module.InstancePortBinding, ...],
+    children: dict[str, ir_module.Module],
+    behavior: module_pipeline.ModuleBehaviorProduct,
+) -> Iterable[tuple[ir_expr.Expression, str | None, str]]:
+    for assignment in assignments:
+        if isinstance(assignment.target, ir_module.Port):
+            yield assignment.expression, assignment.target.domain, f"assignment to '{assignment.target.name}'"
+    for assignment in behavior.next_assignments:
+        yield assignment.expression, assignment.target.domain, f"next state for '{assignment.target.name}'"
+    for binding in bindings:
+        port = next((item for item in children[binding.instance].inputs if item.name == binding.port), None)
+        if port is not None:
+            yield binding.expression, port.domain, f"child input '{binding.instance}.{port.name}'"
+
+    for rule in behavior.rule_analysis.rules:
+        target = f"rule '{rule.name}'"
+        yield rule.guard, rule.domain, target
+        for effect in rule.actions:
+            yield effect.expression, rule.domain, target
+            if effect.activation is not None:
+                yield effect.activation, rule.domain, target
+        for _, _, operands, _, activation in behavior.rule_analysis.resource_actions[rule.name]:
+            for operand in operands:
+                yield operand, rule.domain, target
+            if activation is not None:
+                yield activation, rule.domain, target
+
+    for fifo in behavior.storage.fifos:
+        for expression in (fifo.data, fifo.push, fifo.pop):
+            if expression is not None:
+                yield expression, fifo.domain, f"FIFO '{fifo.name}'"
+    for memory in behavior.storage.memories:
+        expressions = (memory.read_address, memory.write_enable, memory.write_address,
+                       memory.write_data, memory.write_mask)
+        for expression in expressions:
+            if expression is not None:
+                yield expression, memory.domain, f"memory '{memory.name}'"
+        for port in memory.ports:
+            expressions = (port.address, port.read_enable, port.write_enable, port.write_data, port.write_mask)
+            for expression in expressions:
+                if expression is not None:
+                    yield expression, port.domain, f"memory port '{memory.name}.{port.name}'"
+    for rom in behavior.storage.roms:
+        yield rom.read_address, rom.domain, f"ROM '{rom.name}'"
 
 
 class ModuleHierarchyAnalyzer:
@@ -93,6 +143,14 @@ class ModuleHierarchyAnalyzer:
             request_response_connections=behavior.connections.request_response_connections,
             assignments=assignment_product.assignments,
             csr_output_paths=module_context.scope.instance_csr_state_paths,
+            clock_checks=_hierarchy_clock_checks(
+                assignment_product.assignments, assignment_product.instance_bindings,
+                child_irs, behavior,
+            ),
+            parent_ports=hardware.ports,
+            registers=state_storage.registers,
+            roms=behavior.storage.roms,
+            clock=hardware.clock,
             instance_origins={
                 item.name: observations.declaration_origin(
                     item.name_origin or item.origin, f"instance {item.name}", module_context,
@@ -175,7 +233,8 @@ class ModuleHierarchyAnalyzer:
             if mismatched:
                 raise SemanticError(
                     f"implicit clock-domain crossing in next state for "
-                    f"'{assignment.target.name}' is not allowed",
+                    f"'{assignment.target.name}' from '{min(mismatched)}' to "
+                    f"'{assignment.target.domain}' is not allowed",
                     code="ZL-DOMAIN-CROSSING",
                     primary=assignment.expression.origin,
                 )

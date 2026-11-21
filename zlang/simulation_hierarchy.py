@@ -587,6 +587,10 @@ def compose_hierarchical_primitive_payload(
                 (frame.parent_instance, name)
             ]
             return frame.parent, output_nodes[(frame.parent.path, private)]
+        if name in frame.boundary.original_outputs:
+            # Child binding expressions may read a driven output of this frame,
+            # including the destination of an explicit clock crossing.
+            return frame, output_nodes[(frame.path, name)]
         return None
 
     def origin_with_path(origin: object, frame: _Frame) -> object:

@@ -197,6 +197,12 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
         "SIM-012",
         "SIM-013",
         "SIM-014",
+        "SIM-015",
+        "SIM-016",
+        "SIM-017",
+        "SIM-018",
+        "SIM-019",
+        "SIM-020",
         "VSIX-001",
         "VSIX-002",
         "VSIX-003",
@@ -264,16 +270,28 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
             "ZL-110",
             "ZL-111",
             "ZL-112",
+            "ZL-113",
+            "ZL-114",
+            "ZL-115",
+            "ZL-116",
+            "ZL-117",
+            "ZL-118",
+            "ZL-119",
+            "ZL-120",
+            "ZL-121",
+            "ZL-122",
+            "ZL-123",
+            "ZL-124",
     ]
     assert report["dependency_floor"]["schema"] == 1
     assert report["dependency_floor"]["previous_ref"] == "v0.1.0a23"
     assert report["dependency_floor"]["compared"] > 0
     assert report["dependency_floor"]["downgrades"] == []
-    assert report["regressions"]["entries"] == 108
+    assert report["regressions"]["entries"] == 126
     assert report["regressions"]["dispositions"] == {
         "deferred": 0,
         "excluded_experiment": 0,
-        "included": 108,
+        "included": 126,
         "private_only": 0,
     }
     assert report["identities"]["release/regressions.json"] == hashlib.sha256(

@@ -22,6 +22,7 @@ from zlang.backend import identifiers
 from zlang.backend import module_features
 from zlang.backend import naming as naming
 from zlang.backend.systemverilog import boundary as sv_boundary
+from zlang.backend.systemverilog import cdc as sv_cdc
 from zlang.backend.systemverilog import context as emission_context
 from zlang.backend.systemverilog import csr as sv_csr
 from zlang.backend.systemverilog import feature_accounting as sv_accounting
@@ -355,6 +356,9 @@ def composed_component_identifier_claims(
 
     def claim(token: str, owner: str) -> None:
         claims.append((token, owner))
+
+    for token in sv_cdc.composed_crossing_names(module):
+        claim(token, f"explicit CDC synchronizer '{token}'")
 
     rr_edges = {
         id(edge): (descriptor, channel)
@@ -848,7 +852,7 @@ def _emit_composed_component(
     packed_range = sv_rendering._range
     ports = sv_boundary._physical_port_declarations(module)
     declarations: list[str] = []
-    logic: list[str] = []
+    logic = sv_cdc.composed_crossing_lines(module)
     connection_signals: dict[tuple[str, str, str], str] = {}
     fifo_helpers: list[tuple[str, int, int, bool, bool]] = []
 
