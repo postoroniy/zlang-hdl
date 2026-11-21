@@ -6,10 +6,12 @@ from pathlib import Path
 import re
 import subprocess
 import tomllib
+import xml.etree.ElementTree as ET
 
 import pytest
 import yaml
 
+from tools import run_deterministic_regression
 from tools.audit_workflow_structure import (
     codeql_version_failures, hosted_lane_contract_failures, protected_context_contract_failures,
 )
@@ -98,6 +100,7 @@ def test_makefile_owns_every_hosted_lane_entry_point() -> None:
     full_regression = text.split("ci-full-regression:", 1)[1].split(
         "\nci-performance-regression:", 1
     )[0]
+    assert "-m tools.run_deterministic_regression" in full_regression
     assert "-m tools.release_status check-junit" in full_regression
     assert '--junit "$(CI_JUNIT)"' in full_regression
     release_workflow = (ROOT / ".github/workflows/release.yml").read_text(
@@ -258,15 +261,38 @@ def test_bootstrap_isolates_external_release_tool_builds() -> None:
     assert "native-release-install" in native_runtime
 
 
-def test_split_suite_floor_runs_without_site_packages(tmp_path: Path) -> None:
+def test_split_suite_floor_runs_without_site_packages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     status_root = _status_root(tmp_path / "status-root")
     deterministic = tmp_path / "deterministic.xml"
     performance = tmp_path / "performance.xml"
-    deterministic.write_text(
-        '<testsuite tests="2"><testcase name="deterministic-a"/>'
-        '<testcase name="deterministic-b"/></testsuite>',
-        encoding="utf-8",
-    )
+    commands = []
+    raw_reports = []
+
+    def record_pytest(command):
+        assert "tools.pytest_no_skips" in command
+        isolated = not commands
+        case = command[-1] if isolated else command[command.index("--deselect") + 1]
+        assert command[command.index("-n") + 1] == ("0" if isolated else "4")
+        if not isolated:
+            assert case == commands[0][-1] and "--dist=loadscope" in command
+        commands.append(command)
+        raw = Path(command[command.index("--junitxml") + 1])
+        raw_reports.append(raw)
+        root = ET.Element("testsuites")
+        suite = ET.SubElement(root, "testsuite", tests="1", failures="0", errors="0", skipped="0", time="1")
+        module, name = case.split("::")
+        ET.SubElement(suite, "testcase", classname=module[:-3].replace("/", "."), name=name if isolated else "parallel")
+        ET.ElementTree(root).write(raw)
+        return subprocess.CompletedProcess(command, 0)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(subprocess, "run", record_pytest)
+        assert run_deterministic_regression.main(["--workers", "4", "--junit", str(deterministic)]) == 0
+    assert len(commands) == 2
+    with pytest.raises(ValueError, match="same testcase"):
+        run_deterministic_regression._publish_reports(raw_reports[:1] * 2, tmp_path / "duplicate.xml")
     _junit(performance, "performance")
 
     completed = subprocess.run(

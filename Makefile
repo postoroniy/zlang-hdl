@@ -324,10 +324,9 @@ ci-full-regression: community-boundary-check
 	mkdir -p "$(dir $(CI_JUNIT))"
 	export PATH="$(PYTHON_SCRIPTS):$$PATH"
 	$(call RUN_PYTHON,ci-full-status) -m tools.release_status check --root . --check-tools
-	$(call RUN_PYTHON,ci-full-regression) -m pytest -p tools.pytest_no_skips \
-		-n "$(WORKERS)" --dist=loadscope -q -m 'not performance' \
-		$(if $(CI_PYTEST_MAXFAIL),--maxfail="$(CI_PYTEST_MAXFAIL)") \
-		--junitxml="$(CI_JUNIT)"
+	$(call RUN_PYTHON,ci-full-regression) -m tools.run_deterministic_regression \
+		--workers "$(WORKERS)" --junit "$(CI_JUNIT)" \
+		$(if $(CI_PYTEST_MAXFAIL),--maxfail="$(CI_PYTEST_MAXFAIL)")
 	$(call RUN_PYTHON,ci-full-floor) -m tools.release_status check-junit \
 		--root . --junit "$(CI_JUNIT)"
 

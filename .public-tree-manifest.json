@@ -204,7 +204,7 @@
     {
       "mode": "0644",
       "path": "Makefile",
-      "sha256": "85e8f2db787cb5f09e2f428d4be9031bc76e15461126b2ea343305cfb3273613"
+      "sha256": "7f7bfaf65f2aa6c3c570e2bc6fac199f02bbb156313d7cf13b3bdf93520dfb0c"
     },
     {
       "mode": "0644",
@@ -4479,7 +4479,7 @@
     {
       "mode": "0664",
       "path": "tests/release/test_ci_contract.py",
-      "sha256": "1e89cd4cacdacbf80a079b55db2afe6b40d473618fc201e92b7a2eb5a784a49d"
+      "sha256": "7cf703f98d43d33f26db9a9fe68e3050ad177158960774dafb0c5161534474b1"
     },
     {
       "mode": "0644",
@@ -6200,6 +6200,11 @@
       "mode": "0644",
       "path": "tools/release_status.py",
       "sha256": "c4278a3ce0d34bac9214d8747e58409e9d0956ad5a789e62d66ede4e86c2d2d0"
+    },
+    {
+      "mode": "0644",
+      "path": "tools/run_deterministic_regression.py",
+      "sha256": "2a511c8b38238078218412efe1a2f0038b75dc1b712e22773b400d6bb30ea429"
     },
     {
       "mode": "0755",
