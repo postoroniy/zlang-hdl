@@ -13,6 +13,14 @@ incompatible input explicitly.
 
 ## 0.1.0a24 — 2026-11-21
 
+- Emit RAM and FIFO declarations before the expressions that read them.
+  Icarus now accepts a RAM address or FIFO control driven by a later storage
+  declaration, and shared reads keep their pre-edge register value (ZL-125).
+- Point to the missing policy on `quantize<T>`, the out-of-scope index in a
+  range expression, and the reset name when a hardware reset is read as data.
+  To include addition in an indexed sum, group its body. For `x=3`,
+  `sum(i in 0..2) x + 1` yields 7 and `sum(i in 0..2) { x + 1 }` yields 8 (ZL-126).
+
 - Preserve the full unsigned shift distance in source verification properties. Regenerate verification bundles with IR snapshots v4 or earlier from source before replay. The new snapshot identity forces a fresh result even when using an existing cache (ZL-121).
 - Allow narrow, range-proven vector selectors in source verification properties (ZL-122).
 - Follow the selected lane of a reshaped or mapped vector when checking RAM address feedback (ZL-123).

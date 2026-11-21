@@ -23,11 +23,26 @@ from . import symbols as semantic_symbols
 from . import type_resolution
 from .storage_symbols import FifoSymbol, MemorySymbol, RomSymbol
 from .errors import SemanticError
+from .expression_coercion import walk_syntax_expressions
 from .instance_outputs import resolve_child_protocol_input
 from .expression_support import _expand_immutable_locals, _try_resolve_instance_array_index
 
 if TYPE_CHECKING:
     from .context import ExpressionContext
+
+
+def _follows_range_body(expression: ast.Expression, reference: ast.NameExpr) -> bool:
+    if not isinstance(expression, (ast.AddExpr, ast.BinaryExpr)):
+        return False
+    binder = expression.left
+    while isinstance(binder, (ast.AddExpr, ast.BinaryExpr)):
+        binder = binder.left
+    return (
+        isinstance(binder, (ast.GenerateExpr, ast.MapExpr, ast.IndexedSumExpr))
+        and binder.index == reference.name
+        and any(node is reference for node in walk_syntax_expressions(expression.right))
+    )
+
 
 def _check_name_expression(
     expression: ast.Expression,
@@ -248,7 +263,15 @@ def _check_name_expression(
                         "that local both internally and for the output assignment",
                     ),
                 )
-            raise SemanticError(f"unknown input '{expression.name}'")
+            if expression.name in context.scope.module_resets:
+                raise SemanticError(
+                    f"'{expression.name}' is a hardware reset. Use a register initializer "
+                    "for its reset value or a separate input such as 'in clear:bit' for runtime control",
+                    primary=expression_origins.semantic_origin(expression, context),
+                )
+            raise SemanticError.unknown_input(
+                expression, expression_origins.semantic_origin(expression, context),
+            )
         if (
             isinstance(symbol, ir_module.Port)
             and symbol.direction is ir_module.PortDirection.OUTPUT

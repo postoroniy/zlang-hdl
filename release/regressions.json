@@ -2126,6 +2126,39 @@
       "tests": [
         "tests/semantic/test_verification_monitor.py::test_monitor_samples_slices_and_bitcasts_with_source_attribution"
       ]
+    },
+    {
+      "id": "ZL-125",
+      "source_paths": [
+        "zlang/backend/systemverilog/state.py",
+        "zlang/backend/systemverilog/storage.py"
+      ],
+      "status": "included",
+      "summary": "Declare Direct-SV storage signals before materialized reads, RAM address expressions and inter-FIFO controls. Preserve clocked capture and independent storage state.",
+      "tests": [
+        "tests/systemverilog/test_backend_correctness.py::test_two_global_fifos_preserve_independent_transactions",
+        "tests/systemverilog/test_memory_reset_policy.py::test_async_read_address_uses_a_later_ram",
+        "tests/systemverilog/test_memory_reset_policy.py::test_materialized_ram_read_preserves_pre_edge_capture"
+      ]
+    },
+    {
+      "id": "ZL-126",
+      "source_paths": [
+        "zlang/parser/parser.py",
+        "zlang/semantic/callables.py",
+        "zlang/semantic/context.py",
+        "zlang/semantic/errors.py",
+        "zlang/semantic/expression_names_members.py",
+        "zlang/semantic/expressions.py",
+        "zlang/semantic/module_state_storage.py"
+      ],
+      "status": "included",
+      "summary": "Locate a missing typed quantize policy, a range index used outside its body and a declared hardware reset used as a data value. Preserve diagnostic ownership across callable scopes.",
+      "tests": [
+        "tests/lsp/test_semantic_diagnostic_locations.py::test_semantic_error_points_to_its_source_after_unsaved_edits",
+        "tests/parser/test_fixed_point_quantize.py::test_missing_policy_hint_requires_a_completed_typed_quantize",
+        "tests/semantic/test_callable_lexical_indices.py::test_unknown_name_in_callee_keeps_its_own_diagnostic"
+      ]
     }
   ],
   "previous_tag": "v0.1.0a23",

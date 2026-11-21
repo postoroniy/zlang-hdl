@@ -282,16 +282,18 @@ def test_current_candidate_binds_release_sources_native_wheel_and_git(
             "ZL-122",
             "ZL-123",
             "ZL-124",
+            "ZL-125",
+            "ZL-126",
     ]
     assert report["dependency_floor"]["schema"] == 1
     assert report["dependency_floor"]["previous_ref"] == "v0.1.0a23"
     assert report["dependency_floor"]["compared"] > 0
     assert report["dependency_floor"]["downgrades"] == []
-    assert report["regressions"]["entries"] == 126
+    assert report["regressions"]["entries"] == 128
     assert report["regressions"]["dispositions"] == {
         "deferred": 0,
         "excluded_experiment": 0,
-        "included": 126,
+        "included": 128,
         "private_only": 0,
     }
     assert report["identities"]["release/regressions.json"] == hashlib.sha256(

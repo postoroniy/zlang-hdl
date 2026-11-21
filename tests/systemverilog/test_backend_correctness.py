@@ -94,8 +94,8 @@ module TwoFifos {
     in a_data:u8 in a_push:bit in a_pop:bit
     in b_data:u8 in b_push:bit in b_pop:bit in gate_b:bit
     out a_front:u8 out a_valid:bit out b_front:u8 out b_valid:bit
-    fifo first:fifo<u8,2>
     fifo second:fifo<u8,3>
+    fifo first:fifo<u8,2>
     first.data=a_data first.push=a_push first.pop=a_pop
     second.data=b_data second.push=b_push & (~gate_b | first.full) second.pop=b_pop
     a_front=first.front a_valid=first.valid

@@ -374,6 +374,7 @@ def _context_for_callable_body(
 
     selected = _context_for_source_declaration(context, source_unit)
     return selected.with_scope(
+        module_resets=(),
         # Caller loop names/refinements are lexical facts, not callee inputs.
         # Explicit generic values are bound before entering this scope; lifted
         # symbolic parameters are reintroduced by functional specialization.

@@ -152,6 +152,64 @@ def test_registered_preserve_profile_initializes_once_and_holds_on_reset() -> No
     assert "  always @(posedge clk) begin" in text
 
 
+@pytest.mark.parametrize("named", [False, True], ids=["global", "named"])
+def test_async_read_address_uses_a_later_ram(tmp_path: Path, named: bool) -> None:
+    ports = "read_port r write_port w" if named else ""
+    ra, rd, wa, we, wd = (
+        ("r.address", "r.data", "w.address", "w.enable", "w.data") if named else
+        ("read_address", "read_data", "write_address", "write_enable", "write_data")
+    )
+    policy = f"{ports} read_latency 0 collision read_first reset {{contents clear read_data clear}}"
+    source = tmp_path / "table_lookup.zhl"
+    source.write_text(f"""
+module Top {{
+    clock clk reset rst
+    in word:u136 in slot:u2 in write:bit in data:u8 out q:u8
+    memory values:mem<u8,4> {{ {policy} }}
+    memory selectors:mem<u136,4> {{ {policy} }}
+    values.{ra}=bitcast<u2>(selectors.{rd}[135:134])
+    values.{wa}=slot values.{we}=write values.{wd}=data
+    selectors.{ra}=0 selectors.{wa}=0 selectors.{we}=1 selectors.{wd}=word
+    q=values.{rd}
+}}
+""")
+    cycles = [(0, 0, 0, 0), (1, 1, 1, 53), (3, 3, 1, 166), (1, 0, 0, 0), (2, 0, 0, 0)]
+    events = [
+        {"reset": {"rst": i == 0}, "edges": ["clk"],
+         "set": {"word": (selector << 134) | 3, "slot": slot, "write": write, "data": data}}
+        for i, (selector, slot, write, data) in enumerate(cycles)
+    ]
+    result = compare_program(sim.compile(source), events, simulator="iverilog", timeout=15)
+    assert result.native_trace == result.rtl_trace == tuple({"q": n} for n in (0, 53, 166, 53, 0))
+
+
+@pytest.mark.parametrize("child", [False, True], ids=["standalone", "composed"])
+def test_materialized_ram_read_preserves_pre_edge_capture(tmp_path: Path, child: bool) -> None:
+    prefix = "module Pass { in x:u8 out y:u8=x }" if child else ""
+    output = "p:Pass {x=sample} comb=p.y" if child else "comb=sample"
+    source = tmp_path / "read_capture.zhl"
+    source.write_text(f"""
+{prefix}
+module Top {{
+    clock clk reset rst in address:u2 in write,sel:bit in data:u8
+    out comb:u8 out reg captured:u8=0
+    memory cells:mem<u8,4> {{read_latency 0 collision read_first reset {{contents clear read_data clear}}}}
+    cells.read_address=address cells.write_address=address cells.write_enable=write cells.write_data=data
+    sample=mux(sel,cells.read_data,0)
+    captured<-sample {output}
+}}
+""")
+    events = [
+        {"reset": {"rst": i == 0}, "edges": ["clk"],
+         "set": {"address": 1, "write": write, "sel": sel, "data": data}}
+        for i, (write, sel, data) in enumerate([(0, 1, 0), (1, 1, 53), (1, 1, 166), (0, 0, 0)])
+    ]
+    result = compare_program(sim.compile(source, top="Top"), events, simulator="iverilog", timeout=15)
+    assert result.native_trace == result.rtl_trace == tuple(
+        {"comb": live, "captured": old} for live, old in [(0, 0), (53, 0), (166, 53), (0, 0)]
+    )
+
+
 def test_scheduled_memory_uses_the_same_independent_reset_policies() -> None:
     source = """
 module ScheduledMemoryProfile {

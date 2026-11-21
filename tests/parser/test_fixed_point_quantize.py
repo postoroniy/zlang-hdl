@@ -44,6 +44,25 @@ def test_dot_keeps_two_argument_form_and_accepts_rounding_argument() -> None:
     assert rounded.rounding is FixedRoundingMode.FLOOR
 
 
+def test_missing_policy_hint_requires_a_completed_typed_quantize() -> None:
+    source = """module F { in a:SF4.4 out y:SF2.2
+    y=quantize<SF2.2>(
+        quantize<SF3.3>(a)
+    ){round floor overflow wrap}
+}"""
+    with pytest.raises(ParseError, match="round MODE overflow POLICY") as missing:
+        parse(source)
+    span = missing.value.primary.span
+    assert (span.start_line, span.start_column, span.end_column) == (3, 9, 17)
+    for expression in (
+        "quantize(0.1)", "quantize<SF2.2>(a+)", "quantize<SF2.2>(a){round floor}",
+        "quantize<SF2.2>(switch(a))",
+    ):
+        with pytest.raises(ParseError) as caught:
+            parse(f"module F {{in a:SF4.4 out y:SF2.2 y={expression}}}")
+        assert "{ round MODE overflow POLICY }" not in str(caught.value)
+
+
 @pytest.mark.parametrize("mode", ["nearest", "truncate", "ceiling"])
 def test_unknown_rounding_modes_are_rejected(mode: str) -> None:
     with pytest.raises(ParseError):

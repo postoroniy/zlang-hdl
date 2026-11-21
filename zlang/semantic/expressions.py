@@ -34,6 +34,7 @@ from .expression_control import (
     _check_functional_and_operator_expression,
 )
 from .expression_names_members import (
+    _follows_range_body,
     _check_instance_field,
     _check_name_expression,
     _check_protocol_field,
@@ -117,6 +118,14 @@ class ExpressionAnalyzer:
             traced = replace(result, origin=origin) if origin is not None else result
             return context.services.expression_arena.intern(traced)
         except SemanticError as error:
+            if error.unresolved_input is not None and _follows_range_body(
+                source_expression, error.unresolved_input
+            ):
+                raise SemanticError(
+                    f"range index '{error.unresolved_input.name}' is outside its body. "
+                    "Group the intended body with { ... } or ( ... )",
+                    primary=error.primary,
+                ) from error
             if error.primary is not None:
                 raise
             primary = expression_origins.semantic_origin(source_expression, context)

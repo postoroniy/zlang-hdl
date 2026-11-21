@@ -16,6 +16,38 @@ from zlang.workspace import update_project_lock
 # Each marker is an independent expectation, not a span read back from the DUT.
 CASES = [
     pytest.param(
+        """module Bad {
+          in v:fixed<8,2> out q:fixed<4,0> out x:bit
+          q=§quantize<fixed<4,0>>(v)
+          x=0
+        }""",
+        "{ round MODE overflow POLICY }",
+        id="typed-quantize-policy",
+    ),
+    *[
+        pytest.param(
+            f"module Bad {{in x:u8 out y:u8 y=reduce(|,{kind}(i in 0..2) x << (2*§i))}}",
+            "range index 'i' is outside its body",
+            id=f"{kind}-index-after-body",
+        )
+        for kind in ("generate", "map")
+    ],
+    pytest.param(
+        "module Bad {in x:u4 out y:u8 y=sum(i in 0..2) x + (2*§i)}",
+        "range index 'i' is outside its body",
+        id="sum-index-after-body",
+    ),
+    pytest.param(
+        "module Bad {clock clk reset zero_n out reg q:bit=0 when §zero_n {q<-1}}",
+        "'zero_n' is a hardware reset",
+        id="declared-reset-in-guard",
+    ),
+    pytest.param(
+        "module Bad {clock clk reset zero_n out reg q:bit=0 when §zero_m {q<-1}}",
+        "unknown input 'zero_m'",
+        id="undeclared-guard",
+    ),
+    pytest.param(
         """
         module Bad {
           in a:u8 out y:u8

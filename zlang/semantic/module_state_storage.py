@@ -184,6 +184,7 @@ class StateStoragePreparer:
             ),
         ).with_scope(
             allow_delay=bool(clock_domains),
+            module_resets=module.resets,
             compile_time_constants=pure_context.scope.compile_time_constants,
             static_callables=pure_context.scope.static_callables,
             candidate_site_owner=preparation.candidate_site_owner,

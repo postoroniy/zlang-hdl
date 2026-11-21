@@ -266,6 +266,7 @@ class ExpressionScope:
     next_functional_binder_ordinal: list[int] = field(default_factory=lambda: [0])
     functional_binder_nesting: tuple[int, ...] = ()
     functional_binder_callable_identity: str | None = None
+    module_resets: tuple[str, ...] = ()
 
 
 class ExpressionContext:

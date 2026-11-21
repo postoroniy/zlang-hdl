@@ -35,7 +35,9 @@ def _emit_memory(module: ir_module.Module, *, ram_style: str | None = None) -> s
             "direct SystemVerilog multi-memory emission requires only globally controlled memories"
         )
     memories, ported_names = _memory_fragments(module, ram_style=ram_style)
-    lines = [line for group in memories for section in group for line in section]
+    lines = [line for declarations, _ in memories for line in declarations]
+    for _, memory_logic in memories:
+        lines.extend(memory_logic)
     _append_storage_assignments(module, lines, ported_names)
     return sv_module_rendering._named_module(
         module.name,
@@ -190,15 +192,12 @@ def _emit_fifo(module: ir_module.Module, *, name: str | None = None) -> str:
     references = _fifo_signal_references(module)
     lines: list[str] = []
     declarations: list[str] = []
-    mixed = bool(module.memories or module.roms)
     updates: list[str] = []
     for fifo in module.fifos:
         fifo_declarations, controls, sequential = _fifo_fragments(
             module, fifo, references.get(fifo.name, set())
         )
-        # Mixed storage operands may read another resource in either
-        # direction. Otherwise keep the established per-FIFO section order.
-        (declarations if mixed else lines).extend(fifo_declarations)
+        declarations.extend(fifo_declarations)
         lines.extend(controls)
         updates.extend(sequential)
     memories, ported_names = _memory_fragments(module)

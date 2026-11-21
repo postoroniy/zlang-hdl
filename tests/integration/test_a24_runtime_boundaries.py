@@ -5,6 +5,7 @@
 from copy import deepcopy
 from dataclasses import replace
 import json
+import os
 import re
 import subprocess
 
@@ -98,7 +99,7 @@ def _checked_rtl_ports(tmp_path, rtl, top="Top"):
     ("(d+e)*(d-e)", lambda d, e: (d + e) * (d - e)),
 ])
 def test_local_expression_drives_both_outputs_beside_cdc(
-    tmp_path, crossing, stateful, expression, reference,
+    tmp_path, monkeypatch, crossing, stateful, expression, reference,
 ):
     cdc = (
         "in a:bit @ca out synced:bit @cb connect a -> synced {crossing sync_level}"
@@ -134,6 +135,8 @@ def test_local_expression_drives_both_outputs_beside_cdc(
     rtl = (tmp_path / "icarus" / "design.sv").read_text()
     _checked_rtl_ports(tmp_path, rtl)
     if crossing and stateful and expression == "d+e":
+        # This three-event trace needs a quick cold build of the C++ simulator.
+        monkeypatch.setenv("CXXFLAGS", (os.environ.get("CXXFLAGS", "") + " -O0").strip())
         verilator = simulation_compare.compare_program(
             program, events, simulator="verilator",
             artifact_directory=tmp_path / "verilator", timeout=15, build_timeout=15,

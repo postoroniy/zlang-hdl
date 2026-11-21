@@ -565,9 +565,7 @@ def _append_unified_state(
             memory_declarations, memory_logic = sv_memory.global_memory_fragments(
                 module, memory, render
             )
-            # An independent ROM can use RAM's registered read result in
-            # its address. Put RAM's declarations ahead of the ROM logic.
-            (declarations if module.roms else logic).extend(memory_declarations)
+            declarations.extend(memory_declarations)
             logic.extend(memory_logic)
 
     def action_enable(group, action) -> str:

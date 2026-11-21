@@ -10,7 +10,7 @@ from threading import Lock
 
 import lark
 from lark import Lark, Token, Transformer, UnexpectedInput
-from lark.exceptions import VisitError
+from lark.exceptions import UnexpectedToken, VisitError
 
 from zlang.ast.nodes import Module, SpecializationArgument, TypeName
 from zlang.diagnostics import attach_diagnostic_origin
@@ -177,6 +177,14 @@ def parse(source: str) -> Module:
     try:
         tree = _get_parser().parse(source)
     except UnexpectedInput as error:
+        if isinstance(error, UnexpectedToken) and error.expected == {"LBRACE"}:
+            # The reduced type and argument each occupy one parser symbol.
+            match error.state.value_stack[-7:]:
+                case [Token(type="_QUANTIZE") as head, "<", _, _, "(", _, ")"]:
+                    raise ParseError(
+                        "quantize<T>(value) requires { round MODE overflow POLICY }",
+                        primary=SourceOrigin(_AstBuilder._span(head), "quantize"),
+                    ) from error
         context = error.get_context(source).strip()
         start_line = max(1, error.line)
         start_column = max(1, error.column)

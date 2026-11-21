@@ -33,6 +33,16 @@ module Top {in a:u8 out y:vec<2,u8> y=generate(i in 0..2) leaked<N=2>(a)}'''
         compile_source(text)
 
 
+@pytest.mark.parametrize("name", ["i", "rst"])
+def test_unknown_name_in_callee_keeps_its_own_diagnostic(name):
+    text = f"""fn amount<N>(x:u4)->u4 {{ {name} }}
+module Top {{clock clk reset rst in x:u4 out y:u5
+    y=sum(i in 0..2) x << amount<N=2>(x)
+}}"""
+    with pytest.raises(SemanticError, match=f"unknown input '{name}'"):
+        compile_source(text)
+
+
 def test_same_callable_scope_still_rejects_shadowed_index():
     text = '''fn bad<N>(v:vec<N,u8>)->vec<N,vec<N,u8>> {
  generate(i in 0..N) generate(i in 0..N) v[i]}
