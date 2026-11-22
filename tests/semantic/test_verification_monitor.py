@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from itertools import product
+
 import pytest
 
 from zlang.compiler import compile_source
@@ -324,3 +326,55 @@ def test_monitor_samples_slices_and_bitcasts_with_source_attribution() -> None:
         assert error.value.source_origin.source_unit == "sample.zhl"
     with pytest.raises(SimulationError, match=r"layout.*sample\.zhl"):
         monitor.sample(values | {"lanes": [1]}, cycle=8)
+
+
+def test_monitor_samples_runtime_vector_index_with_source_and_cycle() -> None:
+    source = """module Probe {
+    clock clk reset rst
+    in raw : bits<4>
+    in index : u2
+    in expected : bit
+    out observed : bit
+    lanes : vec<4,bit> = bitcast<vec<4,bit>>(raw)
+    observed = lanes[index]
+    assert agrees { expected == lanes[index] }
+}"""
+    module = compile_source(source, source_unit="monitor-index.zhl").ir
+    scope, = module.verification_scopes
+    monitor = VerificationMonitor((scope,), module.functions)
+
+    for case, (raw, index) in enumerate(product(range(16), range(4))):
+        cycle = 2 * case
+        selected = (raw >> index) & 1
+        values = {"raw": raw, "index": index, "expected": selected, "observed": selected}
+        result = monitor.sample(values, cycle=cycle)
+        assert result.active_scope_ids == (scope.semantic_id,)
+        assert result.cycle == cycle
+
+        with pytest.raises(VerificationAssertionError) as caught:
+            monitor.sample(values | {"expected": 1 - selected}, cycle=cycle + 1)
+        error = caught.value
+        assert (error.goal_name, error.cycle) == ("agrees", cycle + 1)
+        assert error.source_origin.source_unit == "monitor-index.zhl"
+        assert error.source_origin.span == SourceSpan(9, 5, 9, 47)
+
+
+def test_monitor_runtime_index_checks_typed_sample_bounds() -> None:
+    module = compile_source("""
+        module SignedLane {
+            clock clk reset rst
+            in lanes : vec<4,s3> in index : u1 in expected : s3
+            out observed : s3
+            observed = lanes[index]
+            assert agrees { expected == lanes[index] }
+        }
+    """, source_unit="signed-lane.zhl").ir
+    monitor = VerificationMonitor(module.verification_scopes, module.functions)
+    values = {"lanes": (-4, 3, -1, 2), "index": 0, "expected": -4, "observed": -4}
+    assert monitor.sample(values, cycle=0).active_scope_ids
+
+    # Lane 2 exists, but a u1 selector cannot address it. Negative indices
+    # must not wrap to the last lane as they would in a Python sequence.
+    for invalid in ({"index": 2}, {"index": -1}, {"lanes": [-4]}, {"lanes": (4, 3, -1, 2)}):
+        with pytest.raises(SimulationError, match=r"agrees.*cannot be sampled.*signed-lane\.zhl"):
+            monitor.sample(values | invalid, cycle=1)

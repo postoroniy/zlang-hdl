@@ -11,6 +11,9 @@ incompatible input explicitly.
 
 ## Unreleased
 
+- Fix runtime vector indexing in the Python `VerificationMonitor`. Failed
+  assertions report their original source location and sampled cycle (MON-INDEX).
+
 ## 0.1.0a24 — 2026-11-22
 
 - Emit RAM and FIFO declarations before the expressions that read them.

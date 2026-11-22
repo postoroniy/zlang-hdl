@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from zlang.ir import expressions as expr
@@ -10,7 +10,7 @@ from zlang.ir import packing
 from zlang.ir.constants import constant_shift
 from zlang.ir.interfaces import ReadyValidSignal
 from zlang.ir.module import Function
-from zlang.ir.runtime_values import RuntimeValueError, normalize_scalar
+from zlang.ir.runtime_values import RuntimeValueError, normalize_scalar, runtime_value_fits
 from zlang.ir.verification import (
     VerificationGoalKind,
     VerificationScope,
@@ -98,6 +98,23 @@ def _evaluate(
             return normalize_scalar(value, expression.type)
         except RuntimeValueError as error:
             raise SimulationError(str(error)) from error
+    if isinstance(expression, expr.RuntimeIndex):
+        lanes = _evaluate(expression.expression, values, functions)
+        selector = _evaluate(expression.index, values, functions)
+        index = packing.pack_runtime(expression.index.type, selector)
+        bounds = expression.index_range
+        if not bounds.minimum <= index <= bounds.maximum:
+            raise SimulationError(
+                f"vector index {index} is outside the proven range {bounds.minimum}..{bounds.maximum}"
+            )
+        if (
+            not isinstance(lanes, Sequence)
+            or isinstance(lanes, (str, bytes, bytearray))
+            or len(lanes) != expression.vector_length
+            or not all(runtime_value_fits(lane, expression.type) for lane in lanes)
+        ):
+            raise SimulationError(f"sampled value does not fit {expression.expression.type}")
+        return lanes[index]
     if isinstance(expression, (expr.Slice, expr.Bitcast)):
         source = expression.expression
         raw = packing.pack_runtime(source.type, _evaluate(source, values, functions))
