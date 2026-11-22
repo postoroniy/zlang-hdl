@@ -11,7 +11,7 @@ incompatible input explicitly.
 
 ## Unreleased
 
-## 0.1.0a24 — 2026-11-21
+## 0.1.0a24 — 2026-11-22
 
 - Emit RAM and FIFO declarations before the expressions that read them.
   Icarus now accepts a RAM address or FIFO control driven by a later storage

@@ -91,6 +91,34 @@ def _checked_rtl_ports(tmp_path, rtl, top="Top"):
     return {name: (port["direction"], len(port["bits"])) for name, port in ports.items()}
 
 
+def _compare_cold_verilator(program, events, directory, monkeypatch):
+    # Compile independent C++ objects concurrently inside the same cold-build deadline.
+    tool_commands = simulation_compare._tool_commands
+
+    def two_build_jobs(simulator, **options):
+        assert simulator == "verilator"
+        build, run = tool_commands(simulator, **options)
+        return (build[0], "--build-jobs", "2", *build[1:]), run
+
+    monkeypatch.setattr(simulation_compare, "_tool_commands", two_build_jobs)
+    monkeypatch.setenv("CXXFLAGS", (os.environ.get("CXXFLAGS", "") + " -O0").strip())
+    try:
+        return simulation_compare.compare_program(
+            program, events, simulator="verilator", artifact_directory=directory,
+            timeout=15, build_timeout=15,
+        )
+    except simulation_compare.SimulationComparisonError as error:
+        cause = error.__cause__
+        if isinstance(cause, subprocess.TimeoutExpired) and "--binary" in cause.cmd:
+            object_dir = directory / "build" / "obj"
+            objects = sorted(path.name for path in object_dir.glob("*.o") if path.is_file())
+            note = "Verilator object files present at build timeout: " + (", ".join(objects) or "(none)")
+            error.add_note(note)
+            with (directory / "compile.log").open("a", encoding="utf-8") as log:
+                log.write(f"\n{note}\n")
+        raise
+
+
 @pytest.mark.parametrize("crossing", [False, True])
 @pytest.mark.parametrize("stateful", [False, True])
 @pytest.mark.parametrize(("expression", "reference"), [
@@ -135,12 +163,7 @@ def test_local_expression_drives_both_outputs_beside_cdc(
     rtl = (tmp_path / "icarus" / "design.sv").read_text()
     _checked_rtl_ports(tmp_path, rtl)
     if crossing and stateful and expression == "d+e":
-        # This three-event trace needs a quick cold build of the C++ simulator.
-        monkeypatch.setenv("CXXFLAGS", (os.environ.get("CXXFLAGS", "") + " -O0").strip())
-        verilator = simulation_compare.compare_program(
-            program, events, simulator="verilator",
-            artifact_directory=tmp_path / "verilator", timeout=15, build_timeout=15,
-        )
+        verilator = _compare_cold_verilator(program, events, tmp_path / "verilator", monkeypatch)
         assert verilator.native_trace == verilator.rtl_trace == tuple(expected)
 
 
