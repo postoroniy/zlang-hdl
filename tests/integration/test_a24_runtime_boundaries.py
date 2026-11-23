@@ -92,16 +92,17 @@ def _checked_rtl_ports(tmp_path, rtl, top="Top"):
 
 
 def _compare_cold_verilator(program, events, directory, monkeypatch):
-    # Compile independent C++ objects concurrently inside the same cold-build deadline.
+    # The model and three runtime objects can compile in parallel on a four-core runner.
     tool_commands = simulation_compare._tool_commands
+    jobs = min(4, len(os.sched_getaffinity(0))) if hasattr(os, "sched_getaffinity") else 2
 
-    def two_build_jobs(simulator, **options):
+    def cold_build_commands(simulator, **options):
         assert simulator == "verilator"
         build, run = tool_commands(simulator, **options)
-        return (build[0], "--build-jobs", "2", *build[1:]), run
+        return (build[0], "--build-jobs", str(jobs), *build[1:]), run
 
-    monkeypatch.setattr(simulation_compare, "_tool_commands", two_build_jobs)
-    monkeypatch.setenv("CXXFLAGS", (os.environ.get("CXXFLAGS", "") + " -O0").strip())
+    monkeypatch.setattr(simulation_compare, "_tool_commands", cold_build_commands)
+    monkeypatch.setenv("CXXFLAGS", (os.environ.get("CXXFLAGS", "") + " -O0 -pipe").strip())
     try:
         return simulation_compare.compare_program(
             program, events, simulator="verilator", artifact_directory=directory,

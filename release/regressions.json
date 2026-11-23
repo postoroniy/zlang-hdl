@@ -206,7 +206,7 @@
         "zlang/verification_bundle_execution.py"
       ],
       "status": "included",
-      "summary": "Dependency updates retain exact solver/status and manifest/lock/installed editor pins; formal children execute the selected Z3 across OSS launchers, and result caches bind executable identities; CodeQL pins and preparation-failure checks remain strict. The editor closure pins minimatch 11.0.1 in both packaging and LSP consumers; a hash-bound client compatibility patch preserves glob filtering, rejects unknown dependency bytes and retains the zero-findings npm audit gate. Installed typed-waveform host checks wait for the matching session and initial entry stop and retain failed DAP command details. The reviewed Playwright 1.65.0 pin matches the exact manifest, lockfile and installed editor dependency; mismatch rejection remains enabled. Exact VSCE package/lock/installed pins share the editor toolchain owner, and formal/test solver extras match the reviewed CLI after dependency upgrades. Required main-push contexts execute real signed-commit/DCO and dependency reviews, and CodeQL aggregates completed analysis fail-closed without weakening the protection ruleset.",
+      "summary": "Dependency updates retain exact solver/status and manifest/lock/installed editor pins; formal children execute the selected Z3 across OSS launchers, and result caches bind executable identities; CodeQL pins and preparation-failure checks remain strict. The editor closure pins minimatch 11.0.1 in both packaging and LSP consumers; a hash-bound client compatibility patch preserves glob filtering, rejects unknown dependency bytes and retains the zero-findings npm audit gate. Installed typed-waveform host checks wait for the matching session and initial entry stop and retain failed DAP command details. The reviewed editor-toolchain Playwright pin matches the exact manifest, lockfile and installed editor dependency; mismatch rejection remains enabled. Exact VSCE package/lock/installed pins share the editor toolchain owner, and formal/test solver extras match the reviewed CLI after dependency upgrades. Required main-push contexts execute real signed-commit/DCO and dependency reviews, and CodeQL aggregates completed analysis fail-closed without weakening the protection ruleset.",
       "tests": [
         "tests/editor/test_vscode_package.py::VSCodePackageTests::test_minimatch_override_and_entire_lock_closure_are_patched",
         "tests/editor/test_vscode_package.py::VSCodePackageTests::test_playwright_manifest_and_lock_must_match_reviewed_toolchain",
@@ -223,6 +223,10 @@
         "tests/release/test_community_boundary.py::test_github_integration_context_fails_closed",
         "tests/release/test_community_boundary.py::test_github_integration_preserves_source_ancestry_and_content_denials",
         "tests/release/test_editor_vulnerability_audit.py::test_editor_findings_are_rejected_after_report_parsing",
+        "tests/release/test_review_commit_audit.py::test_dependabot_alias_binds_the_author_signature_push_and_trailer",
+        "tests/release/test_review_commit_audit.py::test_dependabot_alias_is_specific_to_hosted_bot_and_final_trailers",
+        "tests/release/test_review_commit_audit.py::test_dependabot_squash_delta_compares_exact_paths_modes_and_objects",
+        "tests/release/test_review_commit_audit.py::test_dependabot_squash_replays_each_endorsement_and_the_complete_tree",
         "tests/release/test_review_commit_audit.py::test_github_lookup_errors_fail_closed_without_logging_credentials",
         "tests/release/test_review_commit_audit.py::test_github_mode_checks_every_exact_commit_and_dco",
         "tests/release/test_review_commit_audit.py::test_github_mode_rejects_untrusted_metadata_and_nonmatching_dco",

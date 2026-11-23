@@ -58,6 +58,28 @@ def _github_payload(identity: str = "a" * 40) -> dict:
     }
 
 
+def _dependabot_metadata():
+    identity = "a" * 40
+    author = {"login": "dependabot[bot]", "databaseId": 49699333}
+    trailer = "Signed-off-by: dependabot[bot] <support@github.com>"
+    rest = _github_payload(identity)
+    rest.update(
+        author={"name": author["login"], "email": "49699333+dependabot[bot]@users.noreply.github.com"},
+        message=f"Bump dependency\n\n---\nChangelog and other text\n\n{trailer}\n",
+    )
+    push = {
+        "nextSha": identity, "repository": {"nameWithOwner": "owner/repo"},
+        "pusher": {"__typename": "Bot", "login": "dependabot", "databaseId": 49699333},
+    }
+    commit = {
+        "oid": identity, "author": {"user": author},
+        "signature": {"isValid": True, "wasSignedByGitHub": True, "state": "VALID",
+                      "signer": {"login": "web-flow", "databaseId": 19864447}},
+        "checkSuites": {"nodes": [{"push": None}, {"push": push}]},
+    }
+    return rest, {"data": {"repository": {"nameWithOwner": "owner/repo", "object": commit}}}
+
+
 def _github_responses(monkeypatch, payloads):
     pending = iter(payloads)
     calls = []
@@ -128,6 +150,181 @@ def test_github_mode_checks_every_exact_commit_and_dco(monkeypatch, tmp_path) ->
     assert [call[0].full_url for call in api_calls] == [
         f"https://api.github.com/repos/owner/repo/git/commits/{sha}" for sha in identities[:2]
     ]
+
+
+def test_dependabot_alias_binds_the_author_signature_push_and_trailer(monkeypatch, tmp_path):
+    rest, graph = _dependabot_metadata()
+    sha = rest["sha"]
+    _git_history(monkeypatch, (sha,))
+    calls = _github_responses(monkeypatch, [rest, graph])
+    assert audit.audit_review_commits(tmp_path, base="base", github_repository="owner/repo") == (sha,)
+    assert [req.full_url for req, _ in calls] == [
+        f"https://api.github.com/repos/owner/repo/git/commits/{sha}", "https://api.github.com/graphql",
+    ]
+    request, timeout = calls[1]
+    assert request.get_method() == "POST" and timeout == 30
+    assert json.loads(request.data)["variables"] == {"owner": "owner", "name": "repo", "sha": sha}
+
+    for path, value in (
+        (("nameWithOwner",), "owner/fork"),
+        (("object", "oid"), "b" * 40),
+        (("object", "author", "user", "login"), "maintainer"),
+        (("object", "author", "user", "databaseId"), 11),
+        (("object", "signature", "isValid"), "true"),
+        (("object", "signature", "state"), "UNKNOWN_KEY"),
+        (("object", "signature", "wasSignedByGitHub"), False),
+        (("object", "signature", "signer"), None),
+        (("object", "signature", "signer", "databaseId"), 12),
+        (("object", "checkSuites", "nodes"), []),
+        (("object", "checkSuites", "nodes", 1, "push", "nextSha"), "b" * 40),
+        (("object", "checkSuites", "nodes", 1, "push", "repository", "nameWithOwner"), "elsewhere/repo"),
+        (("object", "checkSuites", "nodes", 1, "push", "pusher", "__typename"), "User"),
+        (("object", "checkSuites", "nodes", 1, "push", "pusher", "login"), "other-bot"),
+        (("object", "checkSuites", "nodes", 1, "push", "pusher", "databaseId"), 13),
+    ):
+        damaged = copy.deepcopy(graph)
+        target = damaged["data"]["repository"]
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+        _github_responses(monkeypatch, [rest, damaged, {"data": None}])
+        with pytest.raises(ReviewCommitAuditError, match="verify Dependabot"):
+            audit.audit_review_commits(tmp_path, base="base", github_repository="owner/repo")
+    for response in ({"data": None}, {**graph, "errors": [{"message": "partial"}]},
+                     HTTPError("https://api.github.com/graphql", 403, "denied", None, None)):
+        _github_responses(monkeypatch, [rest, response])
+        with pytest.raises(ReviewCommitAuditError):
+            audit.audit_review_commits(tmp_path, base="base", github_repository="owner/repo")
+
+
+def test_dependabot_alias_is_specific_to_hosted_bot_and_final_trailers(monkeypatch, tmp_path):
+    rest, _ = _dependabot_metadata()
+    sha = rest["sha"]
+    _git_history(monkeypatch, (sha,))
+    for update in (
+        {"author": {"name": "Human", "email": rest["author"]["email"]}},
+        {"author": {**rest["author"], "email": "support@github.com"}},
+        {"author": {**rest["author"], "email": "other[bot]@users.noreply.github.com"}},
+        {"message": rest["message"] + "\nThis is a quoted example.\n"},
+        {"message": rest["message"].replace("support@", "other@")},
+        {"message": "Unsigned contribution"},
+        {"verification": {"verified": False, "reason": "unsigned"}},
+    ):
+        calls = _github_responses(monkeypatch, [{**rest, **update}])
+        with pytest.raises(ReviewCommitAuditError):
+            audit.audit_review_commits(tmp_path, base="base", github_repository="owner/repo")
+        assert len(calls) == 1
+    local = ReviewCommit(sha, rest["author"]["name"], rest["author"]["email"], "G", rest["message"])
+    calls = _github_responses(monkeypatch, [])
+    with pytest.raises(ReviewCommitAuditError, match="exact DCO"):
+        validate_review_commit(local)
+    assert not calls
+
+
+def test_dependabot_squash_replays_each_endorsement_and_the_complete_tree(monkeypatch, tmp_path):
+    merged, push_evidence = _dependabot_metadata()
+    sha = merged["sha"]
+    repo = {"nameWithOwner": "owner/repo"}
+    base, bot, followup, tree = ({"oid": c * 40} for c in "bcdf")
+    base["tree"] = {"oid": "8" * 40}
+    bot["tree"] = {"oid": "e" * 40}
+    bot_commit, original_push = _dependabot_metadata()
+    bot_commit["sha"] = bot["oid"]
+    original = original_push["data"]["repository"]["object"]
+    original["oid"] = bot["oid"]
+    original["checkSuites"]["nodes"][1]["push"]["nextSha"] = bot["oid"]
+    push_evidence["data"]["repository"]["object"]["checkSuites"]["nodes"] = [{"push": None}]
+    human = _github_payload(followup["oid"])
+    human_trailer = "Signed-off-by: Release Maintainer <release@example.invalid>"
+    merged["message"] += human_trailer + "\n"
+    pr = {
+        "merged": True, "mergeCommit": {"oid": sha}, "baseRefName": "main", "headRefOid": followup["oid"],
+        "baseRepository": dict(repo), "headRepository": dict(repo),
+        "author": {"__typename": "Bot", "login": "dependabot", "databaseId": 49699333},
+        "commits": {"totalCount": 2, "nodes": [
+            {"commit": {**bot, "parents": {"nodes": [base]}, "tree": {"oid": "e" * 40}}},
+            {"commit": {**followup, "parents": {"nodes": [bot]}, "tree": tree}},
+        ]},
+    }
+    squash = {"data": {"repository": {**repo, "object": {
+        "oid": sha, "parents": {"nodes": [base]}, "tree": tree,
+        "associatedPullRequests": {"nodes": [pr]},
+    }}}}
+    _git_history(monkeypatch, (sha,))
+
+    def run(*payloads):
+        _github_responses(monkeypatch, payloads)
+        return audit.audit_review_commits(tmp_path, base="base", github_repository="owner/repo")
+
+    assert run(merged, push_evidence, squash, bot_commit, original_push, human) == (sha,)
+    for path, value in (
+        (("merged",), False), (("mergeCommit", "oid"), "9" * 40), (("baseRefName",), "another"),
+        (("headRefOid",), bot["oid"]), (("headRepository", "nameWithOwner"), "fork/repo"),
+        (("baseRepository", "nameWithOwner"), "fork/repo"), (("author", "databaseId"), 42),
+        (("commits", "totalCount"), 3), (("commits", "nodes", 1, "commit", "tree"), {"oid": "9" * 40}),
+        (("commits", "nodes", 0, "commit", "parents", "nodes"), [{"oid": "9" * 40}]),
+        (("commits", "nodes", 1, "commit", "parents", "nodes"), [base, bot]),
+    ):
+        altered = copy.deepcopy(squash)
+        target = altered["data"]["repository"]["object"]["associatedPullRequests"]["nodes"][0]
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+        with pytest.raises(ReviewCommitAuditError, match="squash"):
+            run(merged, push_evidence, altered)
+    with pytest.raises(ReviewCommitAuditError, match="lacks original author"):
+        run({**merged, "message": bot_commit["message"]}, push_evidence, squash, bot_commit, original_push, human)
+    with pytest.raises(ReviewCommitAuditError, match="cryptographic signature"):
+        run(merged, push_evidence, squash, bot_commit, original_push,
+            {**human, "verification": {"verified": False, "reason": "unsigned"}})
+    no_bot_push = copy.deepcopy(original_push)
+    no_bot_push["data"]["repository"]["object"]["checkSuites"]["nodes"] = []
+    with pytest.raises(ReviewCommitAuditError, match="original push"):
+        run(merged, push_evidence, squash, bot_commit, no_bot_push)
+    with pytest.raises(ReviewCommitAuditError, match="lacks a Dependabot-signed original"):
+        run(merged, push_evidence, squash, _github_payload(bot["oid"]), human)
+
+    advanced = copy.deepcopy(squash)
+    landing = advanced["data"]["repository"]["object"]
+    landing["parents"]["nodes"] = [{"oid": "7" * 40, "tree": {"oid": "6" * 40}}]
+    landing["tree"] = {"oid": "5" * 40}
+    file = {"path": "lock", "type": "blob", "mode": "100644", "sha": "4" * 40}
+    extra = {**file, "path": "unendorsed"}
+    responses = [{"sha": oid * 40, "truncated": False, "tree": entries}
+                 for oid, entries in (("8", []), ("f", [file]), ("6", []), ("5", [file, extra]))]
+    with pytest.raises(ReviewCommitAuditError, match="squash tree"):
+        run(merged, push_evidence, advanced, *responses)
+
+
+def test_dependabot_squash_delta_compares_exact_paths_modes_and_objects(monkeypatch):
+    def entry(path, sha, mode="100644", kind="blob"):
+        return {"path": path, "sha": sha * 40, "mode": mode, "type": kind}
+
+    before = [entry("bin", "1", "040000", "tree"), entry("bin/tool", "2")]
+    after = [entry("bin", "3", "040000", "tree"), entry("bin/tool", "4", "100755")]
+    new_base = [entry("bin", "5", "040000", "tree"), before[1], entry("bin/other", "6")]
+    landing = [entry("bin", "7", "040000", "tree"), after[1], new_base[2]]
+
+    def delta(old, new):
+        _github_responses(monkeypatch, [
+            {"sha": "a" * 40, "truncated": False, "tree": old},
+            {"sha": "b" * 40, "truncated": False, "tree": new},
+        ])
+        return audit._tree_delta("owner/repo", "a" * 40, "b" * 40)
+
+    expected = delta(before, after)
+    assert expected == {"bin/tool": (("100644", "2" * 40), ("100755", "4" * 40))}
+    assert delta(new_base, landing) == expected
+    assert delta(new_base, [*landing, entry("extra", "9", "120000")]) != expected
+    assert delta(new_base, [*landing, entry("sub", "9", "160000", "commit")]) != expected
+    assert delta(new_base, [landing[0], {**landing[1], "mode": "100644"}, landing[2]]) != expected
+    assert delta([new_base[0], entry("bin/tool", "9"), new_base[2]], landing) != expected
+    for payload in ({"sha": "a" * 40, "truncated": True, "tree": []},
+                    {"sha": "b" * 40, "truncated": False, "tree": []},
+                    {"sha": "a" * 40, "truncated": False, "tree": before * 2}):
+        _github_responses(monkeypatch, [payload])
+        with pytest.raises(ReviewCommitAuditError, match="complete Git tree"):
+            audit._tree_delta("owner/repo", "a" * 40, "b" * 40)
 
 
 @pytest.mark.parametrize("mutation", (
@@ -232,6 +429,31 @@ def test_default_mode_still_uses_local_gpg_and_never_fetches_github(
     else:
         with pytest.raises(ReviewCommitAuditError, match="cryptographic signature"):
             audit.audit_review_commits(tmp_path, base="base")
+
+
+def test_opt_in_local_lookup_verifies_bot_and_unpublished_maintainer(monkeypatch, tmp_path):
+    rest, graph = _dependabot_metadata()
+    bot, human = rest["sha"], "b" * 40
+    _git_history(monkeypatch, (bot, human))
+    default_git = audit._git
+
+    def git(root, *arguments):
+        if arguments[0] == "show" and arguments[-1] == bot:
+            return "\0".join((bot, rest["author"]["name"], rest["author"]["email"], "E", rest["message"]))
+        if arguments[0] == "show":
+            commit = _commit()
+            return "\0".join((human, commit.author_name, commit.author_email, "G", commit.message))
+        return default_git(root, *arguments)
+
+    monkeypatch.setattr(audit, "_git", git)
+    monkeypatch.setenv("ZLANG_DEPENDABOT_REPOSITORY", "owner/repo")
+    calls = _github_responses(monkeypatch, [rest, graph])
+    assert audit.audit_review_commits(tmp_path, base="base") == (bot, human)
+    assert len(calls) == 2
+    unsigned = {**rest, "verification": {"verified": False, "reason": "unsigned"}}
+    _github_responses(monkeypatch, [unsigned])
+    with pytest.raises(ReviewCommitAuditError, match="cryptographic signature"):
+        audit.audit_review_commits(tmp_path, base="base")
 
 
 def test_github_mode_fails_closed_when_local_git_is_unavailable(

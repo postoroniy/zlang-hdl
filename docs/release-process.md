@@ -118,7 +118,25 @@ maintaining a second implementation inside workflow YAML.
 
 On the review branch, `make review-commits` additionally requires every
 commit after `origin/main` to have a valid cryptographic signature and an exact
-author DCO trailer.
+author DCO trailer. For a local branch containing Dependabot's `support@github.com`
+sign-off alongside unpublished maintainer commits, enable the bot lookup:
+
+```bash
+ZLANG_DEPENDABOT_REPOSITORY=postoroniy/zlang-hdl make review-commits
+```
+
+Local GPG still verifies maintainer commits. Supply a `GH_TOKEN` with read
+access to contents, checks and pull requests. The audit accepts
+that trailer only on the official Dependabot author's commit when GitHub
+verifies its own signature and records that Dependabot pushed that exact SHA
+to this repository. All other contributors use their exact author sign-off.
+
+When squash-merging a Dependabot PR, retain every original `Signed-off-by`
+trailer in the squash message. On the push to `main`, the audit checks the
+GitHub merge record and each original signature and sign-off. If `main`
+advanced, it compares the old and new Git objects and modes for every changed
+path. This permits unrelated changes on `main` while ensuring the merged
+contribution matches what was signed.
 
 ### 4. Run the pre-merge review gate
 
