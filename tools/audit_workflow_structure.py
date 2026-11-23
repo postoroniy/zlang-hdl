@@ -329,8 +329,11 @@ def protected_context_contract_failures(path: Path) -> tuple[str, ...]:
         return (*failures, f"{path}: protected context: producer job must be a mapping")
     require("if" not in job and _unconditional_steps(job),
             "producer must execute without skips or failure suppression")
-    require(job.get("permissions", document.get("permissions")) == {"contents": "read"},
-            "producer permissions must be read-only")
+    permissions = {"contents": "read"}
+    if path.name == "dco.yml":
+        permissions.update({"checks": "read", "pull-requests": "read"})
+    require(job.get("permissions", document.get("permissions")) == permissions,
+            f"producer permissions must be exactly {permissions}")
     if path.name == "dependency-review.yml":
         actions = _pinned_action_steps(job, "actions/dependency-review-action")
         require(len(actions) == 1 and actions[0].get("with") == {

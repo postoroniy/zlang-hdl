@@ -520,6 +520,11 @@ def test_required_context_contract_rejects_bypass_mutations(tmp_path):
     reject("dco.yml", lambda w: w["jobs"]["dco"]["steps"][-1].update(run="true"))
     reject("dco.yml", lambda w: w["jobs"]["dco"]["steps"][-1].update({"continue-on-error": "true"}))
     reject("dco.yml", lambda w: w["jobs"]["dco"].update(permissions={"contents": "write"}))
+    reject("dco.yml", lambda w: w["permissions"].pop("checks"))
+    reject("dco.yml", lambda w: w["permissions"].pop("pull-requests"))
+    reject("dco.yml", lambda w: w["permissions"].update(checks="write"))
+    reject("dco.yml", lambda w: w["permissions"].update({"pull-requests": "write"}))
+    reject("dependency-review.yml", lambda w: w["jobs"]["review"]["permissions"].update(checks="read"))
     source = ROOT / ".github/workflows/dco.yml"
     workflow = yaml.load(source.read_text(), Loader=yaml.BaseLoader)
     original = workflow["jobs"]["dco"]["steps"][-1]["run"]
