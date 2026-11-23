@@ -11,6 +11,12 @@ incompatible input explicitly.
 
 ## Unreleased
 
+- Reject a repeated struct constructor field at its second occurrence, including
+  in generic constructors and shorthand initializers (STRUCT-DUP-FIELD).
+- Evaluate static vector and tuple selections, struct fields and concatenation
+  in the Python verification monitor (MON-AGGREGATE).
+- Locate a duplicate import at the repeated declaration in standalone files,
+  project builds and lock updates (IMPORT-DUP-LOCATION).
 - Fix runtime vector indexing in the Python `VerificationMonitor`. Failed
   assertions report their original source location and sampled cycle (MON-INDEX).
 

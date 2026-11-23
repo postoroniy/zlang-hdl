@@ -6,13 +6,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from dataclasses import replace
 from zlang.ast import nodes as ast
 from zlang.ir import expressions as ir_expr
 from zlang.ir import functional as ir_functional
 from zlang.ir import packing as ir_packing
 from zlang.ir import runtime_values as runtime_values
 from zlang.ir import types as ir_types
+from zlang.source import SourceOrigin
 from . import expression_operators
 from . import symbols as semantic_symbols
 from . import type_resolution
@@ -393,21 +393,19 @@ def _check_struct_expression(
                 ),
                 context.environment.type_resolver,
             )
-        # Resolve field punning before any generic/concrete struct path.  The
-        # resulting NameExpr deliberately goes through the normal lexical
-        # lookup below, so shorthand has exactly the same diagnostics and
-        # typing as an explicit ``field = field`` initializer.
-        if any(field.expression is None for field in expression.fields):
-            expression = replace(
-                expression,
-                fields=tuple(
-                    replace(
-                        field,
-                        expression=ast.NameExpr(field.name, origin=expression.origin),
-                    )
-                    if field.expression is None else field
-                    for field in expression.fields
-                ),
+        provided: dict[str, ast.Expression] = {}
+        for field in expression.fields:
+            if field.name in provided:
+                raise SemanticError(
+                    f"duplicate field '{field.name}' in constructor for '{expression.struct_name}'",
+                    primary=SourceOrigin(
+                        field.origin, "constructor field",
+                        context.scope.source_unit, context.scope.source_digest,
+                    ) if field.origin is not None else None,
+                )
+            provided[field.name] = (
+                field.expression if field.expression is not None
+                else ast.NameExpr(field.name, origin=expression.origin)
             )
         # A parameterized struct specialization is commonly known from the
         # destination type even though it is intentionally absent from
@@ -452,7 +450,6 @@ def _check_struct_expression(
                 None,
             )
             if declaration is not None and declaration.parameters:
-                provided = {field.name: field.expression for field in expression.fields}
                 declared_fields = {field.name: field for field in declaration.fields}
                 if set(provided) != set(declared_fields):
                     missing = sorted(set(declared_fields) - set(provided))
@@ -497,7 +494,6 @@ def _check_struct_expression(
         # Struct declarations are attached by analyze for this expression context.
         if struct is None:
             raise SemanticError(f"unknown struct '{expression.struct_name}'")
-        provided = {field.name: field.expression for field in expression.fields}
         expected_fields = {field.name: field for field in struct.fields}
         if set(provided) != set(expected_fields):
             missing = sorted(set(expected_fields) - set(provided))

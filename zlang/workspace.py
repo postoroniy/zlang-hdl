@@ -22,6 +22,7 @@ from zlang.common.graph import DependencyCycle, dependency_postorder
 from zlang.common.atomic_io import publish_text_atomically
 from zlang.dependencies import (
     DependencyClosure,
+    DependencyModelError,
     DependencyModuleIdentity,
     DependencySourceKind,
     DependencySpec,
@@ -36,6 +37,7 @@ from zlang.module_resolver import (
     ResolvedModuleSource,
     annotate_source,
     load_indexed_module,
+    materialize_record,
 )
 from zlang.source_identity import attach_source_identity
 from zlang.parser import parse
@@ -479,12 +481,20 @@ def _index_package(
                 False,
             )
         record = annotate_source(record)
-        module_lock = LockedModule(
-            logical,
-            relative.as_posix(),
-            record.digest,
-            tuple(record.dependencies),
-        )
+        try:
+            module_lock = LockedModule(
+                logical, relative.as_posix(), record.digest, record.dependencies
+            )
+        except DependencyModelError as error:
+            # Only invalid rows need declaration spans. Healthy parse-index hits stay lazy.
+            from zlang.semantic.imports import direct_import_paths
+
+            try:
+                module = materialize_record(record).ast
+            except ModuleResolutionError as cache_error:
+                raise WorkspaceError(str(cache_error)) from cache_error
+            direct_import_paths(module, logical, record.digest, physical_source=resolved)
+            raise WorkspaceError(str(error)) from error
         if (
             expected_module is not None
             and overlay is None

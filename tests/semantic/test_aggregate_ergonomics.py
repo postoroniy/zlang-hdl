@@ -101,3 +101,25 @@ def test_aggregate_sugar_rejects_ambiguous_or_malformed_forms(
 ) -> None:
     with pytest.raises(SemanticError, match=message):
         _compile(source)
+
+
+@pytest.mark.parametrize(("declaration", "binding", "first", "second"), (
+    ("P { x:u2 }", "word:P", "x=misspelt", "x=b"),
+    ("P<type T> { x:T }", "word:P<u2>", "x", "x=b"),
+    ("P<type T> { x:T }", "word", "x=b", "x"),
+))
+def test_constructor_reports_repeated_initializer_before_field_inference(
+    declaration, binding, first, second,
+) -> None:
+    source = (
+        f"struct {declaration}\nmodule M {{ in x:u2 in b:u2 out y:u2\n"
+        f" {binding} = P {{ {first}\n    {second} }}\n y=word.x\n}}"
+    )
+    with pytest.raises(SemanticError, match="duplicate field 'x' in constructor for 'P'") as caught:
+        compile_source(source, source_unit="constructor.zhl")
+    origin = caught.value.primary
+    assert origin.source_unit == "constructor.zhl"
+    span = origin.span
+    assert (span.start_line, span.start_column, span.end_line, span.end_column) == (4, 5, 4, 6)
+    repaired = source.replace(first + "\n    " + second, "x")
+    assert simulate(compile_source(repaired).ir, x=1, b=2) == {"y": 1}

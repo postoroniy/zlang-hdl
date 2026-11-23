@@ -34,10 +34,10 @@ class AggregateCallableModuleRules:
         )
 
     def explicit_struct_field_value(self, items: list[object]) -> ast_nodes.StructFieldValue:
-        return ast_nodes.StructFieldValue(str(items[0]), items[1])
+        return ast_nodes.StructFieldValue(str(items[0]), items[1], self._token_span(items[0]))
 
     def shorthand_struct_field_value(self, items: list[object]) -> ast_nodes.StructFieldValue:
-        return ast_nodes.StructFieldValue(str(items[0]), None)
+        return ast_nodes.StructFieldValue(str(items[0]), None, self._token_span(items[0]))
 
     @v_args(meta=True)
     def struct_construct_expr(self, meta: object, items: list[object]) -> ast_nodes.StructConstructExpr:

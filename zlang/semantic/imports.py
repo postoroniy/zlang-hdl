@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 
 from zlang.ast import nodes as ast
 from zlang.common import stable_digest
@@ -46,55 +47,49 @@ def dependency_identity_for_source(
     )
 
 
-class ImportAnalyzer:
-    """Resolve one locked import closure and merge its public declarations."""
-
-    @staticmethod
-    def _duplicate_import(
-        module: ast.Module,
-        path: str,
-        source_unit: str | None,
-        source_digest: str | None,
-    ) -> SemanticError:
-        declaration = next(item for item in module.imports if item.path == path)
-        seen: set[tuple[str, str | None]] = set()
-        duplicate = None
-        for item in module.imports:
-            if item.path != path:
-                continue
-            identity = (item.path, item.alias)
-            if identity in seen:
-                duplicate = item
-                break
-            seen.add(identity)
+def direct_import_paths(
+    module: ast.Module,
+    source_unit: str | None,
+    source_digest: str | None,
+    *,
+    physical_source: Path | None = None,
+) -> tuple[str, ...]:
+    """Read imports in source order, diagnosing the first repeated logical path."""
+    seen: dict[str, ast.ImportDecl] = {}
+    for declaration in module.imports:
+        key = declaration.path.casefold()
+        previous = seen.get(key)
+        if previous is None:
+            seen[key] = declaration
+            continue
+        identical = (declaration.path, declaration.alias) == (previous.path, previous.alias)
+        origin = (
+            SourceOrigin(declaration.origin, "import", source_unit, source_digest)
+            if declaration.origin is not None else None
+        )
         machine_fixes = ()
-        if (
-            duplicate is not None
-            and duplicate.origin is not None
-            and source_unit is not None
-            and source_digest is not None
-        ):
+        if identical and origin is not None and source_unit and source_digest:
             machine_fixes = (DiagnosticFix(
                 "Remove duplicate import declaration",
-                (DiagnosticEdit(SourceOrigin(
-                    duplicate.origin,
-                    "duplicate import declaration",
-                    source_unit,
-                    source_digest,
-                ), ""),),
+                (DiagnosticEdit(replace(origin, construct="duplicate import declaration"), ""),),
             ),)
-        return SemanticError(
-            f"duplicate import '{path}'",
+        suggestion = (
+            "remove the duplicate import declaration" if identical
+            else "use one spelling and alias for this import"
+        )
+        raise SemanticError(
+            f"duplicate import '{declaration.path}'",
             code="ZL-IMPORT-DUPLICATE",
-            primary=(
-                SourceOrigin(
-                    declaration.origin, "import", source_unit, source_digest
-                )
-                if declaration.origin is not None else None
-            ),
-            fixes=("remove the duplicate import declaration",),
+            primary=origin,
+            physical_source=physical_source,
+            fixes=(suggestion,),
             machine_fixes=machine_fixes,
         )
+    return tuple(item.path for item in module.imports)
+
+
+class ImportAnalyzer:
+    """Resolve one locked import closure and merge its public declarations."""
 
     @staticmethod
     def _reject_conflicts(
@@ -241,12 +236,7 @@ class ImportAnalyzer:
                 item, source_identity=item.source_identity or namespace
             ) for item in module.tagged_unions),
         )
-        direct_imports = tuple(item.path for item in module.imports)
-        if len(direct_imports) != len(set(direct_imports)):
-            duplicate = next(
-                path for path in direct_imports if direct_imports.count(path) > 1
-            )
-            raise self._duplicate_import(module, duplicate, source_unit, source_digest)
+        direct_imports = direct_import_paths(module, source_unit, source_digest)
         try:
             resolved = resolution.resolver.resolve(direct_imports, importer=source_unit)
         except (module_resolution.ModuleResolutionError, ValueError) as error:

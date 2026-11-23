@@ -322,7 +322,8 @@ def _validated_record(record: ModuleSourceRecord) -> ModuleSourceRecord:
     return record
 
 
-def _materialize_record(record: ModuleSourceRecord) -> ModuleSourceRecord:
+def materialize_record(record: ModuleSourceRecord) -> ModuleSourceRecord:
+    """Recover the exact parsed source, checking deferred imports against its bytes."""
     if record.ast is not None:
         return record
     if not isinstance(record, ResolvedModuleSource) or record.pending_source is None:
@@ -507,7 +508,7 @@ class IndexedModuleResolver:
             raise ModuleResolutionError(f"logical import cycle: {error}") from error
         if not materialize:
             return tuple(loaded[logical] for logical in ordered)
-        return tuple(_materialize_record(loaded[logical]) for logical in ordered)
+        return tuple(materialize_record(loaded[logical]) for logical in ordered)
 
 
 __all__ = [

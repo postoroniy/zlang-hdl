@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from zlang.workspace import update_project_lock
+from zlang.diagnostics import DiagnosticError
+from zlang.workspace import load_project_workspace, update_project_lock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -59,6 +60,56 @@ def test_json_parse_diagnostic_is_one_stable_object(tmp_path: Path) -> None:
         "fixes": [],
     }
     assert payload["message"].startswith("syntax error at line 1, column")
+
+
+def test_duplicate_project_import_keeps_location_across_index_cache_and_overlay(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    project = tmp_path / "project"
+    sources = project / "src"
+    sources.mkdir(parents=True)
+    (project / "zlang.toml").write_text(
+        'schema=1\n[project]\nname="demo"\nversion="1"\nsource-root="src"\n'
+    )
+    top = sources / "top.zhl"
+    leaf = sources / "leaf.zhl"
+    top.write_text("import demo.leaf\nmodule Top { out y:bit y=0 }\n")
+    imports = "import std.bus.reg as first\n"
+    body = "module Leaf { out value:bit value=0 }\n"
+    leaf.write_text(imports + body)
+    update_project_lock(project)
+    lock = project / "zlang.lock"
+    original_lock = lock.read_bytes()
+    assert _run(top, "json", "--check", "--project", str(project)).returncode == 0
+
+    for alias in ("first", "second"):
+        repeated = f"import std.bus.reg as {alias}"
+        invalid = imports + repeated + "\n" + body
+        with pytest.raises(DiagnosticError) as overlay:
+            load_project_workspace(top, project=project, source_overlays={leaf: invalid})
+        error = overlay.value
+        assert error.code == "ZL-IMPORT-DUPLICATE"
+        assert error.physical_source == leaf
+        assert bool(error.machine_fixes) == (alias == "first")
+        leaf.write_text(invalid)
+        for _ in range(2):  # Separate processes exercise cold and deferred parse-index reads.
+            result = _run(top, "json", "--check", "--project", str(project))
+            assert result.returncode == 1 and result.stdout == ""
+            payload = json.loads(result.stderr)
+            assert payload["code"] == error.code
+            assert payload["primary"] == error.primary.to_data()
+            assert payload["primary"]["source_unit"] == "demo.leaf"
+            assert payload["primary"]["span"] == {
+                "start_line": 2, "start_column": 1, "end_line": 2,
+                "end_column": len(repeated) + 1,
+            }
+        with pytest.raises(DiagnosticError) as failed_update:
+            update_project_lock(project)
+        assert failed_update.value.primary == error.primary
+        assert lock.read_bytes() == original_lock
+        leaf.write_text(imports + body)
+    assert _run(top, "json", "--check", "--project", str(project)).returncode == 0
 
 
 @pytest.mark.parametrize("diagnostic_format", ("text", "json"))

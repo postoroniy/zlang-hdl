@@ -180,6 +180,37 @@ def test_missing_sampled_value_reports_goal_and_source() -> None:
     assert "monitor.zhl:8:3-8:24:verification assert" in str(caught.value)
 
 
+@pytest.mark.parametrize(("ports", "projection", "type_name", "sample", "expected", "invalid"), (
+    ("in p:vec<2,s3>", "p[1]", "s3", {"p": [1, -3]}, -3, {"p": [8, -3]}),
+    ("in p:(u3,bit)", "p[0]", "u3", {"p": (5, 0)}, 5, {"p": (5, 2)}),
+    ("in p:Word", "p.value", "u3", {"p": {"value": 5, "flag": 0}}, 5, {"p": {"value": 5}}),
+    ("in hi:bits<2> in lo:bits<3>", "concat(hi,lo)", "bits<5>",
+     {"hi": 2, "lo": 3}, 19, {"hi": 4, "lo": 3}),
+    ("in p:vec<2,Word>", "concat(p[1].flag,p[0].value)", "bits<4>",
+     {"p": [{"value": 3, "flag": 0}, {"value": 5, "flag": 1}]}, 11, {"p": []}),
+))
+def test_monitor_evaluates_aggregate_predicates_at_the_sampled_cycle(
+    ports, projection, type_name, sample, expected, invalid,
+) -> None:
+    source = (
+        "struct Word { value:u3 flag:bit }\nmodule Probe {\n"
+        f" clock clk reset rst {ports} in expected:{type_name}\n"
+        f" out observed:{type_name} observed={projection}\n"
+        f" assert agrees {{ expected == {projection} }}\n}}"
+    )
+    ir = compile_source(source, source_unit="projection.zhl").ir
+    monitor = VerificationMonitor(ir.verification_scopes, ir.functions)
+    assert monitor.sample({**sample, "expected": expected}, cycle=1).active_scope_ids
+    with pytest.raises(VerificationAssertionError) as caught:
+        monitor.sample({**sample, "expected": 0}, cycle=2)
+    failure = caught.value
+    assert (failure.goal_name, failure.cycle) == ("agrees", 2)
+    assert "projection.zhl:5:2-" in str(failure)
+    with pytest.raises(SimulationError, match="cannot be sampled") as malformed:
+        monitor.sample({**invalid, "expected": expected}, cycle=3)
+    assert "projection.zhl:5:2-" in str(malformed.value)
+
+
 def test_non_bit_sample_is_rejected_defensively() -> None:
     scope_id = "module:Bad:scope:bad"
     scope = VerificationScope(

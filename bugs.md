@@ -21,7 +21,10 @@ When updating an entry, retain its ID, the affected build, the reproducer, the e
 
 | ID | Status | Affected build | Resolution |
 | --- | --- | --- | --- |
-| MON-INDEX | `[fixed]` | Published `v0.1.0a24` (`c3fd04d8`) | Fixed in the unreleased public source. The Python verification monitor reads the selected vector lane. A true assertion passes and a false one reports the goal, source span and sampled cycle. [Monitor regression](tests/semantic/test_verification_monitor.py) · [Behavior in a24](https://github.com/postoroniy/zlang-hdl/blob/v0.1.0a24/zlang/verification_monitor.py#L144) |
+| MON-INDEX | `[fixed]` | Published `v0.1.0a24` (`c3fd04d8`) | Fixed in public commit `01dab5da`. The Python verification monitor reads the selected vector lane. A true assertion passes and a false one reports the goal, source span and sampled cycle. [Monitor regression](tests/semantic/test_verification_monitor.py) · [Behavior in a24](https://github.com/postoroniy/zlang-hdl/blob/v0.1.0a24/zlang/verification_monitor.py#L144) |
+| STRUCT-DUP-FIELD | `[fixed]` | a24 and `01dab5da` | In `P { x=a x=b }`, the second initializer silently replaced the first, even when the first referred to an unknown name. Public source now rejects the second `x` for concrete, context-typed and inferred generic constructors. [Constructor regression](tests/semantic/test_aggregate_ergonomics.py) |
+| MON-AGGREGATE | `[fixed]` | a24 and `01dab5da` | Static vector and tuple selections, struct fields and concatenation in assertions raised a sampling error for both true and false predicates. The Python monitor now evaluates them and reports the original assertion location and cycle on failure. [Monitor regressions](tests/semantic/test_verification_monitor.py) |
+| IMPORT-DUP-LOCATION | `[fixed]` | a24 and `01dab5da` | A repeated logical import pointed at the first declaration in standalone compilation and could raise a traceback in a project. Public source reports the second declaration during compilation and lock update. Only identical declarations receive an automatic removal edit. [Project regression](tests/integration/test_cli_diagnostics.py) · [Editor fix regression](tests/test_tooling_api.py) |
 
 ### Reproduce MON-INDEX
 

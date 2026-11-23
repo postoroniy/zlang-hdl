@@ -430,6 +430,7 @@ class StructFieldValue:
     # ``None`` is the syntax-level field pun ``field``.  Semantic analysis
     # resolves it to an ordinary lexical NameExpr before type checking.
     expression: "Expression | None"
+    origin: SourceSpan | None = field(default=None, compare=False, repr=False)
 
 
 class RequestResponseOrdering(str, Enum):
